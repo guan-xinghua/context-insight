@@ -1,6 +1,6 @@
 # insight — 会话洞察 · 观测（Observe）
 
-CANNBot-Relay 的会话级可观测包：回答"运行中发生了什么"，把 Agent 会话黑盒变白盒。
+CANNBot-Sentry 的会话级可观测包：回答"运行中发生了什么"，把 Agent 会话黑盒变白盒。
 
 - **全量画像**：Token · 成本 · 上下文
 - **时间线**：Turn / Tool / Skill 可回放
