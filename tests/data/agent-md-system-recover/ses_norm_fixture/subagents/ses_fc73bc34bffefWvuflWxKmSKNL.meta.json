@@ -1,0 +1,15 @@
+{
+  "toolUseId": "call_acefea394e8b4954ae361d23",
+  "name": "生成 STATE.md 骨架",
+  "agentType": "state-generator",
+  "x_cannbay": {
+    "schema": "cc-subagent-meta",
+    "version": 1,
+    "data": {
+      "toolUseId": "call_acefea394e8b4954ae361d23",
+      "name": "生成 STATE.md 骨架",
+      "agentType": "state-generator",
+      "subagentSessionId": "ses_fc73bc34bffefWvuflWxKmSKNL"
+    }
+  }
+}

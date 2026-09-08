@@ -1,0 +1,114 @@
+// Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+// This program is free software: you can redistribute it and/or modify it under the terms and conditions of
+// CANN Open Software License Agreement Version 2.0 (the "License").
+// Please refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { listCannbay2Sessions, importCannbay2Session, uploadCannbay2Session, GovernanceError } from '@/lib/cannbay2';
+import { resolveCannbay2Remote, testCannbay2Remote, listRemoteBranches, redactRemoteSecrets, normalizeDirPrefix } from '@/lib/cannbay2/remote';
+import { listRemoteDirs } from '@/lib/cannbay2/mirror';
+import type { CannbayRemoteInput } from '@/lib/cannbay-config';
+import { prisma } from '@/lib/db';
+
+export const maxDuration = 300;
+
+export async function POST(request: NextRequest) {
+  let remote = resolveCannbay2Remote();
+  let secrets: (string | undefined)[] = [];
+  const fail = (message: string, status: number) =>
+    NextResponse.json({ error: redactRemoteSecrets(message, remote, secrets) }, { status });
+  try {
+    const body = await request.json();
+    const { action, config } = body as { action?: string; config?: CannbayRemoteInput };
+    secrets = [config?.account, config?.password, config?.token];
+
+    // test/branches 内部自行 resolve，但校验异常须与 list/dirs 一致按 400 出。
+    // branches 是分支选择器：容忍用户正在编辑的脏 branch 字段（不消费它）
+    if (config && (action === 'test' || action === 'branches')) {
+      const toValidate = action === 'branches' ? { ...config, branch: undefined } : config;
+      try {
+        resolveCannbay2Remote(toValidate);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Invalid cannbay config';
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
+    }
+
+    if (action === 'test') {
+      return NextResponse.json(await testCannbay2Remote(config));
+    }
+
+    if (action === 'branches') {
+      try {
+        return NextResponse.json({ branches: listRemoteBranches(config) });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to list branches';
+        return NextResponse.json({ error: message }, { status: 500 });
+      }
+    }
+
+    try {
+      remote = resolveCannbay2Remote(config);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid cannbay config';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    if (action === 'list') {
+      const sessions = listCannbay2Sessions(remote);
+      return NextResponse.json({ sessions });
+    }
+
+    if (action === 'dirs') {
+      const { prefix } = body as { prefix?: string };
+      try {
+        const dirs = listRemoteDirs(remote, normalizeDirPrefix(prefix));
+        return NextResponse.json({ dirs });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Invalid prefix';
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
+    }
+
+    if (action === 'import') {
+      const { sid } = body as { sid: string };
+      if (!sid) {
+        return NextResponse.json({ error: 'Missing sid' }, { status: 400 });
+      }
+      try {
+        const result = await importCannbay2Session(sid, prisma, remote);
+        return NextResponse.json({ result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Import failed';
+        return fail(message, 500);
+      }
+    }
+
+    if (action === 'upload') {
+      const { taskId, description, category, baseline, opGen } = body as { taskId: string; description?: string; category?: string; baseline?: boolean; opGen?: string };
+      if (!taskId) {
+        return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+      }
+      // opGen（算子生成结果标注）：只认 success/failure，其余值视为未标注
+      const opGenValue = opGen === 'success' || opGen === 'failure' ? opGen : undefined;
+      try {
+        const result = await uploadCannbay2Session(prisma, taskId, description, remote, typeof category === 'string' ? category : undefined, baseline === true, opGenValue);
+        return NextResponse.json(result);
+      } catch (err) {
+        if (err instanceof GovernanceError) {
+          return NextResponse.json({ error: err.message, governance: true }, { status: 422 });
+        }
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        return fail(message, 500);
+      }
+    }
+
+    return NextResponse.json({ error: `Unknown action: "${action}". Supported: list, import, upload, test` }, { status: 400 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return fail(message, 500);
+  }
+}

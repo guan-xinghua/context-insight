@@ -1,0 +1,15 @@
+{
+  "toolUseId": "call_69f6acb919194f17a558d33c",
+  "name": "Task4 修复 spec.yaml",
+  "agentType": "spec-generator",
+  "x_cannbay": {
+    "schema": "cc-subagent-meta",
+    "version": 1,
+    "data": {
+      "toolUseId": "call_69f6acb919194f17a558d33c",
+      "name": "Task4 修复 spec.yaml",
+      "agentType": "spec-generator",
+      "subagentSessionId": "ses_fc700003affedQJay1qVWOCj2a"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "toolUseId": "call_83173dafe8b24f11aa346e0b",
+  "name": "验收 15.5 整包评审",
+  "agentType": "design-verifier",
+  "x_cannbay": {
+    "schema": "cc-subagent-meta",
+    "version": 1,
+    "data": {
+      "toolUseId": "call_83173dafe8b24f11aa346e0b",
+      "name": "验收 15.5 整包评审",
+      "agentType": "design-verifier",
+      "subagentSessionId": "ses_fc6846edaffes5hYI8X25n244K"
+    }
+  }
+}

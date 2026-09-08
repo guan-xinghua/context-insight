@@ -1,0 +1,15 @@
+{
+  "toolUseId": "call_a6c8ef95b1af40f4a1be1fdd",
+  "name": "重新验收 Task25",
+  "agentType": "verifier",
+  "x_cannbay": {
+    "schema": "cc-subagent-meta",
+    "version": 1,
+    "data": {
+      "toolUseId": "call_a6c8ef95b1af40f4a1be1fdd",
+      "name": "重新验收 Task25",
+      "agentType": "verifier",
+      "subagentSessionId": "ses_fc5e9c0c7ffekSWbUeEDGEBO6T"
+    }
+  }
+}

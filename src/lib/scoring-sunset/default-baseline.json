@@ -1,0 +1,27 @@
+{
+  "schema": "workflow-scorecard-baseline",
+  "version": 1,
+  "name": "默认基线（占位示例）",
+  "source": {
+    "cohort": "placeholder",
+    "sessions": 0,
+    "computedAt": "2026-08-26T00:00:00.000Z",
+    "provenance": "占位基线：数值为示意量级，非任何真实语料分布。真实基线可按本文件 schema 自行生成后经「导入基线」替换（P25/P50/P75 为该指标在基线 cohort 上的分位数）"
+  },
+  "metrics": {
+    "D1":  { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.2,    "p50": 0.35,   "p75": 0.6 },
+    "D2a": { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.01,   "p50": 0.03,   "p75": 0.08 },
+    "D2b": { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.3,    "p50": 0.5,    "p75": 0.8 },
+    "D2c": { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.01,   "p50": 0.03,   "p75": 0.08 },
+    "D3":  { "unit": "cycles",     "direction": "lower-better",  "n": 0, "p25": 0,      "p50": 1,      "p75": 3 },
+    "D3b": { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.1,    "p50": 0.25,   "p75": 0.45 },
+    "D4":  { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.2,    "p50": 0.4,    "p75": 0.7 },
+    "D5":  { "unit": "band-score", "direction": "higher-better", "n": 0, "p25": 0.5,    "p50": 0.8,    "p75": 1 },
+    "D6":  { "unit": "ratio",      "direction": "higher-better", "n": 0, "p25": 0.5,    "p50": 0.7,    "p75": 0.9 },
+    "E1":  { "unit": "USD",        "direction": "lower-better",  "n": 0, "p25": 0.5,    "p50": 2,      "p75": 10 },
+    "E1b": { "unit": "tokens",     "direction": "lower-better",  "n": 0, "p25": 200000, "p50": 1000000, "p75": 8000000 },
+    "E1c": { "unit": "seconds",    "direction": "lower-better",  "n": 0, "p25": 3600,   "p50": 14400,  "p75": 86400 },
+    "E3a": { "unit": "ratio",      "direction": "lower-better",  "n": 0, "p25": 0.02,   "p50": 0.05,   "p75": 0.15 },
+    "healthScore": { "unit": "score", "direction": "higher-better", "n": 0, "p25": 0.55, "p50": 0.65, "p75": 0.78 }
+  }
+}

@@ -1,0 +1,354 @@
+"use client"
+// Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+// This program is free software: you can redistribute it and/or modify it under the terms and conditions of
+// CANN Open Software License Agreement Version 2.0 (the "License").
+// Please refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+
+import { useState, useEffect } from "react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
+import { ArrowLeftIcon } from "lucide-react"
+import { BRAND_NAME, BAY_NAME } from "@/lib/branding"
+import { VERSION_DISPLAY } from "@/lib/version"
+import { AIProviderConfigPanel } from "@/components/observe/AIProviderConfigPanel"
+import {
+  loadCannbayConfig,
+  saveCannbayConfig,
+  clearCannbayConfig,
+  cannbayRemoteInput,
+  DEFAULT_CANNBAY_ADDRESS,
+  type CannbayConfig,
+  type CannbayAuthMode,
+} from "@/lib/cannbay-config"
+
+export default function SettingsPage() {
+  const [address, setAddress] = useState("")
+  const [authMode, setAuthMode] = useState<CannbayAuthMode>("none")
+  const [account, setAccount] = useState("")
+  const [password, setPassword] = useState("")
+  const [token, setToken] = useState("")
+  const [branch, setBranch] = useState("")
+  const [directory, setDirectory] = useState("")
+  const [savedFlag, setSavedFlag] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [browseOpen, setBrowseOpen] = useState(false)
+  const [browsePrefix, setBrowsePrefix] = useState("")
+  const [browseDirs, setBrowseDirs] = useState<string[]>([])
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const [browseError, setBrowseError] = useState<string | null>(null)
+  const [branchOpen, setBranchOpen] = useState(false)
+  const [branchList, setBranchList] = useState<string[]>([])
+  const [branchLoading, setBranchLoading] = useState(false)
+  const [branchError, setBranchError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // 渲染期零读 localStorage（hydration 契约，同 v1.84 AIProviderConfigPanel）；
+    // microtask 填充：挂载后首帧补值，不与 SSR 首渲染竞争
+    queueMicrotask(() => {
+      const saved = loadCannbayConfig()
+      if (saved) {
+        setAddress(saved.address)
+        setAuthMode(saved.authMode)
+        setAccount(saved.account)
+        setPassword(saved.password)
+        setToken(saved.token)
+        setBranch(saved.branch)
+        setDirectory(saved.directory)
+        setSavedFlag(true)
+      } else {
+        setAddress(DEFAULT_CANNBAY_ADDRESS)
+        setBranch("main")
+      }
+      setHydrated(true)
+    })
+  }, [])
+
+  const config: CannbayConfig = {
+    address: address.trim(),
+    authMode,
+    account,
+    password,
+    token,
+    branch,
+    directory,
+  }
+
+  function dirty() {
+    setSavedFlag(false)
+    setTestResult(null)
+  }
+
+  function handleSave() {
+    saveCannbayConfig(config)
+    setSavedFlag(true)
+  }
+
+  function handleClear() {
+    clearCannbayConfig()
+    setAddress(DEFAULT_CANNBAY_ADDRESS)
+    setAuthMode("none")
+    setAccount("")
+    setPassword("")
+    setToken("")
+    setBranch("main")
+    setDirectory("")
+    setSavedFlag(false)
+    setTestResult(null)
+  }
+
+  async function handleTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res = await fetch("/api/ingest/cannbay2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test", ...cannbayRemoteInput(config) }),
+      })
+      const data = await res.json()
+      setTestResult({
+        success: Boolean(data.success),
+        message: String(data.message ?? data.error ?? "测试失败"),
+      })
+    } catch (e) {
+      setTestResult({ success: false, message: e instanceof Error ? e.message : "网络错误" })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  async function fetchDirs(prefix: string) {
+    setBrowseLoading(true)
+    setBrowseError(null)
+    try {
+      const res = await fetch("/api/ingest/cannbay2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dirs", prefix, ...cannbayRemoteInput(config) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(String(data.error ?? "获取目录失败"))
+      setBrowseDirs(Array.isArray(data.dirs) ? data.dirs : [])
+      setBrowsePrefix(prefix)
+    } catch (e) {
+      setBrowseError(e instanceof Error ? e.message : "网络错误")
+    } finally {
+      setBrowseLoading(false)
+    }
+  }
+
+  function handleBrowse() {
+    setBrowseOpen(true)
+    fetchDirs("")
+  }
+
+  function closeBrowse() {
+    setBrowseOpen(false)
+    setBrowseDirs([])
+    setBrowsePrefix("")
+    setBrowseError(null)
+  }
+
+  async function handlePickBranch() {
+    setBranchOpen(true)
+    setBranchLoading(true)
+    setBranchError(null)
+    try {
+      const res = await fetch("/api/ingest/cannbay2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "branches", ...cannbayRemoteInput(config) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(String(data.error ?? "获取分支失败"))
+      setBranchList(Array.isArray(data.branches) ? data.branches : [])
+    } catch (e) {
+      setBranchError(e instanceof Error ? e.message : "网络错误")
+    } finally {
+      setBranchLoading(false)
+    }
+  }
+
+  function closeBranch() {
+    setBranchOpen(false)
+    setBranchList([])
+    setBranchError(null)
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      <main className="flex w-full max-w-3xl flex-col gap-6 px-6 py-8 mx-auto">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">设置</h1>
+            <span className="text-xs text-muted-foreground">{BRAND_NAME} {VERSION_DISPLAY}</span>
+          </div>
+          <Link href="/" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
+            <ArrowLeftIcon className="size-4" />
+            返回
+          </Link>
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">LLM API 配置</h2>
+          <p className="text-xs text-muted-foreground">
+            用于 Audit 一键审计报告与 AI workflow 阶段划分。仅支持 OpenAI 兼容端点（如 /compatible-mode/v1）。配置存于浏览器本地，两 tab 共享。
+          </p>
+        </div>
+        <AIProviderConfigPanel compact />
+
+        <div className="h-px bg-border" />
+
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">{BAY_NAME} 数据之湖</h2>
+          <p className="text-xs text-muted-foreground">
+            会话归档仓的连接配置：地址、认证（账密 / 令牌二选一）、分支与目录。留空使用默认值；配置后列表 / 导入 / 上传均按此远端执行。
+          </p>
+        </div>
+        <Card>
+          <CardContent className="py-3 space-y-3">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">地址</span>
+                <Input
+                  value={address}
+                  onChange={(e) => {
+                    setAddress(e.target.value)
+                    dirty()
+                    if (browseOpen) closeBrowse()
+                    if (branchOpen) closeBranch()
+                  }}
+                  className="h-7 text-xs flex-1"
+                  placeholder={DEFAULT_CANNBAY_ADDRESS}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">认证方式</span>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant={authMode === "token" ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!hydrated} onClick={() => { setAuthMode("token"); dirty() }}>令牌</Button>
+                  <Button size="sm" variant={authMode === "password" ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!hydrated} onClick={() => { setAuthMode("password"); dirty() }}>账户密码</Button>
+                  <Button size="sm" variant={authMode === "none" ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!hydrated} onClick={() => { setAuthMode("none"); dirty() }}>匿名</Button>
+                </div>
+              </div>
+              {authMode === "password" ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-16 shrink-0">账户</span>
+                    <Input value={account} onChange={(e) => { setAccount(e.target.value); dirty() }} className="h-7 text-xs" placeholder="用户名" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-16 shrink-0">密码</span>
+                    <Input type="password" value={password} onChange={(e) => { setPassword(e.target.value); dirty() }} className="h-7 text-xs" placeholder="••••••" />
+                  </div>
+                  <p className="text-xs text-muted-foreground pl-[72px]">注意：gitcode 已移除 git 密码认证（仅支持私人访问令牌），密码方式仅适用于仍支持密码认证的远端。</p>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground w-16 shrink-0">令牌</span>
+                  <Input type="password" value={token} onChange={(e) => { setToken(e.target.value); dirty() }} className="h-7 text-xs" placeholder="私人访问令牌（作为 git 凭据，账户可留空）" />
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="w-16 shrink-0" />
+                <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={handleTest} disabled={testing || !hydrated}>
+                  {testing ? "测试中…" : "测试连接"}
+                </Button>
+                {testResult && (
+                  <span className={`text-xs break-all ${testResult.success ? "text-green-600" : "text-red-600"}`}>
+                    {testResult.success ? "✓ " : "✗ "}{testResult.message}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">分支</span>
+                <Input value={branch} onChange={(e) => { setBranch(e.target.value); dirty(); if (browseOpen) closeBrowse() }} className="h-7 text-xs" placeholder="main（默认）" />
+                <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={handlePickBranch} disabled={!hydrated}>选择</Button>
+              </div>
+              {branchOpen && (
+                <div className="ml-[72px] rounded-md border p-2 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">选择分支</span>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={closeBranch}>关闭</Button>
+                  </div>
+                  {branchLoading && <p className="text-xs text-muted-foreground">加载中…</p>}
+                  {branchError && <p className="text-xs text-red-600 break-all">{branchError}</p>}
+                  {!branchLoading && !branchError && branchList.length === 0 && <p className="text-xs text-muted-foreground">远端没有可列出的分支</p>}
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="sm" variant="secondary" className="h-6 px-2 text-xs" onClick={() => { setBranch("main"); dirty(); closeBranch() }}>main（默认）</Button>
+                    {branchList.map(b => (
+                      <Button
+                        key={b}
+                        size="sm"
+                        variant={b === branch.trim() ? "default" : "secondary"}
+                        className="h-6 px-2 text-xs"
+                        onClick={() => { setBranch(b); dirty(); closeBranch(); if (browseOpen) closeBrowse() }}
+                      >
+                        {b}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">仅列出受支持的分支名（不含 <code>/</code>）。</p>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">目录</span>
+                <Input value={directory} onChange={(e) => { setDirectory(e.target.value); dirty() }} className="h-7 text-xs" placeholder="sessions（默认）" />
+                <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={handleBrowse} disabled={!hydrated}>浏览</Button>
+              </div>
+              {browseOpen && (
+                <div className="ml-[72px] rounded-md border p-2 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">选择目录 <span className="text-muted-foreground">@{branch.trim() || "main"} /{browsePrefix}</span></span>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={closeBrowse}>关闭</Button>
+                  </div>
+                  {browsePrefix && (
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => fetchDirs(browsePrefix.split("/").slice(0, -1).join("/"))}>← 上一级</Button>
+                  )}
+                  {browseLoading && <p className="text-xs text-muted-foreground">加载中…（首次浏览需拉取仓库元数据）</p>}
+                  {browseError && <p className="text-xs text-red-600 break-all">{browseError}</p>}
+                  {!browseLoading && !browseError && browseDirs.length === 0 && <p className="text-xs text-muted-foreground">该目录下没有子目录</p>}
+                  <div className="flex flex-wrap gap-1">
+                    {browseDirs.map(d => (
+                      <Button key={d} size="sm" variant="secondary" className="h-6 px-2 text-xs" onClick={() => fetchDirs(d)}>
+                        {d.slice(browsePrefix ? browsePrefix.length + 1 : 0)}/
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      disabled={!browsePrefix}
+                      onClick={() => { setDirectory(browsePrefix); dirty(); closeBrowse() }}
+                    >
+                      选定 /{browsePrefix}
+                    </Button>
+                    {!browsePrefix && <span className="text-xs text-muted-foreground">根目录不可作为会话目录（留空 = 默认 sessions/）</span>}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground pl-[72px]">目录替换默认 <code>sessions/</code> 前缀，列表 / 导入 / 上传范围同步生效，可点「浏览」从仓库中选择。</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="text-xs" onClick={handleSave} disabled={!hydrated || !address.trim()}>
+                保存配置
+              </Button>
+              <Button size="sm" variant="ghost" className="text-xs" onClick={handleClear} disabled={!hydrated}>
+                恢复默认值
+              </Button>
+              {savedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
+            </div>
+            <p className="text-xs text-muted-foreground">凭据仅保存在浏览器本地，每次列表 / 导入 / 上传时随请求发送给本机后端做 git 认证，不写入数据库、不写入日志。</p>
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  )
+}
