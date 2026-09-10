@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { CopyButton } from "@/components/observe/CopyButton"
 import { isClaudeFormatSession, isProxyVersion } from "@/lib/shared/session-format"
 import { Button } from "@/components/ui/button"
-import { ArrowLeftIcon, LayoutDashboardIcon, MessageSquareIcon, SearchIcon, SparklesIcon, BarChart3Icon, FileSearchIcon, FileTextIcon, PlayIcon, CheckCircleIcon, RefreshCwIcon, WifiIcon, ShieldCheckIcon, GaugeIcon, GlobeIcon, AwardIcon } from "lucide-react"
+import { ArrowLeftIcon, LayoutDashboardIcon, MessageSquareIcon, SearchIcon, SparklesIcon, BarChart3Icon, FileSearchIcon, FileTextIcon, PlayIcon, CheckCircleIcon, RefreshCwIcon, WifiIcon, ShieldCheckIcon, GaugeIcon, GlobeIcon, AwardIcon, UploadIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { VERSION_DISPLAY } from "@/lib/version"
@@ -23,6 +23,7 @@ import { BRAND_NAME } from "@/lib/branding"
 import type { TurnHighlight } from "@/lib/shared/highlight"
 import { TurnTimeline } from "@/components/observe/TurnTimeline"
 import { TurnDetail } from "@/components/observe/TurnDetail"
+import { UploadToCannbayDialog } from "@/components/UploadToCannbayDialog"
 import { WireRounds } from "@/components/observe/WireRounds"
 import { TurnContextPanel } from "@/components/observe/TurnContextPanel"
 import { SkillDetail } from "@/components/observe/SkillDetail"
@@ -55,6 +56,7 @@ interface SessionData {
   sourcePath: string | null
   startTime: string
   endTime: string | null
+  user: string | null
   totalTokens: number
   totalInputTokens: number
   totalOutputTokens: number
@@ -530,6 +532,8 @@ export default function SessionDetailPage({
   const [error, setError] = useState<string | null>(null)
   const [exportingMd, setExportingMd] = useState(false)
   const [exportingHtml, setExportingHtml] = useState(false)
+  // CANNBay 上传弹窗（共享组件，与主页面上传同款）：结果经 toast 呈现
+  const [cannbayUploadOpen, setCannbayUploadOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const refreshingRef = useRef(false)
   const lastMaxTimeUpdatedRef = useRef<number>(-1)
@@ -1821,6 +1825,15 @@ export default function SessionDetailPage({
             <GlobeIcon className="size-4" />
             {exportingHtml ? "导出中..." : ""}
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1 text-muted-foreground"
+            onClick={() => setCannbayUploadOpen(true)}
+            title="Upload to CANNBay"
+          >
+            <UploadIcon className="size-4" />
+          </Button>
         </div>
 
         <div className="border-b mt-2" />
@@ -1861,6 +1874,25 @@ export default function SessionDetailPage({
           {TAB_RENDERERS[tabKey]()}
         </div>
       ))}
+
+      <UploadToCannbayDialog
+        open={cannbayUploadOpen}
+        onOpenChange={setCannbayUploadOpen}
+        target={session ? {
+          taskId: session.taskId,
+          query: session.query ?? session.label,
+          framework: session.framework,
+          model: session.model,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          sourcePath: session.sourcePath,
+          user: session.user,
+        } : null}
+        onResult={({ ok, message }) => {
+          if (ok) toast.success("已上传到 CANNBay")
+          else toast.error("上传失败", { description: message ?? "Unknown error" })
+        }}
+      />
     </div>
   )
 }

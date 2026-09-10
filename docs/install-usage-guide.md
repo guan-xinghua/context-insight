@@ -48,9 +48,11 @@ cpx --help                # 验证安装；cpx status 查看状态（无需任�
 ./start.sh        # 首次自动 npm install + prisma migrate + 启动（约 1 分钟）
                    # 浏览器打开 http://localhost:21025
 
-# 方式 B：tgz 分发包（无需克隆源码）
-npm install -g ./cannbot-insight-<版本>.tgz
+# 方式 B：npm 一键安装（无需克隆源码）
+npm install -g cannbot-insight
 cannbot-insight   # 首次自动 build + migrate，随后启动 + 开浏览器；CLI 子命令直接透传
+# 国内网络可用镜像：npm install -g cannbot-insight --registry=https://registry.npmmirror.com
+# 离线/内网备选：从 GitCode Release 获取 tgz 后 npm install -g ./cannbot-insight-<版本>.tgz
 ```
 
 `start.sh` 标志：`-u` 更新依赖 / `-f` 清构建缓存 / `-a` 显示高级 tab

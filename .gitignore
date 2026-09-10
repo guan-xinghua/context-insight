@@ -101,3 +101,6 @@ data/scoring/
 
 # vitest generated reports (junit/html)
 test-report/
+
+# CLI bundle (npm prepack artifact, esbuild → dist/cli.mjs)
+dist/

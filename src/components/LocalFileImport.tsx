@@ -119,6 +119,8 @@ export function LocalFileImport() {
   const [sourceType, setSourceType] = useState<"opencode-db" | "claude-jsonl" | "cannbay" | typeof BRAND_SOURCE_TYPE>("claude-jsonl")
   const [sessions, setSessions] = useState<SessionPreview[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // 会话选择步的 keyword/sessionID 过滤（firstQuery 或 id 子串，大小写不敏感）
+  const [sessionFilter, setSessionFilter] = useState("")
   const [importStatuses, setImportStatuses] = useState<ImportStatus[]>([])
   const [error, setError] = useState<string | null>(null)
   const [dirEntries, setDirEntries] = useState<DirEntry[]>([])
@@ -141,6 +143,7 @@ export function LocalFileImport() {
     setSourceType("claude-jsonl")
     setSessions([])
     setSelectedIds(new Set())
+    setSessionFilter("")
     setImportStatuses([])
     setError(null)
     setDirEntries([])
@@ -292,6 +295,7 @@ export function LocalFileImport() {
         setError("No sessions found in this database")
         return
       }
+      setSessionFilter("")
       setStep("select")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error")
@@ -436,11 +440,24 @@ export function LocalFileImport() {
     })
   }
 
+  // select 步的过滤结果：keyword 匹配 firstQuery，或 sessionID 子串（大小写不敏感）
+  const sessionQuery = sessionFilter.trim().toLowerCase()
+  const filteredSessions = sessionQuery
+    ? sessions.filter(s =>
+        s.firstQuery?.toLowerCase().includes(sessionQuery)
+        || s.id.toLowerCase().includes(sessionQuery))
+    : sessions
+
   function toggleAll() {
-    if (selectedIds.size === sessions.length) {
-      setSelectedIds(new Set())
+    // 全选作用于当前过滤视图（与 CANNBay 列表同款语义）
+    if (filteredSessions.length > 0 && filteredSessions.every(s => selectedIds.has(s.id))) {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        for (const s of filteredSessions) next.delete(s.id)
+        return next
+      })
     } else {
-      setSelectedIds(new Set(sessions.map(s => s.id)))
+      setSelectedIds(prev => new Set([...prev, ...filteredSessions.map(s => s.id)]))
     }
   }
 
@@ -762,9 +779,23 @@ export function LocalFileImport() {
 
         {step === "select" && (
           <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Search by keyword or session ID..."
+                value={sessionFilter}
+                onChange={(e) => setSessionFilter(e.target.value)}
+                className="flex-1"
+              />
+              <SearchIcon className="size-4 text-muted-foreground shrink-0" />
+            </div>
             <div className="flex items-center gap-2 mb-2">
-              <Checkbox checked={selectedIds.size === sessions.length && sessions.length > 0} onCheckedChange={toggleAll} />
-              <span className="text-sm text-muted-foreground">Select all ({sessions.length} sessions)</span>
+              <Checkbox
+                checked={filteredSessions.length > 0 && filteredSessions.every(s => selectedIds.has(s.id))}
+                onCheckedChange={toggleAll}
+              />
+              <span className="text-sm text-muted-foreground">
+                {sessionQuery ? `${filteredSessions.length} of ${sessions.length} shown` : `Select all (${sessions.length} sessions)`}
+              </span>
             </div>
             <div className="max-h-[320px] overflow-y-auto border rounded-lg">
               <Table>
@@ -779,7 +810,14 @@ export function LocalFileImport() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sessions.map(s => (
+                  {filteredSessions.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-4">
+                        {sessionQuery ? "No sessions match your search" : "No sessions found"}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {filteredSessions.map(s => (
                     <TableRow key={s.id} className={selectedIds.has(s.id) ? "bg-primary/5" : ""}>
                       <TableCell>
                         <Checkbox checked={selectedIds.has(s.id)} onCheckedChange={() => toggleSelection(s.id)} />

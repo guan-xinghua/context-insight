@@ -1,10 +1,9 @@
 {
   "name": "cannbot-insight",
-  "version": "1.83.0",
+  "version": "0.2.26",
   "description": "Session-level observability tool for LLM coding agents (opencode/Claude Code)",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
-  "private": true,
   "bin": {
     "cannbot-insight": "./bin/cannbot-insight.mjs",
     "cbi": "./bin/cannbot-insight.mjs"
@@ -18,6 +17,7 @@
     "build:export-view": "node scripts/build-export-view.mjs",
     "start": "next start",
     "postinstall": "node scripts/postinstall.mjs",
+    "prepack": "node scripts/build-cli.mjs",
     "lint": "eslint",
     "ensure:native": "node scripts/ensure-native.mjs",
     "pretest": "node scripts/ensure-native.mjs",

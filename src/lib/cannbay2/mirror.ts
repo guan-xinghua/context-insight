@@ -25,8 +25,21 @@ export function cannbay2CacheDir(remote?: Cannbay2Remote): string {
   return (remote ?? defaultCannbay2Remote()).cacheDir;
 }
 
+// LFS 免疫（per-command 中和，镜像内 git 操作对"装没装 git-lfs"完全不敏感）：
+// 数据仓 .gitattributes 带 filter=lfs 行 + 客户机 gitconfig 挂着 lfs filter 时——
+// checkout：孤儿指针触发 smudge 下载，远端 LFS 未启用 → 403 "project lfs not
+//   enabled" → fatal（客户现场实测：git lfs uninstall 清不掉 system/XDG 级
+//   配置，靠改机器状态不可靠）；smudge=cat → 指针原样落盘不下载
+// add：clean=cat → 新文件永不指针化（与 uploadFolder 的 .gitattributes strip
+//   双保险，strip 管"仓里不再有 lfs 行"，这里管"本机 filter 不生效"）
+// required=false → 即便 filter 配置异常也放行不炸
+const LFS_NEUTRALIZE = '-c filter.lfs.process= -c filter.lfs.smudge=cat -c filter.lfs.clean=cat -c filter.lfs.required=false';
+
 export function runGit(cmd: string, cwd: string, timeoutMs = 120_000): Buffer {
-  return execSync(cmd, { cwd, stdio: 'pipe', timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024 });
+  const neutral = cmd.startsWith('git ')
+    ? `git ${LFS_NEUTRALIZE} ${cmd.slice('git '.length)}`
+    : cmd;
+  return execSync(neutral, { cwd, stdio: 'pipe', timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024 });
 }
 
 function runGitText(cmd: string, cwd: string): string {
@@ -604,7 +617,9 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     try { fs.unlinkSync(msgFile); } catch { /* ignore */ }
 
     if (!unchanged) {
-      const push = () => { runGit(`git push "${remote.pushUrl}" ${remote.branch}`, dir, 300_000); };
+      // --no-verify：镜像克隆可能带 lfs pre-push 钩子（git lfs install 写入），
+      // 会因孤儿指针/远端 LFS 未启用而拒绝 push——与 runGit 的 filter 中和配套
+      const push = () => { runGit(`git push --no-verify "${remote.pushUrl}" ${remote.branch}`, dir, 300_000); };
       try {
         push();
       } catch {

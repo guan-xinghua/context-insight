@@ -2,6 +2,28 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [v0.2.26] - 2026-09-09
+
+### Added
+- 【npm registry 一键安装】发布到公共 npmjs（包名 `cannbot-insight`），用户 `npm install -g cannbot-insight` / `npx cannbot-insight` 一条命令安装，替代"npm pack 导出 tgz → 人工传文件 → 对端 npm install -g ./xxx.tgz"的离线分发链路（tgz 方式保留为离线/内网备选，README「方式零」同步改写，国内可走 npmmirror 镜像）
+  - 【版本单轨化】`package.json` version 自独立双轨的 `1.83.0` 对齐至展示版本 `0.2.26`（`src/lib/version.ts` 单一源不变；后续升版本两处同步改，package-lock.json 随之），去掉 `private:true`（pack 不受影响、放行 publish）
+  - `.npmignore` 清理过时 `proxy/` 条目（cpx 已独立为兄弟包 `packages/cpx`，不再位于 insight 目录内）
+  - IT：`tests/npm-publish.test.ts`——`npm pack --dry-run` 产物清单断言（bin 启动器/postinstall/src/prisma/export-view bundle/CLI bundle 在包内，tests/docs 排除）+ package.json 发布就绪（无 private、版本与 version.ts 单轨一致、bin/postinstall/license 齐备）+ CLI bundle 实跑 `--version`
+
+### Fixed
+- 【tgz/npm 安装态 CLI 子命令炸（v1.84 预存 bug）】`cannbot-insight <cli-subcmd>` 在全局安装位置（包位于 `lib/node_modules/<name>` 内）报 `ERR_MODULE_NOT_FOUND: Cannot find package '@/lib'`——tsx 对 node_modules 内的文件硬性禁用 tsconfig paths（isDependencyPath 判定，`TSX_TSCONFIG_PATH` 亦无法绕过），`@/lib/...` 别名导入全部失效（Web UI 路径不受影响：next build 是打包期解析别名）。修复：新增 `scripts/build-cli.mjs`（npm `prepack` 钩子自动执行）把 `src/cli/index.ts` 用 esbuild 打成单文件 `dist/cli.mjs`（打包期解析 `@/` 别名，`packages:"external"` 只打自有 src、依赖运行时照常从包内 node_modules 解析），bin 启动器 CLI 透传优先 `dist/cli.mjs`、仓内开发态（无 dist）回退 tsx 直跑源码——两态行为一致。`dist/` 入 .gitignore（构建产物不入库）
+
+## [v0.2.25] - 2026-09-09
+
+### Added
+- 【原仓 v2.21~v2.25 + 未提交改动一次性同步】skill-dev 原仓（tests/cannbot-insight）自 v2.20 分叉点以来的全部演进整版本合入本仓，与本地 0.2.21~0.2.24 演进（scoring profiles / op-bench）无冲突合并（代码文件 0 冲突，README/AGENTS 人工合并），包含：
+  - 【主页 Sessions 搜索与翻页客户端化】`?q=` keyword / sessionID 搜索（服务端过滤 taskId/query/label，回车或按钮提交、Clear 回全量、命中显示 N of M）+ 首屏 SSR 数据之后翻页/搜索走客户端 `/api/observe/data` 无整页刷新（首页/末页/前后页按钮）；SQLite 载入后的会话选择表同款 keyword/sessionID 过滤（全选作用于当前过滤视图）。IT：`tests/home-session-search.test.tsx` + `tests/local-import-session-search.test.tsx`
+  - 【会话页 CANNBay 上传入口】会话详情页标题栏（Export HTML 旁）新增上传按钮，与主页面上传共用 `UploadToCannbayDialog` 同一弹窗（描述/范式目录/算子生成标注/baseline 全同款）。IT：`tests/session-page-cannbay-upload.test.tsx`
+  - 【cannbay2 镜像 LFS 全面免疫】镜像内全部 git 命令收口 `runGit`（mirror.ts），per-command 配置中和 lfs filter（`filter.lfs.process= / smudge=cat / clean=cat / required=false`）+ `push --no-verify`——数据仓 `.gitattributes` 历史带 `*.gz filter=lfs` 且客户机装 git-lfs 时，checkout（孤儿指针 smudge 403）与 add（clean 指针化）两条路免疫；绕过 runGit 直拼 git 命令会重新暴露。约束同步 AGENTS.md。IT：`tests/cannbay2-lfs-immunity.test.ts`
+  - 【S3 形态（opencode ≥1.17 首条 skill 注入）双修复】提取侧 `recoverMainAgentWorkflowBody` 只认 role=user 而注入体带 Base directory 标记被 adapter 重分类 system → 规程层丢失，扩 in [user,system]；归一侧 claude-jsonl adapter 会话首条 skill 注入不再重分类、保持 user（同内容会话 turn0 角色不随 opencode 版本漂移），user prompt 之后的注入仍 system+合并；新增 `stripSkillRuntimeTail` 行级剥运行时注入尾部（Base directory/Relative paths/Note 行 + `<skill_files>` 块），LLM 路 turn0 候选同款保持两路产出一致。IT：adapter 首条/中段 2 例 + 提取层 S3/剥尾 5 例 + LLM 候选 1 例
+  - 【sift 层3 派发回报对】`buildStructuredRecords` 的 dispatch 类（task/agent）tool_calls 带 result（截断 4096）——派发的 tool_result 是子代理最终报告，sift 层3 用它构建"派发-回报对"喂 step 判官（缺席式误判的洗冤证据 + "传递≠达成"的验收结论依据）
+- README / README-zh 特性清单同步上述条目
+
 ## [v0.2.20] - 2026-09-04
 
 ### Changed

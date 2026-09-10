@@ -40,7 +40,14 @@ const warn = (msg) => process.stderr.write(`[cbi] ${msg}\n`)
 // ─── 1. CLI 子命令透传 ──────────────────────────────────────────
 if (args[0] && CLI_COMMANDS.has(args[0])) {
   log(`CLI: ${args.join(' ')}`)
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli/index.ts', ...args], {
+  // 优先 dist/cli.mjs（prepack 时的 esbuild 单文件产物）；
+  // tsx 回退仅用于仓内开发态 —— npm 全局安装位置在 node_modules 内，
+  // tsx 对 node_modules 内文件禁用 tsconfig paths，`@/` 别名会 ERR_MODULE_NOT_FOUND。
+  const cliBundle = path.join(PKG_DIR, 'dist', 'cli.mjs')
+  const cliArgv = existsSync(cliBundle)
+    ? [cliBundle, ...args]
+    : ['--import', 'tsx', 'src/cli/index.ts', ...args]
+  const child = spawn(process.execPath, cliArgv, {
     cwd: PKG_DIR,
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || `file:${path.join(DATA_DIR, 'insight.db')}` },

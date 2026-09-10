@@ -7,7 +7,7 @@
 
 CANNBot-Insight: Session-level observability tool for LLM coding agents (opencode).
 Next.js 16 App Router + Prisma 6 + SQLite. Chinese/English mixed UI.
-UI version tracked in `src/lib/version.ts` — `package.json` version is NOT the display version.
+UI version tracked in `src/lib/version.ts` — `package.json` version stays in sync (same value, for npm publish); the display source of truth is `src/lib/version.ts`.
 
 ## Commands
 
@@ -152,6 +152,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 
 ## Constraints & Gotchas
 
+- **cannbay2 镜像的 git 命令必须走 `runGit`**（mirror.ts）：其 per-command 配置中和 lfs filter（`filter.lfs.process= / smudge=cat / clean=cat / required=false`）+ `push --no-verify`。数据仓 `.gitattributes` 历史上带 `*.gz filter=lfs`，装 git-lfs 的客户机会在 checkout（孤儿指针 smudge 403）与 add（clean 指针化）两条路上炸；绕过 runGit 直拼 git 命令会重新暴露（IT：`tests/cannbay2-lfs-immunity.test.ts`）
 - **ESM strict** (`"type": "module"` in package.json) — no `require()`, use `import`
 - **Ink v7 has no lastFrame/frames/output** on native `render()` — use `ink-testing-library` for tests only
 - **No third-party Ink components** — ink-table/ink-select/ink-spinner incompatible with Ink v7; self-implement all components
@@ -180,7 +181,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 2. **解决冲突**: 如有冲突，手动解决后继续
 3. **运行测试**: `npm run test` — 全部通过才能继续
 4. **更新文档**: README.md / README-zh.md（如有功能变更）
-5. **更新版本号**: `src/lib/version.ts` — 仅在新增特性或修复严重 bug 时 +0.01，小修小补不升版本
+5. **更新版本号**: `src/lib/version.ts` 与 `package.json` version 同步改（单轨同值） — 仅在新增特性或修复严重 bug 时 +0.0.1，小修小补不升版本
 6. **提交推送**: `git commit -m "[type] v0.xx: 描述"` → `[feat]` `[fix]` `[test]` `[docs]` `[chore]`
 
 ## Code Conventions
@@ -199,7 +200,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **Comments**: Don't write them unless asked
 - **Doc files**: Don't create `.md` / README unless explicitly requested
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
-- **Version bumps**: +0.01 only when adding features or fixing serious bugs, update `src/lib/version.ts` only
+- **Version bumps**: +0.0.1 only when adding features or fixing serious bugs, update `src/lib/version.ts` and `package.json` version together (single-track)
 - **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4
 - **Charts**: Pure SVG, no chart libraries — match TraceView DAG style

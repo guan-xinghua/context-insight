@@ -8,10 +8,9 @@
 
 'use client';
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BRAND_NAME, BRAND_SOURCE_TYPE } from '@/lib/branding'
-import { loadCannbayConfig, cannbayRemoteInput, isDefaultCannbayRemote } from '@/lib/cannbay-config'
 import { isProxyVersion } from '@/lib/shared/session-format'
 import { useRouter } from 'next/navigation';
 import {
@@ -25,6 +24,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { UploadToCannbayDialog, type UploadCannbayTarget } from '@/components/UploadToCannbayDialog';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -33,7 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { UploadIcon, LoaderIcon, CheckIcon, XIcon, TrashIcon, DownloadIcon, CheckCircleIcon } from 'lucide-react';
+import { UploadIcon, LoaderIcon, CheckIcon, XIcon, TrashIcon, DownloadIcon, CheckCircleIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface SessionListItem {
@@ -57,10 +58,15 @@ interface SessionListItem {
 }
 
 interface SessionListProps {
+  /** SSR 首屏初始数据（此后翻页/搜索走客户端 /api/observe/data，无整页刷新） */
   items: SessionListItem[];
   total: number;
   page: number;
   pageSize: number;
+  /** 初始搜索词（直接打开 /?q= 链接时由 SSR 提供） */
+  q?: string;
+  /** 未过滤的会话总数（搜索时显示 N of M） */
+  totalCount?: number;
 }
 
 type UploadStatus = 'idle' | 'uploading' | 'done' | 'error';
@@ -94,30 +100,74 @@ function formatTime(iso: string | null): string {
   return `${month}/${day} ${hour}:${minute}`;
 }
 
-function buildUploadContext(item: SessionListItem): string {
-  const model = item.model ?? ''
-  const timeRange = `${formatTime(item.startTime)} → ${formatTime(item.endTime)}`
-  const framework = item.framework ?? ''
-  const sourcePath = item.sourcePath ?? ''
-  return `日志路径:${sourcePath ? ' ' + sourcePath : ' taskId ' + item.taskId + ', 框架 ' + framework}
-备注: 模型 ${model}, 时间 ${timeRange}`
+
+// 数字页码窗口：1 … c-1 c c+1 … last（当前页恒在，两端恒在，中间留 1 页上下文）
+function pageWindow(current: number, totalPages: number): Array<number | '…'> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+  const out: Array<number | '…'> = [1]
+  const from = Math.max(2, current - 1)
+  const to = Math.min(totalPages - 1, current + 1)
+  if (from > 2) out.push('…')
+  for (let p = from; p <= to; p++) out.push(p)
+  if (to < totalPages - 1) out.push('…')
+  out.push(totalPages)
+  return out
 }
 
-// 范式目录下拉仅对默认仓启用（自定义数据湖地址走 directory 机制，网关同样拦截）
-function isDefaultRemote(): boolean {
-  return isDefaultCannbayRemote(loadCannbayConfig())
-}
-
-// 提交信息组装：提交人（独立输入框唯一事实源）+ 内容描述（选填，空则省略
-// 该行）+ 溯源上下文（日志路径/备注，自动附加）。后端网关从首行「提交人:」提取。
-function buildUploadDescription(item: SessionListItem, submitter: string, contentDesc: string): string {
-  const descLine = contentDesc.trim() ? `内容描述: ${contentDesc.trim()}\n` : '';
-  return `提交人: ${submitter.trim()}
-${descLine}${buildUploadContext(item)}`
-}
-
-export function SessionList({ items, total, page, pageSize }: SessionListProps) {
+export function SessionList({ items: initialItems, total: initialTotal, page: initialPage, pageSize, q: initialQ = '', totalCount: initialTotalCount }: SessionListProps) {
   const router = useRouter()
+  // 客户端自取数：翻页/搜索 GET /api/observe/data 局部更新（无整页刷新），
+  // SSR 初始值供首屏；URL 经 history.replaceState 同步（可分享、不触发导航）
+  const [items, setItems] = useState(initialItems)
+  const [total, setTotal] = useState(initialTotal)
+  const [allCount, setAllCount] = useState(initialTotalCount ?? initialTotal)
+  const [page, setPage] = useState(initialPage)
+  const [q, setQ] = useState(initialQ)
+  const [searchInput, setSearchInput] = useState(initialQ)
+  const [loading, setLoading] = useState(false)
+  const reqSeq = useRef(0)
+
+  async function fetchSessions(nextPage: number, nextQ: string) {
+    const seq = ++reqSeq.current
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ page: String(nextPage), pageSize: String(pageSize) })
+      if (nextQ) params.set('q', nextQ)
+      const res = await fetch(`/api/observe/data?${params}`)
+      const data = await res.json()
+      if (seq !== reqSeq.current || !res.ok) return
+      setItems(data.items ?? [])
+      setTotal(data.total ?? 0)
+      if (data.totalCount != null) setAllCount(data.totalCount)
+      else setAllCount(data.total ?? 0)
+      setPage(nextPage)
+      setQ(nextQ)
+      const url = new URL(window.location.href)
+      if (nextQ) url.searchParams.set('q', nextQ)
+      else url.searchParams.delete('q')
+      if (nextPage > 1) url.searchParams.set('page', String(nextPage))
+      else url.searchParams.delete('page')
+      window.history.replaceState(null, '', url.toString())
+    } catch {
+      /* 网络错误：保留当前数据 */
+    } finally {
+      if (seq === reqSeq.current) setLoading(false)
+    }
+  }
+
+  // 输入防抖自动搜索（400ms 无操作触发；回车/按钮立即）
+  useEffect(() => {
+    const v = searchInput.trim()
+    if (v === q) return
+    const t = setTimeout(() => { fetchSessions(1, v) }, 400)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput])
+
+  function submitSearch() {
+    fetchSessions(1, searchInput.trim())
+  }
+
   const totalPages = Math.ceil(total / pageSize);
   const hasNext = page < totalPages;
   const hasPrev = page > 1;
@@ -128,49 +178,22 @@ export function SessionList({ items, total, page, pageSize }: SessionListProps) 
   const [exportStatus, setExportStatus] = useState<Record<string, ExportStatus>>({})
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [uploadDialogItem, setUploadDialogItem] = useState<SessionListItem | null>(null)
-  const [uploadContentDesc, setUploadContentDesc] = useState('')
-  const [uploadSubmitter, setUploadSubmitter] = useState('')
-  const [uploadSubmitterTouched, setUploadSubmitterTouched] = useState(false)
-  // 范式目录（数据仓顶层目录即注册表）：下拉数据源 = action:dirs 动态拉取
-  const [uploadCategory, setUploadCategory] = useState('')
-  const [uploadBaseline, setUploadBaseline] = useState(false)
-  // 算子生成结果标注（随会话 meta 入仓，CANNBay 列表"算子生成"列展示）：
-  // Web UI 必选（成功/失败，未选禁用上传）；'' 仅作初始未选态。数据层仍允许
-  // 缺省（CLI 上传/历史数据 → 列表显示 —）
-  const [uploadOpGen, setUploadOpGen] = useState<'' | 'success' | 'failure'>('')
-  const [paradigmDirs, setParadigmDirs] = useState<string[]>([])
-  const [paradigmLoading, setParadigmLoading] = useState(false)
-  const [paradigmError, setParadigmError] = useState<string | null>(null)
+  // 上传弹窗（共享组件）：目标会话 + 开关；上传结果经回调回填行内状态图标
+  const [uploadTarget, setUploadTarget] = useState<UploadCannbayTarget | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
 
-  async function openUploadDialog(item: SessionListItem) {
-    setUploadContentDesc((item.query ?? '').trim())
-    setUploadSubmitter((item.user ?? '').trim())
-    setUploadSubmitterTouched(false)
-    setUploadCategory('')
-    setUploadBaseline(false)
-    setUploadOpGen('')
-    setParadigmDirs([])
-    setParadigmError(null)
-    setUploadDialogItem(item)
-    if (!isDefaultRemote()) return
-    setParadigmLoading(true)
-    try {
-      const res = await fetch('/api/ingest/cannbay2', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'dirs', ...cannbayRemoteInput(loadCannbayConfig()) }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to list paradigm dirs')
-      const dirs = (data.dirs ?? []).filter((d: string) => d !== 'sessions')
-      setParadigmDirs(dirs)
-      if (dirs.length === 0) setParadigmError('数据仓暂无范式目录：请先在数据仓顶层新建范式目录')
-    } catch {
-      setParadigmError('范式目录列表加载失败，请重试')
-    } finally {
-      setParadigmLoading(false)
-    }
+  function openUploadDialog(item: SessionListItem) {
+    setUploadTarget({
+      taskId: item.taskId,
+      query: item.query,
+      framework: item.framework,
+      model: item.model,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      sourcePath: item.sourcePath,
+      user: item.user,
+    })
+    setUploadOpen(true)
   }
 
   function handleToggle(sessionId: string) {
@@ -221,37 +244,6 @@ export function SessionList({ items, total, page, pageSize }: SessionListProps) 
       })
       if (res.ok) window.location.reload()
     } catch {}
-  }
-
-  async function handleUpload(item: SessionListItem) {
-    const key = item.sessionId
-    setUploadStatus(prev => ({ ...prev, [key]: 'uploading' }))
-    setUploadError(null)
-    setUploadDialogItem(null)
-    try {
-      const res = await fetch('/api/ingest/cannbay2', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'upload',
-          taskId: item.taskId,
-          description: buildUploadDescription(item, uploadSubmitter, uploadContentDesc),
-          ...(uploadCategory ? { category: uploadCategory, ...(uploadBaseline ? { baseline: true } : {}) } : {}),
-          ...(uploadOpGen ? { opGen: uploadOpGen } : {}),
-          ...cannbayRemoteInput(loadCannbayConfig()),
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setUploadStatus(prev => ({ ...prev, [key]: 'error' }))
-        setUploadError(data.error ?? 'Upload failed')
-        return
-      }
-      setUploadStatus(prev => ({ ...prev, [key]: 'done' }))
-    } catch {
-      setUploadStatus(prev => ({ ...prev, [key]: 'error' }))
-      setUploadError('Upload failed: network error')
-    }
   }
 
   async function handleExport(item: SessionListItem) {
@@ -319,8 +311,45 @@ export function SessionList({ items, total, page, pageSize }: SessionListProps) 
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Sessions ({total})</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="text-lg font-semibold">
+            Sessions ({total})
+            {q && allCount !== total && (
+              <span className="text-sm font-normal text-muted-foreground ml-1">of {allCount}</span>
+            )}
+          </h2>
+          <div className="flex items-center gap-1.5">
+            <Input
+              placeholder="Search keyword or session ID"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
+              className="w-52 sm:w-64"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={submitSearch}
+              disabled={loading}
+              title="Search"
+            >
+              {loading ? <LoaderIcon className="size-3.5 animate-spin" /> : <SearchIcon className="size-3.5" />}
+            </Button>
+            {q && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 text-muted-foreground"
+                onClick={() => { setSearchInput(''); fetchSessions(1, '') }}
+                title="Clear"
+              >
+                <XIcon className="size-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {selectedIds.size === 0 && "Select 2 to compare, or any number to delete"}
@@ -410,114 +439,21 @@ export function SessionList({ items, total, page, pageSize }: SessionListProps) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={uploadDialogItem !== null} onOpenChange={(open) => { if (!open) setUploadDialogItem(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>上传到 CANNBay</DialogTitle>
-            <DialogDescription>会话经数据治理后上传至数据仓，可随时重新导入</DialogDescription>
-          </DialogHeader>
-          {isDefaultRemote() && (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">
-                范式目录 <span className="text-red-500">*</span>
-              </label>
-              <select
-                className="w-full text-sm px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring/30"
-                value={uploadCategory}
-                onChange={(e) => setUploadCategory(e.target.value)}
-                disabled={paradigmLoading}
-              >
-                <option value="" disabled>
-                  {paradigmLoading ? '加载范式目录中…' : '请选择范式目录'}
-                </option>
-                {paradigmDirs.map(d => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-              {paradigmError && <p className="text-xs text-red-500">{paradigmError}</p>}
-              <label
-                className={
-                  uploadCategory
-                    ? 'flex items-center gap-2 pt-0.5 cursor-pointer select-none transition-opacity'
-                    : 'flex items-center gap-2 pt-0.5 select-none opacity-60'
-                }
-              >
-                <Checkbox
-                  checked={uploadBaseline}
-                  onCheckedChange={(v) => setUploadBaseline(v === true)}
-                  disabled={!uploadCategory}
-                  className="cursor-pointer"
-                />
-                <span className="text-xs text-muted-foreground">
-                  设为该范式 baseline 会话（<code>{uploadCategory}/baseline/</code>，原 baseline 移回普通目录）
-                </span>
-              </label>
-            </div>
-          )}
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">
-              提交人 <span className="text-red-500">*</span>
-            </label>
-            <input
-              className="w-full text-sm px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring/30"
-              placeholder="必填：真实姓名或账号"
-              value={uploadSubmitter}
-              onChange={(e) => { setUploadSubmitter(e.target.value); setUploadSubmitterTouched(true); }}
-            />
-            {uploadSubmitterTouched && !uploadSubmitter.trim() && (
-              <p className="text-xs text-red-500">提交人不能为空</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">内容描述</label>
-            <textarea
-              className="w-full min-h-[120px] max-h-64 text-sm px-3 py-2 border rounded-md bg-background resize-y overflow-y-auto focus:outline-none focus:ring-2 focus:ring-ring/30"
-              placeholder="选填，预填会话首问，可修改"
-              value={uploadContentDesc}
-              onChange={(e) => setUploadContentDesc(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <label className="text-sm font-medium shrink-0">
-              算子生成结果 <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-1 rounded-lg border bg-muted/40 p-1">
-              {([
-                { v: 'success' as const, label: '成功' },
-                { v: 'failure' as const, label: '失败' },
-              ]).map(o => {
-                const active = uploadOpGen === o.v
-                return (
-                  <Button
-                    key={o.v}
-                    variant="ghost"
-                    size="sm"
-                    className={
-                      o.v === 'success'
-                        ? 'h-6 px-3 text-xs' + (active ? ' bg-emerald-600 hover:bg-emerald-600 text-white' : ' text-muted-foreground')
-                        : 'h-6 px-3 text-xs' + (active ? ' bg-red-600 hover:bg-red-600 text-white' : ' text-muted-foreground')
-                    }
-                    onClick={() => setUploadOpGen(active ? '' : o.v)}
-                  >
-                    {o.label}
-                  </Button>
-                )
-              })}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUploadDialogItem(null)}>取消</Button>
-            <Button
-              variant="default"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => { if (uploadDialogItem) handleUpload(uploadDialogItem) }}
-              disabled={!uploadSubmitter.trim() || uploadOpGen === '' || (isDefaultRemote() && (!uploadCategory || paradigmDirs.length === 0))}
-            >
-              确认上传
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <UploadToCannbayDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        target={uploadTarget}
+        onUploadStart={() => {
+          const item = items.find(i => uploadTarget && i.taskId === uploadTarget.taskId)
+          if (item) setUploadStatus(prev => ({ ...prev, [item.sessionId]: 'uploading' }))
+          setUploadError(null)
+        }}
+        onResult={({ ok, message }) => {
+          const item = items.find(i => uploadTarget && i.taskId === uploadTarget.taskId)
+          if (item) setUploadStatus(prev => ({ ...prev, [item.sessionId]: ok ? 'done' : 'error' }))
+          if (!ok && message) setUploadError(message)
+        }}
+      />
       <div className="border rounded-lg">
         <Table>
           <TableHeader>
@@ -631,37 +567,45 @@ export function SessionList({ items, total, page, pageSize }: SessionListProps) 
         </Table>
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-muted-foreground">
-            Page {page} of {totalPages} ({total} sessions)
+      {(totalPages > 1 || total > 0) && (
+        <div className="flex items-center justify-between gap-3 mt-4 flex-wrap">
+          <p className="text-xs text-muted-foreground">
+            {q ? `${total} of ${allCount} sessions` : `${total} sessions`}
+            {totalPages > 1 && ` · 第 ${page} / ${totalPages} 页`}
+            {loading && <LoaderIcon className="inline size-3 ml-1.5 animate-spin align-[-2px]" />}
           </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasPrev}
-              onClick={() => {
-                const url = new URL(window.location.href);
-                url.searchParams.set('page', String(page - 1));
-                window.location.href = url.toString();
-              }}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasNext}
-              onClick={() => {
-                const url = new URL(window.location.href);
-                url.searchParams.set('page', String(page + 1));
-                window.location.href = url.toString();
-              }}
-            >
-              Next
-            </Button>
-          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="size-7" disabled={!hasPrev || loading} onClick={() => fetchSessions(1, q)} title="第一页">
+                <ChevronsLeftIcon className="size-3.5" />
+              </Button>
+              <Button variant="outline" size="icon" className="size-7" disabled={!hasPrev || loading} onClick={() => fetchSessions(page - 1, q)} title="上一页">
+                <ChevronLeftIcon className="size-3.5" />
+              </Button>
+              {pageWindow(page, totalPages).map((p, i) =>
+                p === '…' ? (
+                  <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground select-none">…</span>
+                ) : (
+                  <Button
+                    key={p}
+                    variant={p === page ? 'default' : 'outline'}
+                    size="icon"
+                    className={`size-7 text-xs tabular-nums ${p === page ? 'font-semibold' : ''}`}
+                    disabled={loading}
+                    onClick={() => { if (p !== page) fetchSessions(p, q) }}
+                  >
+                    {p}
+                  </Button>
+                )
+              )}
+              <Button variant="outline" size="icon" className="size-7" disabled={!hasNext || loading} onClick={() => fetchSessions(page + 1, q)} title="下一页">
+                <ChevronRightIcon className="size-3.5" />
+              </Button>
+              <Button variant="outline" size="icon" className="size-7" disabled={!hasNext || loading} onClick={() => fetchSessions(totalPages, q)} title="最后一页">
+                <ChevronsRightIcon className="size-3.5" />
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

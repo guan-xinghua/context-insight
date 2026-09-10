@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
+import os from "node:os"
 import {
   HandoffSessionRecord,
   computeSessionIdShort,
@@ -30,7 +31,7 @@ import {
   buildHandoffLinks,
 } from "../src/lib/breather/handoff-registry"
 
-const TMP_DIR = path.join("/var/folders/ft/1jjnlymd2vj5hdzhp3_pccx40000gn/T/opencode", "handoff-reg-test")
+const TMP_DIR = path.join(os.tmpdir(), "opencode", "handoff-reg-test")
 
 beforeEach(() => { fs.mkdirSync(TMP_DIR, { recursive: true }) })
 afterEach(() => { fs.rmSync(TMP_DIR, { recursive: true, force: true }) })

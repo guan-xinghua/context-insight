@@ -16,14 +16,21 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.max(1, Math.min(100, Number(searchParams.get('pageSize') ?? 20)));
     const isSubagent = searchParams.get('isSubagent');
     const user = searchParams.get('user');
+    // 会话搜索（keyword / sessionID）：taskId / query / label 任一子串命中
+    const q = searchParams.get('q')?.trim() ?? '';
 
-    const where: Record<string, unknown> = {};
-    if (user) where.user = user;
+    const conditions: Record<string, unknown>[] = [];
+    if (user) conditions.push({ user });
+    if (q) conditions.push({ OR: [{ taskId: { contains: q } }, { query: { contains: q } }, { label: { contains: q } }] });
     if (isSubagent !== null && isSubagent !== undefined && isSubagent !== '') {
-      where.executions = { some: { isSubagent: isSubagent === 'true' } };
+      conditions.push({ executions: { some: { isSubagent: isSubagent === 'true' } } });
     }
+    const where: Record<string, unknown> = conditions.length > 0 ? { AND: conditions } : {};
 
-    const total = await prisma.session.count({ where });
+    const [total, totalCount] = await Promise.all([
+      prisma.session.count({ where }),
+      q ? prisma.session.count() : Promise.resolve(null),
+    ]);
 
     const sessions = await prisma.session.findMany({
       where,
@@ -46,6 +53,7 @@ export async function GET(request: NextRequest) {
         user: true,
         framework: true,
         version: true,
+        sourcePath: true,
         createdAt: true,
       },
     });
@@ -67,9 +75,10 @@ export async function GET(request: NextRequest) {
       user: s.user,
       framework: s.framework,
       version: s.version,
+      sourcePath: s.sourcePath,
     }));
 
-    return NextResponse.json({ items, total, page });
+    return NextResponse.json({ items, total, page, ...(totalCount != null ? { totalCount } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -139,6 +139,26 @@ describe("collectWorkflowExtractCandidates（确定性收集，零领域启发�
     expect(statePlan.partialRead).toBe(false); // 取的是完整那份（首次实质读取）
   });
 
+  it("S3：system turn0（opencode ≥1.17 注入，带 Base directory 尾部）→ 规程候选 + 剥尾部", async () => {
+    const s3Turn0 = TURN0_BODY + "\n\nBase directory for this skill: /home/hwd/x/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/) are relative to this base directory.\n\nsoftplus_v2_grad";
+    const prisma = {
+      skillEvent: { findFirst: vi.fn().mockResolvedValue(null) },
+      turn: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([
+          { id: "t0", turnIndex: 0, role: "system", content: s3Turn0, agentName: null },
+          { id: "t1", turnIndex: 1, role: "assistant", content: "我来读一下任务清单。", agentName: "build" },
+        ]),
+      },
+      toolCall: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as PrismaClient;
+    const c = await collectWorkflowExtractCandidates("ses_1", prisma);
+    expect(c.regulation).toHaveLength(1);
+    expect(c.regulation[0].source).toBe("turn0 (注入编排规程)");
+    expect(c.regulation[0].content).toBe(TURN0_BODY + "\n\nsoftplus_v2_grad"); // 尾部剥、用户请求留
+    expect(c.regulation[0].content).not.toContain("Base directory for this skill");
+  });
+
   it("无任何候选 → 两列表皆空", async () => {
     const prisma = {
       skillEvent: { findFirst: vi.fn().mockResolvedValue(null) },

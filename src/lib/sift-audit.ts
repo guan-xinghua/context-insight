@@ -35,7 +35,29 @@ const SKILL_INVOKE_TOOLS = new Set(["skill", "skill/invoke", "skill/use"]);
 export function stripSkillContent(resultJson: string | null | undefined): string | null {
   if (!resultJson) return null;
   const m = resultJson.match(SKILL_CONTENT_RE);
-  return m ? m[1].trim() : null;
+  return m ? stripSkillRuntimeTail(m[1].trim()) : null;
+}
+
+/**
+ * 剥 skill 运行时注入尾部（S2 SKILL.md body 与 S3 turn0 注入共用）：
+ * skill 加载器在正文后追加的说明块——`Base directory for this skill:` 行、
+ * `Relative paths…` 引导行、`Note: file list is sampled.` 行、`<skill_files>` 文件
+ * 清单块（~900 字路径列表）。这些是框架注入的元数据不是 SKILL.md 指令，进对账
+ * 声明会产出垃圾 findings。
+ *
+ * 行级过滤保留其余内容：S3 turn0 尾部的用户请求（算子任务描述）与老形态
+ * （opencode ≤1.4.7，规程 + 用户请求同消息、无标记）语义对齐。
+ */
+export function stripSkillRuntimeTail(content: string): string {
+  const withoutFileList = content.replace(/<skill_files>[\s\S]*?<\/skill_files>\s*/g, "");
+  const lines = withoutFileList.split("\n").filter(
+    (l) =>
+      !l.startsWith("Base directory for this skill:") &&
+      !l.startsWith("Relative paths in this skill") &&
+      !l.startsWith("Note: file list is sampled."),
+  );
+  // 删行遗留的 3+ 连续换行收敛为段间空行（正常 markdown 无三连空行，无标记原文不变）
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
 }
 
 /** 一个 ToolCall 是不是"带正文的 skill invoke 调用"（区别于 task/agent dispatch）。 */
@@ -239,10 +261,21 @@ export async function buildStructuredRecords(
       // 的 resultJson 常达 10MB+(Read 整文件 / skill 正文 / 大输出),回传它会让 --transcript
       // 的 session.json 撑到 20MB+,序列化 / 落盘 / sift 解析全慢——纯死重量,砍之。
       // sift 结构化 reader 对缺 result 的 tool_call 本就容错(不产 tool_result 块)。
-      rec.tool_calls = tcs.map((tc) => ({
-        name: tc.toolName,
-        input: parseArgs(tc.argsJson),
-      }));
+      //
+      // **例外:dispatch 类(task/agent)带 result**(截断 4096)。派发的 tool_result 是子代理
+      // 最终报告——cc 原生 transcript 里它本来就是主作用域记录(主 agent 亲眼看到才能决策
+      // 推进/修复),sift 层3 用它构建"派发-回报对"喂 step 判官(缺席式误判的洗冤证据 +
+      // "传递≠达成"的验收结论依据)。sift reader 原生支持 tool_calls[].result。
+      rec.tool_calls = tcs.map((tc) => {
+        const call: Record<string, unknown> = {
+          name: tc.toolName,
+          input: parseArgs(tc.argsJson),
+        };
+        if (/^(task|agent)$/i.test(tc.toolName) && tc.resultJson) {
+          call.result = tc.resultJson.slice(0, 4096);
+        }
+        return call;
+      });
     }
     return rec;
   });
@@ -253,13 +286,19 @@ export async function buildStructuredRecords(
 export const MAIN_AGENT_WORKFLOW_NAME = "主 agent 编排";
 
 /**
- * 恢复主 agent 的 workflow 声明正文：取 session **首条 user turn**（isSubagent=false、
- * role=user、turnIndex 最小）的 content。opencode/cannbot-insight 里主 agent 配置的
- * workflow skill 会被注入成首条 user 消息（系统提示），主 agent 通常不 invoke skill
- * （只 dispatch 子 agent）→ 其 workflow 声明只能从 turn0 取，不在 skillEvents。
+ * 恢复主 agent 的 workflow 声明正文：取 session **首条 user/system turn**
+ * （isSubagent=false、turnIndex 最小）的 content，剥 skill 运行时注入尾部。
  *
- * 内容过短（< 插件 regulation.turn0MinChars）→ null（视为普通短用户查询，非 workflow 声明）。
- * 找不到 user turn → null。
+ * 三种注入形态都落在首条消息上：
+ * - **S1**（cannbot-proxy / opencode ≤1.4.7）：skill 正文注入首条 user 消息 → role=user。
+ * - **S3**（opencode ≥1.17）：skill 正文注入首条消息且带 `Base directory for this
+ *   skill:` 尾部标记 → 被 claude-jsonl adapter 的 skill-injection 启发重分类为
+ *   role=system（wire 上仍是 user 消息）。主 agent 不 invoke skill → 声明只能从
+ *   turn0 取，不在 skillEvents。
+ *
+ * 内容过短（< 插件 regulation.turn0MinChars）→ null（视为普通短用户查询，非 workflow
+ * 声明；"continue" 等续跑消息、"Available agent types" 等短注册注入同被过滤）。
+ * 找不到 turn → null。
  *
  * 注：这是主 agent 的**角色/编排规程**（agent.md-like），不是具体工作流。具体工作流
  * （任务树）是 STATE.md，见 `recoverPlanFileDeclaration`。root 对账送两者的组合声明
@@ -270,11 +309,12 @@ export async function recoverMainAgentWorkflowBody(
   prisma: PrismaClient,
 ): Promise<string | null> {
   const t = await prisma.turn.findFirst({
-    where: { sessionId, role: "user", isSubagent: false },
+    where: { sessionId, role: { in: ["user", "system"] }, isSubagent: false },
     orderBy: { turnIndex: "asc" },
   });
   if (!t?.content) return null;
-  return t.content.length >= getWorkflowExtractPlugin().regulation.turn0MinChars ? t.content : null;
+  if (t.content.length < getWorkflowExtractPlugin().regulation.turn0MinChars) return null;
+  return stripSkillRuntimeTail(t.content);
 }
 
 /** 计划文件扫描的 take 上限（大 session 防爆）。计划文件早期就写，1000 够覆盖。 */

@@ -856,10 +856,18 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       // and keep verbatim: the skill-merge post-process folds it into the
       // preceding Skill tool_call. Markers: <skill-format> / 'Base directory for
       // this skill' / 'Launching skill' distinguish skill injections from /compact.
-      const isSkillInjection = raw.includes('Base directory for this skill') ||
+      // 会话首条消息（此前无任何记录）不重分类、保持 user：opencode ≥1.17 把 skill
+      // 自动注入为首条消息（规程 + Base directory 尾部 + 用户请求同条），与 ≤1.4.7
+      // 老形态（无标记、保持 user）显示一致——重分类成 system 会让同内容会话的
+      // turn0 角色随 opencode 版本漂移。user prompt 之后的注入（claude-code 展开
+      // 形态，如 consecutive-skill-injection）仍走 system + 合并。
+      const isSessionStart = result.length === 0;
+      const isSkillInjection = !isSessionStart && (
+        raw.includes('Base directory for this skill') ||
         raw.includes('<skill-format>') ||
         raw.startsWith('Launching skill:') ||
-        raw.startsWith('Launching skill ');
+        raw.startsWith('Launching skill ')
+      );
       if (isSkillInjection) {
         result.push({
           role: 'system',

@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import {
   stripSkillContent,
+  stripSkillRuntimeTail,
   recoverSkillBody,
   recoverPlanFileDeclaration,
   recoverMainAgentWorkflowBody,
@@ -63,6 +64,25 @@ describe("stripSkillContent", () => {
   it("空串 / null-ish → null", () => {
     expect(stripSkillContent("")).toBeNull();
     expect(stripSkillContent(null as unknown as string)).toBeNull();
+  });
+
+  it("S2：body 尾部带 Base directory/Relative paths/Note/<skill_files> 运行时注入块 → 全剥", () => {
+    const inner = "# Skill: ops-registry-invoke-glacier\n\n## 核心原则\n\n- 只做编排派发";
+    const tail = "\n\nBase directory for this skill: /workspace/gaoyifan/code/skills-dev/plugins-official/harness-l2-apply_adam_w/.opencode/skills/ops-registry-invoke\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.\nNote: file list is sampled.\n\n<skill_files>\n<file>/workspace/gaoyifan/a.md</file>\n<file>/workspace/gaoyifan/b.md</file>\n</skill_files>";
+    expect(stripSkillContent(`<skill_content name="x">${inner}${tail}</skill_content>`)).toBe(inner);
+  });
+
+  it("S3：turn0 注入体剥尾部保留用户请求（行级过滤，不删无关注释）", () => {
+    const body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者，读取 STATE.md 按顺序派发。";
+    const withTail = body + "\n\nBase directory for this skill: /home/hwd/x/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/) are relative to this base directory.\n\nsoftplus_v2_grad";
+    const stripped = stripSkillRuntimeTail(withTail);
+    expect(stripped).toBe(body + "\n\nsoftplus_v2_grad");
+    expect(stripped).not.toContain("Base directory");
+    expect(stripped).not.toContain("Relative paths");
+  });
+
+  it("无尾部标记 → 原文不变（trimEnd）", () => {
+    expect(stripSkillRuntimeTail("# 规程\n\n用户请求")).toBe("# 规程\n\n用户请求");
   });
 });
 
@@ -217,8 +237,9 @@ describe("auditKindsForEvents", () => {
 });
 
 describe("recoverMainAgentWorkflowBody", () => {
-  // 主 agent 通常只 dispatch、不 invoke skill，其 workflow 声明是 session 首条 user turn
-  // （isSubagent=false、role=user、turnIndex 最小）的注入系统提示。内容过短（<500）→ null。
+  // 主 agent 通常只 dispatch、不 invoke skill，其 workflow 声明是 session 首条
+  // user/system turn（S3：opencode ≥1.17 注入体带 Base directory 标记被 adapter
+  // 重分类为 system）的注入系统提示。内容过短（<500）→ null。
   const body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），" + "x".repeat(500);
   const shortQuery = "帮我写个 hello world";
   const makeTurnPrisma = (content: string | null) =>
@@ -229,7 +250,7 @@ describe("recoverMainAgentWorkflowBody", () => {
     const r = await recoverMainAgentWorkflowBody("ses_1", prisma);
     expect(r).toBe(body);
     expect(prisma.turn.findFirst).toHaveBeenCalledWith({
-      where: { sessionId: "ses_1", role: "user", isSubagent: false },
+      where: { sessionId: "ses_1", role: { in: ["user", "system"] }, isSubagent: false },
       orderBy: { turnIndex: "asc" },
     });
   });
@@ -237,6 +258,22 @@ describe("recoverMainAgentWorkflowBody", () => {
   it("首条 user turn 过短（<500）→ null（视为普通短查询，非 workflow 声明）", async () => {
     const prisma = makeTurnPrisma(shortQuery);
     expect(await recoverMainAgentWorkflowBody("ses_1", prisma)).toBeNull();
+  });
+
+  it("S3：首条 system turn（注入体带 Base directory 尾部）→ 剥运行时尾部、保留用户请求", async () => {
+    const s3Turn0 = body + "\n\nBase directory for this skill: /home/hwd/skills-dev/plugins-official/glacier-softplus_v2_grad/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/, references/) are relative to this base directory.\n\nsoftplus_v2_grad";
+    const prisma = makeTurnPrisma(s3Turn0);
+    const r = await recoverMainAgentWorkflowBody("ses_1", prisma);
+    expect(r).toBe(body + "\n\nsoftplus_v2_grad");
+    expect(r).not.toContain("Base directory for this skill");
+    expect(r).not.toContain("Relative paths in this skill");
+  });
+
+  it("S3：短 system turn（continue / agent 注册注入）→ null", async () => {
+    const prisma = makeTurnPrisma("continue");
+    expect(await recoverMainAgentWorkflowBody("ses_1", prisma)).toBeNull();
+    const prisma2 = makeTurnPrisma("Available agent types: developer, verifier");
+    expect(await recoverMainAgentWorkflowBody("ses_1", prisma2)).toBeNull();
   });
 
   it("无 user turn → null", async () => {
@@ -580,6 +617,21 @@ describe("resolveWorkflowSkillName + recoverWorkflowDeclaration", () => {
     expect(r!.content).toContain("纯编排者");
   });
 
+  it("S3 型：无 Skill invoke + turn0 为 system（opencode ≥1.17 skill 注入）→ 剥尾部提取", async () => {
+    const turn0Body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
+    const s3Turn0 = turn0Body + "\n\nBase directory for this skill: /home/hwd/x/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/) are relative to this base directory.\n\nsoftplus_v2_grad";
+    const prisma = {
+      skillEvent: { findFirst: vi.fn().mockResolvedValue(null) }, // 无 Skill invoke（主 agent 只 dispatch）
+      turn: { findFirst: vi.fn().mockResolvedValue({ content: s3Turn0, role: "system" }) },
+    } as unknown as PrismaClient;
+    const r = await recoverWorkflowDeclaration("ses_1", prisma);
+    expect(r).not.toBeNull();
+    expect(r!.source).toBe("turn0 (注入编排规程)");
+    expect(r!.content).toContain("纯编排者");
+    expect(r!.content).toContain("softplus_v2_grad"); // 用户请求保留
+    expect(r!.content).not.toContain("Base directory for this skill");
+  });
+
   it("S1 型：无 invoke + turn0 <500 → null（短用户任务不是编排规程）", async () => {
     const prisma = {
       skillEvent: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -889,6 +941,52 @@ describe("buildStructuredRecords", () => {
     expect(tc).toEqual({ name: "read", input: { file_path: "big.py" } });
     expect("result" in tc).toBe(false);
     expect(JSON.stringify(out).length).toBeLessThan(100_000);   // 2MB resultJson 没泄进 payload
+  });
+
+  it("dispatch 类(task)带 result(子代理最终报告,层3 派发-回报对证据源);其他工具不带", async () => {
+    const prisma = makeStructuredPrisma({
+      turns: [{ id: "t1", turnIndex: 0, role: "assistant", content: "编排", agentName: null }],
+      toolCalls: [
+        { turnId: "t1", toolName: "task", argsJson: '{"subagent_type":"verifier","prompt":"验收 Task 47"}', resultJson: "<task>…</task>\nFAILED: 254/275" },
+        { turnId: "t1", toolName: "read", argsJson: '{"file_path":"x.py"}', resultJson: "content" },
+      ],
+    });
+    const out = await buildStructuredRecords("ses_1", prisma);
+    const tcs = (out.records[0] as Record<string, unknown>).tool_calls as Array<Record<string, unknown>>;
+    expect(tcs[0]).toMatchObject({
+      name: "task",
+      input: { subagent_type: "verifier", prompt: "验收 Task 47" },
+      result: "<task>…</task>\nFAILED: 254/275",
+    });
+    expect("result" in tcs[1]).toBe(false);   // 非 dispatch 不带
+  });
+
+  it("dispatch result 截断 4096;超大 dispatch resultJson 也不爆 payload", async () => {
+    const prisma = makeStructuredPrisma({
+      turns: [{ id: "t1", turnIndex: 0, role: "assistant", content: null, agentName: null }],
+      toolCalls: [
+        { turnId: "t1", toolName: "task", argsJson: '{"prompt":"p"}', resultJson: "R".repeat(2_000_000) },
+        { turnId: "t1", toolName: "agent", argsJson: '{"subagent_type":"dev"}', resultJson: "A".repeat(5000) },
+      ],
+    });
+    const out = await buildStructuredRecords("ses_1", prisma);
+    const tcs = (out.records[0] as Record<string, unknown>).tool_calls as Array<Record<string, unknown>>;
+    expect((tcs[0].result as string).length).toBe(4096);
+    expect((tcs[1].result as string).length).toBe(4096);   // agent 形态同样截断
+    expect(JSON.stringify(out).length).toBeLessThan(100_000);
+  });
+
+  it("dispatch resultJson 空 → 不带 result 键(reader 容错,不产 tool_result)", async () => {
+    const prisma = makeStructuredPrisma({
+      turns: [{ id: "t1", turnIndex: 0, role: "assistant", content: null, agentName: null }],
+      toolCalls: [
+        { turnId: "t1", toolName: "task", argsJson: '{"prompt":"p"}', resultJson: null },
+      ],
+    });
+    const out = await buildStructuredRecords("ses_1", prisma);
+    const tcs = (out.records[0] as Record<string, unknown>).tool_calls as Array<Record<string, unknown>>;
+    expect(tcs[0]).toEqual({ name: "task", input: { prompt: "p" } });
+    expect("result" in tcs[0]).toBe(false);
   });
 
   it("无 turn → records 空(仍带 format 标记)", async () => {

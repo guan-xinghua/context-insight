@@ -19,11 +19,13 @@ import { countToolCallErrors } from '@/lib/tool-call-errors';
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; pageSize?: string; isSubagent?: string; user?: string }>;
+  searchParams: Promise<{ page?: string; pageSize?: string; isSubagent?: string; user?: string; q?: string }>;
 }) {
   const params = await searchParams;
   const page = Math.max(1, Number(params.page ?? 1));
   const pageSize = Math.max(1, Math.min(100, Number(params.pageSize ?? 20)));
+  // 会话搜索（keyword / sessionID）：taskId / query / label 任一子串命中
+  const q = params.q?.trim() ?? '';
 
   const totalSessions = await prisma.session.count();
   const aggregates = await prisma.session.aggregate({
@@ -31,8 +33,10 @@ export default async function Home({
     _avg: { totalLatencyMs: true },
   });
 
-  const where: Record<string, unknown> = {};
-  if (params.user) where.user = params.user;
+  const conditions: Record<string, unknown>[] = [];
+  if (params.user) conditions.push({ user: params.user });
+  if (q) conditions.push({ OR: [{ taskId: { contains: q } }, { query: { contains: q } }, { label: { contains: q } }] });
+  const where: Record<string, unknown> = conditions.length > 0 ? { AND: conditions } : {};
 
   const sessions = await prisma.session.findMany({
     where,
@@ -158,7 +162,7 @@ export default async function Home({
           avgLatencyMs={aggregates._avg.totalLatencyMs ?? 0}
           totalErrors={totalErrors}
         />
-        <SessionList items={items} total={total} page={page} pageSize={pageSize} />
+        <SessionList items={items} total={total} page={page} pageSize={pageSize} q={q} totalCount={totalSessions} />
         <ImportHistory />
       </main>
     </div>

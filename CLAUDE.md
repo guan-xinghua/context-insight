@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CANNBot-Insight: Session-level observability tool for LLM coding agents (opencode).
 Next.js 16 App Router + Prisma 6 + SQLite. Chinese/English mixed UI.
-UI version tracked in `src/lib/version.ts` — `package.json` version is NOT the display version.
+UI version tracked in `src/lib/version.ts` — `package.json` version stays in sync (same value, for npm publish); the display source of truth is `src/lib/version.ts`.
 
 ## Commands
 
@@ -127,7 +127,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 2. **解决冲突**: 如有冲突，手动解决后继续
 3. **运行测试**: `npm run test` — 全部通过才能继续
 4. **更新文档**: README.md / README-zh.md（如有功能变更）
-5. **更新版本号**: `src/lib/version.ts` — 三段式 `0.x.y`，仅在新增特性或修复严重 bug 时 +0.0.1，小修小补不升版本
+5. **更新版本号**: `src/lib/version.ts` 与 `package.json` version 同步改（单轨同值） — 三段式 `0.x.y`，仅在新增特性或修复严重 bug 时 +0.0.1，小修小补不升版本
 6. **提交推送**: `git commit -m "[type] v0.xx: 描述"` → `[feat]` `[fix]` `[test]` `[docs]` `[chore]`
 
 ## Code Conventions
@@ -146,7 +146,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **Comments**: Don't write them unless asked
 - **Doc files**: Don't create `.md` / README unless explicitly requested
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
-- **Version bumps**: three-segment `0.x.y`, +0.0.1 only when adding features or fixing serious bugs, update `src/lib/version.ts` only
+- **Version bumps**: three-segment `0.x.y`, +0.0.1 only when adding features or fixing serious bugs, update `src/lib/version.ts` and `package.json` version together (single-track)
 - **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4
 - **Charts**: Pure SVG, no chart libraries — match TraceView DAG style

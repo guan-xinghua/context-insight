@@ -16,6 +16,7 @@ import {
   isSkillInvokeToolCall,
   pickFirstSubstantial,
   stripSkillContent,
+  stripSkillRuntimeTail,
 } from "./sift-audit";
 import { extractSkillNameFromArgs } from "./skill-event-grouping";
 
@@ -256,12 +257,14 @@ export async function collectWorkflowExtractCandidates(
       // 引导区语境（供 LLM 理解，非候选）
       contextLines.push(`- Turn ${t.turnIndex} (${t.role}${t.agentName ? `, agent=${t.agentName}` : ""}): ${firstLine(t.content)}`);
 
-      if (t.role === "user" && t.turnIndex === 0 && (t.content ?? "").length >= USER_CANDIDATE_MIN_CHARS) {
+      // S1（role=user 注入）与 S3（opencode ≥1.17 注入体带 Base directory 标记，
+      // 被 adapter 重分类为 system）都从 turn0 收；正文剥运行时尾部（与确定性路一致）
+      if ((t.role === "user" || t.role === "system") && t.turnIndex === 0 && (t.content ?? "").length >= USER_CANDIDATE_MIN_CHARS) {
         regCandidates.push({
           id: "", // 编号在收集完成后统一定
           layer: "regulation",
           source: "turn0 (注入编排规程)",
-          content: t.content!,
+          content: stripSkillRuntimeTail(t.content!),
           partialRead: false,
         });
       }
