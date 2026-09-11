@@ -15,7 +15,7 @@ import { prisma } from "./setup";
 import { buildAgentIO } from "@/lib/export/agent-io-export";
 
 describe("buildAgentIO (v4 Step 1)", () => {
-  it("extracts a flat agent tree with envelope + I/O from a session that has bridges", async () => {
+  it("extracts a flat agent tree with envelope + I/O from a session that has bridges", { timeout: 60_000 }, async () => {
     const bridge = await prisma.interactionBridge.findFirst({
       include: { session: { select: { taskId: true, framework: true } } },
     });

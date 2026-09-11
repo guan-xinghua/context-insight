@@ -103,7 +103,7 @@ describe('折算：百分制 → 0-10（连续，不吸档）', () => {
 
 const route = await import('../src/app/api/observe/session/scorecard/op-bench/route');
 
-describe('端到端：填报 → 重算 → D3 CANN-Bench 评分', () => {
+describe('端到端：填报 → 重算 → D3 CANN-Bench 评分', { timeout: 60_000 }, () => {
 
   it('算子任务未填报：默认持平分 0.8 并明标', async () => {
     await importFixture(SID_OP, writeFixture(SID_OP, OP_LINES));

@@ -9,6 +9,10 @@
 import { beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 
+// fresh clone 兜底（镜像 start.sh 默认值）：.env 由 pretest 的 ensure-test-db 创建，
+// 但 vitest worker 进程不自动读 .env，缺此默认时全部套件死在 $connect
+process.env.DATABASE_URL ||= "file:./dev.db";
+
 const prisma = new PrismaClient();
 
 beforeAll(async () => {

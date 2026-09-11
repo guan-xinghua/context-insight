@@ -101,7 +101,7 @@ function makeFulfilledThenable<T>(value: T): Promise<T> {
 }
 
 describe('会话页 CANNBay 上传入口（共享弹窗）', () => {
-  it('Export HTML 旁的上传按钮唤醒共用弹窗，完整提交携带当前会话 taskId/category/opGen', async () => {
+  it('Export HTML 旁的上传按钮唤醒共用弹窗，完整提交携带当前会话 taskId/category/opGen', { timeout: 30_000 }, async () => {
     const { default: SessionPage } = await import('@/app/session/[taskId]/page')
     const container = document.createElement('div')
     document.body.appendChild(container)

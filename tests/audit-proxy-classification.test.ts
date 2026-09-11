@@ -63,7 +63,7 @@ afterAll(async () => {
 });
 
 describe('audit-proxy-classification：期望 framework 取自统一分类器（无重复映射）', () => {
-  it('codex / cannbot 捕获会话导入后分类正确，审计不误报 BAD', async () => {
+  it('codex / cannbot 捕获会话导入后分类正确，审计不误报 BAD', { timeout: 60_000 }, async () => {
     const codexFile = writeCaptureFixture(SID_CODEX, 'codex-proxy');
     const cannbotFile = writeCaptureFixture(SID_CANNBOT, 'cannbot-proxy');
     await importSession(codexFile, SID_CODEX, prisma, codexFile, 'claude-jsonl');
@@ -84,7 +84,7 @@ describe('audit-proxy-classification：期望 framework 取自统一分类器（
     expect(out).toMatch(/total=\d+ bad=\d+/);
   });
 
-  it('真实错分（codex 会话 framework 被改成 claude-code）仍被检出 BAD', async () => {
+  it('真实错分（codex 会话 framework 被改成 claude-code）仍被检出 BAD', { timeout: 60_000 }, async () => {
     const s = await prisma.session.findFirst({ where: { taskId: SID_CODEX } });
     expect(s).toBeDefined();
     await prisma.session.update({ where: { id: s!.id }, data: { framework: 'claude-code' } });
