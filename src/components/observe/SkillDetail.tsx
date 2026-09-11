@@ -64,9 +64,6 @@ interface SkillDetailProps {
   hasMainAgentWorkflow?: boolean
   /** 主 agent 编排 的真名（扫盘反查的 identifier）；未取/回退时用合成名。 */
   mainAgentWorkflowName?: string | null
-  /** 主 agent 编排 声明的来源标识（如 "STATE.md" / "task-prompts.md"），
-   *  来自 main-agent-workflow 端点（recoverPlanFileDeclaration 的 source）。供 root 行直接显示。 */
-  mainAgentWorkflowSource?: string | null
   /** 主 agent 编排 合成行的逐栏数据（dispatch 计数 + 主 agent turn token 汇总）。 */
   mainAgentWorkflowStats?: {
     dispatchCount: number
@@ -105,7 +102,7 @@ function formatTokens(n: number): string {
 /** 模块级缓存：taskId → LLM 提取状态。切 tab 不 re-fetch，切 session 才重取。 */
 const llmExtractCache = new Map<string, { loading: boolean; content: string | null; source: string | null; error: string | null }>();
 
-export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWorkflow, mainAgentWorkflowName, mainAgentWorkflowSource, mainAgentWorkflowStats, onNavigateToTurn, onAuditSkill, framework }: SkillDetailProps) {
+export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWorkflow, mainAgentWorkflowName, mainAgentWorkflowStats, onNavigateToTurn, onAuditSkill, framework }: SkillDetailProps) {
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set())
   const sc = useSkillContent(taskId)
   // agent .md 全文用独立实例（磁盘扫描），与 skill SKILL.md（session 注入）分桶，避免同名覆盖。
@@ -328,13 +325,8 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                   <TableCell className="text-xs font-medium truncate max-w-[20ch]" title={workflowName}>
                     <div className="flex items-center gap-1">
                       <Badge variant="yellow" className="h-4 px-1 text-[10px] shrink-0">root</Badge>
-                      <span className="truncate">{workflowName}</span>
+                      <span className="truncate">workflow</span>
                     </div>
-                    {mainAgentWorkflowSource && (
-                      <div className="text-[10px] text-muted-foreground mt-0.5" title="组合声明来源（规程层：skill resources / SKILL.md body / turn0；计划层：计划文件名白名单命中的 Read）">
-                        来源: {mainAgentWorkflowSource}
-                      </div>
-                    )}
                   </TableCell>
                   <TableCell className="text-xs">N/A</TableCell>
                   <TableCell className="text-xs tabular-nums" title="主 agent 的 dispatch 次数（编排动作数）">
@@ -389,7 +381,7 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                         <div className="flex items-center justify-between">
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                             <BookOpenIcon className="size-3.5" />
-                            {workflowName} · workflow 声明
+                            workflow 声明
                             {sc.content.get(MAIN_AGENT_WORKFLOW_NAME)?.source && (
                               <span className="text-muted-foreground">
                                 （来源：{sc.content.get(MAIN_AGENT_WORKFLOW_NAME)?.source}，{sc.content.get(MAIN_AGENT_WORKFLOW_NAME)?.length} 字符）
@@ -439,7 +431,7 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                   <TableCell className="text-xs font-medium truncate max-w-[20ch]" title={`${workflowName}（LLM）`}>
                     <div className="flex items-center gap-1">
                       <Badge variant="yellow" className="h-4 px-1 text-[10px] shrink-0">llm</Badge>
-                      <span className="truncate">{workflowName}（LLM）</span>
+                      <span className="truncate">workflow（LLM提取）</span>
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">N/A</TableCell>
@@ -504,7 +496,7 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                         <div className="flex items-center justify-between">
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                             <BookOpenIcon className="size-3.5" />
-                            {workflowName}（LLM）· 组合声明
+                            workflow（LLM提取）· 组合声明
                             <span className="text-muted-foreground">
                               （来源：claude CLI LLM 选择提取{llmSource ? `，${llmSource}` : ""}，{llmContent.length} 字符）
                             </span>
@@ -620,14 +612,14 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                           </span>
                         )
                       })()}
-                      {/* agent .md 全文 · 磁盘扫描（原路径）；有 agent kind 才显（isAgentOnly 或 dual） */}
+                      {/* agent .md 全文（单一入口）：会话恢复（system 注入）为主数据、磁盘扫描兜底，两级优先由服务端内置；有 agent kind 才显 */}
                       {hasAgentMd && (() => {
-                        const k = `disk:${sa.skillName}`
+                        const k = `agent:${sa.skillName}`
                         const loaded = scAgent.content.has(k) || scAgent.error.has(k)
                         return (
                           <span
                             role="button"
-                            title="查看 agent .md 全文（磁盘扫描，取当前文件）"
+                            title="查看 agent .md 全文（优先从会话恢复——子代理运行时 system 注入的声明原文，即当时真正生效的版本；会话无该 agent 注入数据时兜底磁盘扫描当前文件）"
                             className={`ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold border transition-colors ${
                               loaded
                                 ? "border-purple-500 bg-purple-500/25 text-purple-700 dark:text-purple-200"
@@ -636,35 +628,11 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                             onClick={(e) => {
                               e.stopPropagation()
                               if (loaded) scAgent.clear(k)
-                              else if (!scAgent.loading.has(k)) scAgent.fetchAgent(sa.skillName, framework, "disk")
+                              else if (!scAgent.loading.has(k)) scAgent.fetchAgent(sa.skillName, framework)
                             }}
                           >
                             <BookOpenIcon className="size-3" />
-                            {scAgent.loading.has(k) ? "加载中…" : loaded ? "收起" : "全文·磁盘"}
-                          </span>
-                        )
-                      })()}
-                      {/* agent .md 全文 · 会话恢复（子代理运行时 read 到的定义原文）；与磁盘版并排对比 */}
-                      {hasAgentMd && (() => {
-                        const k = `session:${sa.skillName}`
-                        const loaded = scAgent.content.has(k) || scAgent.error.has(k)
-                        return (
-                          <span
-                            role="button"
-                            title="查看 agent .md 全文（从 session 内 read 结果恢复——运行时真正生效的定义，可与磁盘版对比）"
-                            className={`ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold border transition-colors ${
-                              loaded
-                                ? "border-orange-500 bg-orange-500/25 text-orange-700 dark:text-orange-200"
-                                : "border-orange-500/50 bg-orange-500/15 text-orange-600 dark:text-orange-300 hover:bg-orange-500/25 hover:border-orange-500"
-                            } ${scAgent.loading.has(k) ? "animate-pulse" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (loaded) scAgent.clear(k)
-                              else if (!scAgent.loading.has(k)) scAgent.fetchAgent(sa.skillName, framework, "session")
-                            }}
-                          >
-                            <BookOpenIcon className="size-3" />
-                            {scAgent.loading.has(k) ? "加载中…" : loaded ? "收起" : "全文·会话"}
+                            {scAgent.loading.has(k) ? "加载中…" : loaded ? "收起" : "全文"}
                           </span>
                         )
                       })()}
@@ -746,38 +714,55 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                     </TableRow>
                   )
                 }
-                // agent .md 全文内容行 · 磁盘扫描版（purple，原路径）；有 agent kind 才显（isAgentOnly 或 dual）
-                const agentDiskKey = `disk:${sa.skillName}`
-                const agentContentData = hasAgentMd ? scAgent.content.get(agentDiskKey) : undefined
-                const agentContentError = hasAgentMd ? scAgent.error.get(agentDiskKey) : undefined
-                if (agentContentData || agentContentError) {
+                // agent .md 全文内容行（单一入口，自适应来源）：会话恢复（orange，system 注入）为主，
+                // 磁盘兜底（purple）时以 via 区分并提示差异说明；有 agent kind 才显（isAgentOnly 或 dual）
+                const agentKey = `agent:${sa.skillName}`
+                const agentData = hasAgentMd ? scAgent.content.get(agentKey) : undefined
+                const agentError = hasAgentMd ? scAgent.error.get(agentKey) : undefined
+                if (agentData || agentError) {
+                  const viaDisk = agentData?.via === "disk"
                   rows.push(
                     <TableRow key={`${sa.skillName}-agent-content`}>
-                      <TableCell colSpan={14} className="p-3 border-x bg-purple-500/5 border-purple-400/30">
+                      <TableCell
+                        colSpan={14}
+                        className={
+                          viaDisk
+                            ? "p-3 border-x bg-purple-500/5 border-purple-400/30"
+                            : "p-3 border-x bg-orange-500/5 border-orange-400/30"
+                        }
+                      >
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 dark:text-purple-400">
+                            <span
+                              className={`inline-flex items-center gap-1 text-xs font-medium ${
+                                viaDisk
+                                  ? "text-purple-600 dark:text-purple-400"
+                                  : "text-orange-600 dark:text-orange-400"
+                              }`}
+                            >
                               <BookOpenIcon className="size-3.5" />
                               {sa.skillName} · agent.md
-                              <span className="text-muted-foreground font-normal">〔磁盘扫描〕</span>
-                              {agentContentData?.source && (
+                              <span className="text-muted-foreground font-normal">
+                                {viaDisk ? "〔磁盘兜底〕" : "〔会话恢复〕"}
+                              </span>
+                              {agentData?.source && (
                                 <span className="text-muted-foreground">
-                                  （{agentContentData.source}，{agentContentData.length} 字符）
+                                  （{agentData.source}，{agentData.length} 字符）
                                 </span>
                               )}
                             </span>
                             <span className="flex items-center gap-3">
-                              {agentContentData?.content && (
+                              {agentData?.content && (
                                 <span
                                   role="button"
                                   className="text-xs font-medium text-blue-500 cursor-pointer hover:underline"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    const blob = new Blob([agentContentData.content!], { type: "text/plain;charset=utf-8" })
+                                    const blob = new Blob([agentData.content!], { type: "text/plain;charset=utf-8" })
                                     const url = URL.createObjectURL(blob)
                                     const a = window.document.createElement("a")
                                     a.href = url
-                                    a.download = `${sa.skillName.replace(/[^a-zA-Z0-9_-]/g, "_")}.agent.md`
+                                    a.download = `${sa.skillName.replace(/[^a-zA-Z0-9_-]/g, "_")}.${viaDisk ? "disk" : "session"}.agent.md`
                                     window.document.body.appendChild(a)
                                     a.click()
                                     window.document.body.removeChild(a)
@@ -791,91 +776,25 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                                 role="button"
                                 title="收起"
                                 className="text-muted-foreground cursor-pointer hover:text-foreground text-sm leading-none px-1"
-                                onClick={(e) => { e.stopPropagation(); scAgent.clear(agentDiskKey) }}
+                                onClick={(e) => { e.stopPropagation(); scAgent.clear(agentKey) }}
                               >
                                 ×
                               </span>
                             </span>
                           </div>
                           <div className="text-[11px] text-muted-foreground leading-snug">
-                            从本地 AGENTS_SCAN_ROOT 扫描的 agents/ 目录读 .md 当前文件；多插件同名时按本会话派发覆盖 + 字母序消歧——可能与运行时实际版本不同，可与上方“会话恢复”版对比。
+                            {viaDisk
+                              ? "会话内无该 agent 的声明注入数据（如 opencode 工作流派发的 general 子代理），兜底从本地 AGENTS_SCAN_ROOT 扫描 agents/ 目录读当前文件——多插件同名按本会话派发覆盖 + 字母序消歧，可能与运行时实际版本不同。"
+                              : "从会话子代理捕获的 system 注入恢复——运行时真正生效的声明原文：远端机器当时的版本，文件事后被改/被删仍还原历史原貌，多插件同名以当时实际注入的那份为准（已剥运行时附加块）。"}
                           </div>
-                          {agentContentError ? (
-                            <div className="text-xs text-destructive">Error: {agentContentError}</div>
-                          ) : agentContentData?.content ? (
+                          {agentError ? (
+                            <div className="text-xs text-destructive">Error: {agentError}</div>
+                          ) : agentData?.content ? (
                             <pre className="max-h-[28rem] overflow-auto rounded border bg-background p-2 text-xs font-mono whitespace-pre-wrap break-words">
-                              {agentContentData.content}
+                              {agentData.content}
                             </pre>
                           ) : (
-                            <div className="text-xs text-muted-foreground">磁盘未扫到该 agent 的 .md（扫描根下 agents/ 目录无此文件）。</div>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                }
-                // agent .md 全文内容行 · 会话恢复版（orange，运行时真正生效的定义）；与磁盘版并排对比
-                const agentSesKey = `session:${sa.skillName}`
-                const agentSesData = hasAgentMd ? scAgent.content.get(agentSesKey) : undefined
-                const agentSesError = hasAgentMd ? scAgent.error.get(agentSesKey) : undefined
-                if (agentSesData || agentSesError) {
-                  rows.push(
-                    <TableRow key={`${sa.skillName}-agent-session-content`}>
-                      <TableCell colSpan={14} className="p-3 border-x bg-orange-500/5 border-orange-400/30">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400">
-                              <BookOpenIcon className="size-3.5" />
-                              {sa.skillName} · agent.md
-                              <span className="text-muted-foreground font-normal">〔会话恢复〕</span>
-                              {agentSesData?.source && (
-                                <span className="text-muted-foreground">
-                                  （{agentSesData.source}{agentSesData.fullRead ? "，全文" : "，分段拼合"}{agentSesData.maxLine != null && `，到第 ${agentSesData.maxLine} 行`}，{agentSesData.length} 字符）
-                                </span>
-                              )}
-                            </span>
-                            <span className="flex items-center gap-3">
-                              {agentSesData?.content && (
-                                <span
-                                  role="button"
-                                  className="text-xs font-medium text-blue-500 cursor-pointer hover:underline"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    const blob = new Blob([agentSesData.content!], { type: "text/plain;charset=utf-8" })
-                                    const url = URL.createObjectURL(blob)
-                                    const a = window.document.createElement("a")
-                                    a.href = url
-                                    a.download = `${sa.skillName.replace(/[^a-zA-Z0-9_-]/g, "_")}.session.agent.md`
-                                    window.document.body.appendChild(a)
-                                    a.click()
-                                    window.document.body.removeChild(a)
-                                    URL.revokeObjectURL(url)
-                                  }}
-                                >
-                                  Download
-                                </span>
-                              )}
-                              <span
-                                role="button"
-                                title="收起"
-                                className="text-muted-foreground cursor-pointer hover:text-foreground text-sm leading-none px-1"
-                                onClick={(e) => { e.stopPropagation(); scAgent.clear(agentSesKey) }}
-                              >
-                                ×
-                              </span>
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-muted-foreground leading-snug">
-                            从本会话 read 工具调用结果恢复 agent .md 原文——子代理运行时读到的定义即运行时真正生效版本：文件事后被改/被删仍还原历史原貌，多插件同名以会话实际读取为准（取最新一次读取，分段多次读取按时间拼合）。
-                          </div>
-                          {agentSesError ? (
-                            <div className="text-xs text-destructive">Error: {agentSesError}</div>
-                          ) : agentSesData?.content ? (
-                            <pre className="max-h-[28rem] overflow-auto rounded border bg-background p-2 text-xs font-mono whitespace-pre-wrap break-words">
-                              {agentSesData.content}
-                            </pre>
-                          ) : (
-                            <div className="text-xs text-muted-foreground">本会话内未读到该 agent 的 .md（子代理未 read 自己的定义），请看磁盘扫描版。</div>
+                            <div className="text-xs text-muted-foreground">会话与磁盘均未恢复到该 agent 的 .md（会话无该 agent 的 system 注入，且扫描根下 agents/ 目录无此文件）。</div>
                           )}
                         </div>
                       </TableCell>

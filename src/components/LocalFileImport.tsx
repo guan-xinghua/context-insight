@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { saveImportHistory, type ImportHistoryEntry } from "@/components/ImportHistory"
 import { Button } from "@/components/ui/button"
-import { DownloadIcon, LoaderIcon, FolderIcon, FileIcon, ChevronRightIcon, ArrowUpIcon, GlobeIcon, SearchIcon } from "lucide-react"
+import { DownloadIcon, LoaderIcon, FolderIcon, FileIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon, ArrowUpIcon, GlobeIcon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { isProxyVersion } from "@/lib/shared/session-format"
@@ -67,8 +67,23 @@ interface DirEntry {
   fullPath: string
   isDir: boolean
   size: number
+  mtime?: number | null
   isImportableFile: boolean
   importableType: string | null
+}
+
+/** 目录浏览排序：目录置顶（导航优先），组内按修改时间升/降序（默认降序=最新
+ *  在前，方便按时间找会话捕获文件；asc=false 降序 / asc=true 升序）。mtime
+ *  缺失（旧后端响应）按 0 兜底——降序排尾 / 升序排头（紧跟目录）。导出供
+ *  IT 直接验证两个方向。 */
+export function sortDirEntries(entries: DirEntry[], asc: boolean): DirEntry[] {
+  return entries.slice().sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    const am = a.mtime ?? 0
+    const bm = b.mtime ?? 0
+    if (am === bm) return a.name.localeCompare(b.name)
+    return asc ? am - bm : bm - am
+  })
 }
 
 interface CannbaySession {
@@ -124,6 +139,8 @@ export function LocalFileImport() {
   const [importStatuses, setImportStatuses] = useState<ImportStatus[]>([])
   const [error, setError] = useState<string | null>(null)
   const [dirEntries, setDirEntries] = useState<DirEntry[]>([])
+  // 目录浏览时间排序方向：默认降序（最新在前），点表头箭头切换
+  const [dirSortAsc, setDirSortAsc] = useState(false)
   const [currentDir, setCurrentDir] = useState<string | null>(null)
   const [parentDir, setParentDir] = useState<string | null>(null)
   const [browseLoading, setBrowseLoading] = useState(false)
@@ -711,6 +728,19 @@ export function LocalFileImport() {
                     <TableRow>
                       <TableHead className="w-[40px]"></TableHead>
                       <TableHead>Name</TableHead>
+                      <TableHead className="w-[150px]">
+                        <span
+                          role="button"
+                          className="inline-flex items-center gap-0.5 cursor-pointer select-none hover:text-foreground"
+                          title={dirSortAsc ? "按修改时间升序（点击改为降序）" : "按修改时间降序（点击改为升序）"}
+                          onClick={() => setDirSortAsc(v => !v)}
+                        >
+                          Modified
+                          {dirSortAsc
+                            ? <ChevronUpIcon className="size-3.5" />
+                            : <ChevronDownIcon className="size-3.5" />}
+                        </span>
+                      </TableHead>
                       <TableHead className="w-[80px]">Size</TableHead>
                       <TableHead className="w-[100px]">Type</TableHead>
                     </TableRow>
@@ -718,12 +748,12 @@ export function LocalFileImport() {
                   <TableBody>
                     {dirEntries.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
                           Empty directory
                         </TableCell>
                       </TableRow>
                     )}
-                    {dirEntries.map(entry => (
+                    {sortDirEntries(dirEntries, dirSortAsc).map(entry => (
                       <TableRow
                         key={entry.fullPath}
                         className="cursor-pointer hover:bg-primary/5"
@@ -744,6 +774,9 @@ export function LocalFileImport() {
                             </span>
                             {entry.isDir && <ChevronRightIcon className="size-3.5 text-muted-foreground shrink-0" />}
                           </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
+                          {entry.mtime ? formatTime(new Date(entry.mtime).toISOString()) : "—"}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground tabular-nums">
                           {entry.isDir ? "" : formatSize(entry.size)}

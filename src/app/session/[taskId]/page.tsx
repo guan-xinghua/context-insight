@@ -508,10 +508,6 @@ export default function SessionDetailPage({
   // 主 agent 编排 的真名（主 agent Skill invoke 的 workflow skill skillName）。
   // null=未取/无 workflow；MAIN_AGENT_WORKFLOW_NAME 回退由端点返回。
   const [mainAgentWorkflowName, setMainAgentWorkflowName] = useState<string | null>(null)
-  // 主 agent 编排 声明的来源标识（单层 = 该层 source，如 "task-prompts.md" / "STATE.md"；
-  // 双层 = "规程: X + 计划: Y"），来自 main-agent-workflow 端点
-  // （recoverCombinedWorkflowDeclaration 的 source）。供 Skills tab root 行显示。
-  const [mainAgentWorkflowSource, setMainAgentWorkflowSource] = useState<string | null>(null)
   // 主 agent 编排 合成行的逐栏数据：dispatch 计数（编排动作）+ 主 agent turn 的 token 汇总。
   const mainAgentWorkflowStats = useMemo(() => {
     const dispatchCount = allSkillEvents.filter(e => !e.isSubagent && e.eventType === "dispatch").length
@@ -785,7 +781,6 @@ export default function SessionDetailPage({
         if (!cancelled) {
           setHasMainAgentWorkflow(!!d.available)
           setMainAgentWorkflowName(d.name ?? null)
-          setMainAgentWorkflowSource(d.source ?? null)
         }
       } catch {
         /* 取不到不影响主流程 */
@@ -1548,7 +1543,6 @@ export default function SessionDetailPage({
           skillEvents={allSkillEvents}
           hasMainAgentWorkflow={hasMainAgentWorkflow}
           mainAgentWorkflowName={mainAgentWorkflowName}
-          mainAgentWorkflowSource={mainAgentWorkflowSource}
           mainAgentWorkflowStats={mainAgentWorkflowStats}
           framework={framework}
           onAuditSkill={(skillName, kind) => {

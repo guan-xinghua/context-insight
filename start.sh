@@ -175,44 +175,29 @@ else
 fi
 
 # Launch Python smart-agent (v2 backend) in background.
-# 每次启动都重启 smart-agent，确保加载最新 .py 改动（端口被占说明上次的还在跑旧代码）。
-AGENT_PORT=21026
+# 端口选择与存量进程处置交给 scripts/pick-smart-agent-port.sh（可独立行为测试）：
+# 避让 next 实占 PORT（防 EADDRINUSE 撞车）；/health 验明正身才杀旧重启，
+# 无关进程不杀、错开端口；无可用候选则跳过 smart-agent（主服务不受影响）。
 AGENT_PID=""
 AGENT_LOG="$SCRIPT_DIR/tmp/smart-agent.log"
 
-# 取占住某端口的 PID（用于重启时杀旧进程）
-port_pid() {
-  local port=$1
-  if command -v ss >/dev/null 2>&1; then
-    ss -ltnp 2>/dev/null | grep ":$port " | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2
-  elif command -v lsof >/dev/null 2>&1; then
-    lsof -ti "tcp:$port" 2>/dev/null | head -1
-  elif command -v fuser >/dev/null 2>&1; then
-    fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | head -1
-  fi
-}
-
 if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
-  EXISTING=$(port_pid "$AGENT_PORT")
-  if [ -n "$EXISTING" ]; then
-    echo "[start] Restarting smart-agent (killing stale PID $EXISTING on port $AGENT_PORT; reloading to pick up *.py changes)..."
-    kill "$EXISTING" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$EXISTING" 2>/dev/null; then kill -9 "$EXISTING" 2>/dev/null || true; sleep 0.5; fi
+  AGENT_PORT=$(bash "$SCRIPT_DIR/scripts/pick-smart-agent-port.sh" "$BASE_PORT" "$PORT")
+  if [ -n "$AGENT_PORT" ]; then
+    mkdir -p "$SCRIPT_DIR/tmp"
+    (cd "$SCRIPT_DIR/smart-agent" && CANNBOT_AGENT_PORT=$AGENT_PORT python3 server.py) > "$AGENT_LOG" 2>&1 &
+    AGENT_PID=$!
+    export CANNBOT_AGENT_URL="http://localhost:$AGENT_PORT"
+    for i in $(seq 1 10); do
+      if curl -s "http://localhost:$AGENT_PORT/health" > /dev/null 2>&1; then
+        echo "[start] smart-agent ready (port $AGENT_PORT, PID $AGENT_PID, log $AGENT_LOG)"
+        break
+      fi
+      sleep 0.5
+    done
   else
-    echo "[start] Launching smart-agent (Python) on port $AGENT_PORT..."
+    echo "[start] smart-agent skipped (no free candidate port in $((BASE_PORT + 1))-$((BASE_PORT + 3)) after avoiding PORT=$PORT)"
   fi
-  mkdir -p "$SCRIPT_DIR/tmp"
-  (cd "$SCRIPT_DIR/smart-agent" && CANNBOT_AGENT_PORT=$AGENT_PORT python3 server.py) > "$AGENT_LOG" 2>&1 &
-  AGENT_PID=$!
-  export CANNBOT_AGENT_URL="http://localhost:$AGENT_PORT"
-  for i in $(seq 1 10); do
-    if curl -s "http://localhost:$AGENT_PORT/health" > /dev/null 2>&1; then
-      echo "[start] smart-agent ready (port $AGENT_PORT, PID $AGENT_PID, log $AGENT_LOG)"
-      break
-    fi
-    sleep 0.5
-  done
 fi
 
 cleanup() {

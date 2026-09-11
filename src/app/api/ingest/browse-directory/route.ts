@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
           fullPath: full,
           isDir,
           size: isDir ? 0 : s.size,
+          mtime: s.mtimeMs,
           isImportableFile,
           importableType: isCannbot ? BRAND_SOURCE_TYPE : isDb ? 'opencode-db' : isJsonl ? 'claude-jsonl' : null,
         };
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
           fullPath: full,
           isDir: false,
           size: 0,
+          mtime: 0,
           isImportable: false,
           isImportableFile: false,
           importableType: null,

@@ -11,7 +11,9 @@ POST /analyze  body: {trajectoryText, provider:{baseUrl,apiKey,model}, promptMd?
   → NDJSON stream: progress events → {stage:"result", outputPath, rounds, analysis}
 POST /compress  body: 同 /analyze 但只压缩 → NDJSON stream → {stage:"result", outputPath}
 POST /compress-and-analyze  body: 同 /analyze → 先压缩再分析，单 NDJSON 流
-GET /health → {status: ok}
+GET /health → {status: ok, service: cannbot-smart-agent}
+  service 标识供启动器验明正身：带通用 /health 的无关服务（Actuator、
+  dev server 等）不得被误认为 smart-agent 而复用/击杀
 """
 from __future__ import annotations
 
@@ -200,7 +202,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_get(self) -> None:
         if self.path == "/health":
-            self._json(200, {"status": "ok"})
+            # service 标识是启动器（bin/cannbot-insight.mjs 复用判定）与
+            # scripts/pick-smart-agent-port.sh（杀旧重启判定）的正身依据：
+            # 仅凭 2xx 无法区分 smart-agent 与任意带 /health 的无关服务
+            self._json(200, {"status": "ok", "service": "cannbot-smart-agent"})
             return
         self._json(404, {"error": "not found"})
 
@@ -337,7 +342,9 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, format="%(message)s", level=logging.INFO)
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    # 绑 127.0.0.1（与 next 一致）：localhost 后端服务不暴露到外部网卡——
+    # 此前 0.0.0.0 全接口监听既不安全，也更容易与外部进程发生端口纠缠
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     logging.info(f"smart-agent server on http://localhost:{PORT}")
     try:
         server.serve_forever()

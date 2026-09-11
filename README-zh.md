@@ -20,7 +20,7 @@ LLM 编码 Agent 的 Session 级可观测工具。辅助长上下文分析、模
 - **Skill 覆盖度** — claude 格式来源（claude/opencode/codex 的 proxy 捕获 + native claude-code 会话）展示：落盘的系统注入（捕获件的 wire verbatim 系统提示 / native 会话的 system 行注入）里的可用 skills 全集对照会话实际使用，未使用 skills 置顶强调（圆环中心计数 + 首位排序），已使用的按 调用 / 仅加载 / 子代理派发 / 全集外 区分；native opencode 会话（系统提示不落盘）不显示该看板
 - **proxy 捕获分类** — 统一分类器（`src/lib/ingest/proxy-classify.ts`）作为 proxy 判定单一权威源：信号优先级 `cc-session-meta`（文件级权威）> 行级 `source` 标记 > wire 指纹（顶层 `system`/`tools`，兜底早期无标记产物）；agent 归属覆盖 claude-code / opencode / codex / cannbot；一切 proxy 捕获（无论 agent 归属）均按 claude 格式 jsonl 处理 wire 轮次 / full-context / 增量刷新。`cpx cannbot` 一键捕获 CANNBot CLI（opencode 系 fork，网关上游自动发现，`../cpx/CANNBOT-DESIGN.md`）
 - **Skill 全文（SKILL.md）** — Skill Summary 与 Skills per Agent 每个 skill 均可点击，取原生 Skill 工具注入内容或 SKILL.md 读取结果重建全文，支持下载
-- **Agent 定义恢复（agent .md 全文）** — Skill Summary 每个子代理行提供**两个并排按钮**对比被派发 agent 的 `.md` 定义：**全文·磁盘**（扫 `AGENTS_SCAN_ROOT`，按会话派发覆盖消歧——原路径，磁盘当前文件）与 **全文·会话**（**从 session 本身恢复**：子代理运行时会自己 read 该定义文件，read 结果即运行时真正生效的版本——文件事后被改/被删仍逐字节还原历史原貌，多插件同名以会话实际读取的那份为准，取最新一次读取，分段多次读取按行拼合）。两面板可同时展开对照差异，分别支持下载
+- **Agent 定义恢复（agent .md 全文）** — Skill Summary 每个子代理行提供**单一「全文」按钮**取被派发 agent 的 `.md` 定义，两级优先：**会话恢复为主**（会话捕获的子代理运行时 `system` 注入——即当时真正生效的声明原文，文件事后被改/被删仍逐字节还原历史原貌，多插件同名天然无歧义：注入的就是当时加载的那份），仅当会话内无该 agent 注入数据时（如 opencode 工作流派发的 general 子代理）**兜底磁盘扫描**（`AGENTS_SCAN_ROOT` 当前文件，按会话派发覆盖消歧）。展开面板以〔会话恢复〕/〔磁盘兜底〕徽标标识实际命中路径，支持下载
 - **概念追踪** — 跨轮次关键词搜索，查看传播链路和 DAG 图；搜索结果支持按 source（用户/模型/子agent 等）、thinking、tools 二次过滤；点击结果的 View Turn 跳转到 Turns tab，自动展开并高亮关键词至匹配位置（内容 / 工具参数 / 结果 / 错误）
 - **文件读取分析** — 分析文件读取冗余，检测重复和不必要读取
 - **文件内容复卷（循迹复卷）** — 每个文件行一个按钮，按时间戳逐行重建该文件全部内容（最后写入胜），未采集到的行标注 `--line N not found --`，支持下载

@@ -44,7 +44,7 @@ body: {trajectoryText, provider:{baseUrl,apiKey,model}, promptMd?, outputDir?, o
 → 200 {outputPath, rounds, analysis}
 → 400/500 {error}
 
-GET /health → {status: ok}
+GET /health → {status: ok, service: cannbot-smart-agent}
 ```
 
 ## 与 TS 版的差异

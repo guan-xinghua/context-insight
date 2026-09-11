@@ -2,6 +2,35 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [v0.2.27] - 2026-09-10
+
+### Added
+- 【Import Session · 目录浏览时间列排序】JSONL 目录浏览表（Browse 步）新增 **Modified 时间列 + 排序箭头**——默认降序（最新在前，方便按时间找会话捕获文件，如 `~/.cannbot-insight/proxy` 下的 cpx 捕获），点击箭头切换升/降序；目录恒置顶（导航优先），mtime 缺失（旧后端响应）兜底排尾，同时间按文件名稳定排序。配套：`browse-directory` API entries 增返 `mtime`（fs stat）；排序逻辑抽为可测的 `sortDirEntries` 导出。IT：`tests/local-import-dir-time-sort.test.tsx` 3 用例（真实 DOM 全链路 input→browse：默认降序+目录置顶+时间文本渲染、点击箭头翻转到升序、纯排序语义两方向+兜底+稳定序）
+
+### Fixed
+- 【smart-agent 端口选择与击杀安全（start.sh dev 流程）】两类"运行中被杀/撞车"事故修复：
+  - 【无差别击杀】start.sh 启动时对 AGENT_PORT(21026) 占用者无条件 kill → kill -9——无关服务占了该端口就会被误杀（`已杀死` 事故来源之一）。修复：抽出 `scripts/pick-smart-agent-port.sh`（独立可测），占用者先经 `/health` 应答体**服务标识**验明正身（server.py `/health` 增返 `service: cannbot-smart-agent`；仅 2xx 不认——Actuator、k8s 探针、dev server 等带通用 /health 的无关服务同样不杀不认）：是上次运行的存量 smart-agent 才杀旧重启（原"加载 *.py 变更"语义保留）；无关进程绝不击杀、错开到下一候选；BASE+1~BASE+3 全被占满则跳过 smart-agent（主服务不受影响）。`port_pid` 的 lsof 分支加 `-sTCP:LISTEN` 过滤——`lsof -ti tcp:$port` 默认匹配连接两端，ESTABLISHED 客户端（残留 next、浏览器等）PID 可能被取到而杀错进程（macOS 正走 lsof 分支）
+  - 【撞车】smart-agent 端口曾钉死 BASE+1，BASE(21025) 被占时 next 滚进 BASE+1 与之相撞（EADDRINUSE，npm 启动器同款 bug 的 dev 版）。修复：候选端口避让 next 实选 PORT
+  - 【探测挂死】/health 验明 curl 加 `-m 2` 超时——哑端口（TCP 连上不回 HTTP）不再阻塞启动探测
+  - 【网络暴露】smart-agent server.py 由 `0.0.0.0` 全网卡监听改绑 `127.0.0.1`（与 next 一致；localhost 后端无远程消费场景，消除局域网暴露）
+  - IT：`tests/start-sh-agent-port.test.ts` 8 用例（行为级：空闲选 BASE+1、PORT 避让、无关进程不杀+错开+存活断言、带通用 /health 的无关服务不杀+错开、存量 agent〔/health 带服务标识〕杀旧重启+子进程退出断言、全占返回空、server.py 绑定+服务标识+lsof LISTEN 源码断言）
+- 【npm/tgz 安装态启动崩溃 EADDRINUSE 21026（客户实测）】`bin/cannbot-insight.mjs` 端口编排缺陷：BASE_PORT(21025) 被占时 next 经 findFreePort 滚到 BASE+1(21026)，而 smart-agent 端口钉死 BASE+1 且先于 next spawn——python 抢先绑定 21026 后 `next start -p 21026` 即 EADDRINUSE 崩溃。修复：抽出 `bin/ports.mjs`（isTcpFree / isHttpHealthy / isSmartAgent / findFreePort{skip} 纯端口工具），smart-agent 端口自 BASE+1 起 3 个候选中探测空闲并**避让 next 实占端口**，无空闲则降级跳过；先探测存活实例**直接复用**不再重复 spawn——复用正身判定用 `isSmartAgent`（/health 2xx 且响应体带 `cannbot-smart-agent` 服务标识，通用 /health 服务绝不复用，否则 CANNBOT_AGENT_URL 会指向陌生后端）；健康检查与就绪探测改内置 fetch（去 curl 依赖，最小系统无 curl 时不再误判未就绪）；findFreePort 无空闲返回 null 由调用方显式退出。IT：`tests/launcher-ports.test.tsx` 5 用例（占用/释放判定、健康探测含非 2xx、isSmartAgent 正身判定——通用 /health 三形态不认+带标识才认、回归场景——BASE 被占 → next=BASE+1 且 agent 分配 skip 后落 BASE+2 永不撞车 + 无 skip 负向对照、全占返回 null）；真机 E2E：单占 21025 → next 21026 HTTP 200 + agent 21027 ready，双占 21025/26 → next 21027 + 复用存活 agent，均无崩溃
+- 【Turns tab · 并行派发 subagent 展示重构】同一 turn 并行派发多个 subagent 时（如 #634/#1078 双派发）原 grid 2/3 列并排布局有两层问题：① grid 子项默认 `min-width:auto`，窄列被 lane 内 turn 行（#N 徽章 + role + "1 tools" + token 数）的最小内容宽撑破，横向溢出到框外覆盖相邻内容（#635、#1079 等行移出框外）；② lane 长短不齐时 grid 行高取最高者，短 lane 侧大片留白、观感差。重构为**并行组（ParallelSubagentGroup）= 紧凑 chip 行 + 展开区全宽堆叠**：折叠态每个 subagent 一个单行 chip（名/turns 数/时延/错误态，flex-wrap 换行排布）等高天然齐整；点击 chip 该 lane 在 chip 行下方**全宽展开**（独占整行宽，turn 行不再挤窄列——从根上消除溢出），可多个同时展开（保持跨 tab 导航祖先链的多桥展开语义）；组头 `⇄ N parallel subagents` 标识 + turns/token 汇总。配套卫生：lane 根节点与容器 `min-w-0`、turn 行 `flex-wrap` + 固定元素 `shrink-0` + 摘要 `min-w-[60px] max-w-[200px] truncate`、lane 头 agent 名 `max-w-[60%] truncate`、时间线滚动容器 `overflow-x-hidden` 兜底、根 turn 徽章行同步 `flex-wrap`。IT：`tests/turn-timeline-parallel-overflow.test.tsx` 3 用例（并行组 ⇄/双 chip/无并排 grid、展开 lane 全宽完整渲染 + chip 高亮/错误态、SubagentLaneView 行级卫生）
+
+### Changed
+- 【Skills tab · root/llm 行显示名收敛】顶部合成 root 行显示名由「主 agent 编排」（或扫盘反查的 workflow 真名）改为固定「workflow」，行下方的声明来源小字（来源: 规程: turn0 (注入编排规程) + 计划: STATE.md 等）移除（真名保留在悬浮 tooltip，对账跳转/内容取数的功能标识符不变）；llm 行显示名「{真名}（LLM）」改为「workflow（LLM提取）」；展开面板标题同步（「workflow 声明」/「workflow（LLM提取）· 组合声明」）；mainAgentWorkflowSource prop 链路整体清理（接口/解构/page.tsx 状态与传参）
+- 【Skills tab · agent .md 全文按钮配色】归一后的「全文」按钮配色由 orange 换回原「全文·磁盘」的 purple（内容行仍按 via 自适应标识实际命中来源）
+- 【Skills tab · agent .md 全文按钮合并】subagent 行的「全文·磁盘」「全文·会话」两个并排按钮合并为**单一「全文」按钮**——会话恢复（子代理运行时 system 注入）作为主数据，磁盘扫描降级为兜底（会话内无该 agent 注入数据时才走，如 opencode 工作流派发的 general 子代理）。两级优先由 agent-content 路由缺省行为提供（v2.1x 起已是 system 优先 + 磁盘兜底），本次是 UI 收敛：
+  - use-skill-content：fetchAgent 去掉 source 强制单源参数；key 统一 `agent:<name>` 前缀（防与同名 skill 内容互覆）；SkillContentResponse.via 类型对齐实际响应（"system" | "disk"）
+  - SkillDetail：两按钮 → 一按钮（orange）；两个内容行 → 一个自适应行（via=system 橙色〔会话恢复〕/ via=disk 紫色〔磁盘兜底〕，说明文案与下载文件名后缀随来源区分，双路都无数据时给出合并提示）
+  - agent-content 路由：行为不变（缺省两级优先），头注释同步单入口语义；source 参数保留 'system'|'disk' 显式单源（测试/调试用），旧 UI 的 'session' 值按缺省处理（兼容缓存中的旧前端）
+  - README 双语「Agent 定义恢复」特性描述同步改写
+  - IT：agent-content-api.test.ts 补 source=session（旧 UI 值）按缺省两级优先的兼容用例；既有缺省/降级用例继续锁定主行为
+- 【版本策略按包迭代】版本号迭代规则明确为 PR 粒度按包升降：每次合 PR +0.0.1，只升 PR 实际触达的包（insight 触达才升 insight、cpx 触达才升 cpx，未触达不动），AGENTS.md/CLAUDE.md 双语四处同步
+
+### Fixed（测试）
+- session-page-cannbay-upload 偶发超时（vitest 5s 默认值在并行负载下偶破）→ it 显式 30s 超时，连续 3 轮全量回归验证通过
+
 ## [v0.2.26] - 2026-09-09
 
 ### Added

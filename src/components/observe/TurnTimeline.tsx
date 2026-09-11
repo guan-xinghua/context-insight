@@ -130,7 +130,11 @@ interface LaneCtx {
 
 // Recursive subagent lane: renders a lane's turns AND, nested, any sub-lanes
 // dispatched by those turns (supports subagent-of-subagent, not just root→subagent).
-function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
+// 布局约束：lane 可能被放进窄容器（并行组的展开区、嵌套子 lane），根节点必须
+// min-w-0（grid/flex 子项默认 min-width:auto 会被内容撑破轨道），内部行必须
+// flex-wrap + 固定元素 shrink-0 + 摘要可截断——否则 #635 / "1 tools" / token 数
+// 等最小内容宽度超出容器后横向溢出到框外，覆盖相邻内容。
+export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
   const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
   const isError = lane.status === "error"
   const childLanes: SubagentLane[] = []
@@ -140,19 +144,19 @@ function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
   }
   return (
     <div className={cn(
-      "border rounded-lg",
+      "border rounded-lg min-w-0",
       isError ? "border-red-300 bg-red-50/30 dark:bg-red-500/5" : "border-orange-200 bg-orange-50/20 dark:bg-orange-500/5"
     )}>
       <button
         className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left cursor-pointer hover:bg-accent/30 transition-colors"
         onClick={() => ctx.onToggleBridge(lane.bridgeId)}
       >
-        <span className="text-xs select-none">{isExpanded ? "▼" : "▶"}</span>
-        <Badge variant="orange" className="text-xs">{lane.name}</Badge>
+        <span className="text-xs select-none shrink-0">{isExpanded ? "▼" : "▶"}</span>
+        <Badge variant="orange" className="text-xs max-w-[60%] truncate">{lane.name}</Badge>
         {lane.summary && <span className="text-xs text-foreground/80 truncate">{lane.summary}</span>}
-        {isError && <Badge variant="red" className="text-xs">error</Badge>}
+        {isError && <Badge variant="red" className="text-xs shrink-0">error</Badge>}
       </button>
-      <div className="flex items-center gap-2 px-2 pb-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 px-2 pb-1 text-xs text-muted-foreground">
         <span>{lane.turnCount} turns</span>
         {lane.totalTokens > 0 && <span>{formatTokenCount(lane.totalTokens)} tok</span>}
         {lane.latencyMs > 0 && <span>{formatLatency(lane.latencyMs)}</span>}
@@ -164,23 +168,23 @@ function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
               key={st.turnId}
               ref={ctx.selectedTurnId === st.turnId ? ctx.selectedSubRef : null}
               className={cn(
-                "w-full text-left flex items-center gap-1.5 px-2 py-1 rounded border-l-2 text-xs transition-colors cursor-pointer",
+                "w-full text-left flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded border-l-2 text-xs transition-colors cursor-pointer",
                 "border-l-orange-400 bg-orange-50/30 dark:bg-orange-500/10",
                 ctx.selectedTurnId === st.turnId ? "ring-1 ring-primary/50" : "hover:bg-accent/30"
               )}
               onClick={() => ctx.onSelectTurn(st.turnId)}
             >
-              <span className="font-mono text-muted-foreground">#{st.turnIndex}</span>
-              <Badge variant={ROLE_BADGE_VARIANTS[st.role] ?? "gray"} className="text-xs">
+              <span className="font-mono text-muted-foreground shrink-0">#{st.turnIndex}</span>
+              <Badge variant={ROLE_BADGE_VARIANTS[st.role] ?? "gray"} className="text-xs shrink-0">
                 {ROLE_ICONS[st.role]} {st.role}
               </Badge>
-              {st.toolCalls.length > 0 && <Badge variant="outline" className="text-xs">{st.toolCalls.length} tools</Badge>}
+              {st.toolCalls.length > 0 && <Badge variant="outline" className="text-xs shrink-0">{st.toolCalls.length} tools</Badge>}
               {st.contentSummary && (
-                <span className="text-foreground/80 truncate max-w-[200px]">
+                <span className="text-foreground/80 truncate min-w-[60px] max-w-[200px]">
                   {st.contentSummary.replace(/^<thinking>/, "").substring(0, 40)}
                 </span>
               )}
-              {st.totalTokens > 0 && <span className="text-muted-foreground">{formatTokenCount(st.totalTokens)}</span>}
+              {st.totalTokens > 0 && <span className="text-muted-foreground shrink-0">{formatTokenCount(st.totalTokens)}</span>}
             </button>
           ))}
           {childLanes.length > 0 && (
@@ -190,6 +194,62 @@ function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 并行派发组（同一 turn 派发 N>1 个 subagent）：不再用多列 grid 并排展开——
+// lane 长度不齐时短侧下方必然留白（grid 行高取最高者），窄列还会被行内容撑破。
+// 改为「紧凑 chip 行 + 展开区全宽堆叠」：
+//   - 折叠态：每个 subagent 一个单行 chip（名/turns/时延/错误态），等高天然齐整；
+//   - 点击 chip：该 lane 在 chip 行下方全宽展开（独占整行宽，turn 行不挤窄列），
+//     可多个同时展开（保持跨 tab 导航祖先链的多桥展开语义）；
+//   - 组头 ⇄ 标识 + 汇总统计，并行关系与规模一目了然。
+export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; ctx: LaneCtx }) {
+  const expandedLanes = lanes.filter(l => ctx.expandedSubagents.has(l.bridgeId))
+  const totalTurns = lanes.reduce((s, l) => s + l.turnCount, 0)
+  const totalTokens = lanes.reduce((s, l) => s + l.totalTokens, 0)
+  return (
+    <div className="ml-4 mt-1 min-w-0 rounded-lg border border-orange-200/70 dark:border-orange-500/20 bg-orange-50/10 dark:bg-orange-500/5 p-1.5 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-0.5">
+        <span className="text-[11px] text-muted-foreground shrink-0">⇄ {lanes.length} parallel subagents</span>
+        <span className="text-[11px] text-muted-foreground">
+          {totalTurns} turns{totalTokens > 0 ? ` · ${formatTokenCount(totalTokens)} tok` : ""}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {lanes.map(lane => {
+          const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
+          const isError = lane.status === "error"
+          return (
+            <button
+              key={lane.bridgeId}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs min-w-0 max-w-full transition-colors cursor-pointer",
+                isExpanded
+                  ? "border-orange-400 bg-orange-100/60 dark:bg-orange-500/15"
+                  : isError
+                    ? "border-red-300 bg-red-50/40 dark:bg-red-500/10 hover:bg-red-50/70 dark:hover:bg-red-500/20"
+                    : "border-orange-200 bg-background hover:bg-accent/40"
+              )}
+              onClick={() => ctx.onToggleBridge(lane.bridgeId)}
+            >
+              <span className="select-none shrink-0">{isExpanded ? "▼" : "▶"}</span>
+              <Badge variant="orange" className="max-w-[180px] truncate">{lane.name}</Badge>
+              {isError && <Badge variant="red" className="shrink-0">error</Badge>}
+              <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
+              {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
+            </button>
+          )
+        })}
+      </div>
+      {expandedLanes.length > 0 && (
+        <div className="space-y-1.5">
+          {expandedLanes.map(lane => (
+            <SubagentLaneView key={lane.bridgeId} lane={lane} ctx={ctx} />
+          ))}
         </div>
       )}
     </div>
@@ -512,7 +572,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0" ref={containerRef}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" ref={containerRef}>
         <div className="px-3 py-2 space-y-1.5">
           {filteredRootTurns.map(turn => {
             const borderColor = ROLE_COLORS[turn.displayRole] ?? "border-l-gray-300 bg-gray-50/50"
@@ -530,8 +590,8 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
                   )}
                   onClick={() => onSelectTurn(turn.turnId)}
                 >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-xs font-mono text-muted-foreground">#{turn.turnIndex}</span>
+                  <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                    <span className="text-xs font-mono text-muted-foreground shrink-0">#{turn.turnIndex}</span>
                     <Badge variant={ROLE_BADGE_VARIANTS[turn.displayRole] ?? "gray"}>
                       {ROLE_ICONS[turn.displayRole] ?? turn.displayRole} {ROLE_LABELS[turn.displayRole] ?? turn.displayRole}
                     </Badge>
@@ -582,16 +642,13 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
                   </div>
                 </button>
 
-                {lanes.length > 0 && (
-                  <div className={cn(
-                    "ml-4 mt-1",
-                    lanes.length === 1 ? "" : "grid gap-1.5",
-                    lanes.length === 2 ? "grid-cols-2" : lanes.length === 3 ? "grid-cols-3" : "grid-cols-2"
-                  )}>
-                    {lanes.map(lane => (
-                      <SubagentLaneView key={lane.bridgeId} lane={lane} ctx={laneCtx} />
-                    ))}
+                {lanes.length === 1 && (
+                  <div className="ml-4 mt-1 min-w-0">
+                    <SubagentLaneView lane={lanes[0]} ctx={laneCtx} />
                   </div>
+                )}
+                {lanes.length > 1 && (
+                  <ParallelSubagentGroup lanes={lanes} ctx={laneCtx} />
                 )}
               </div>
             )

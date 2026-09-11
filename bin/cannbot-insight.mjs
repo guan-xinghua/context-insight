@@ -17,6 +17,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { homedir, platform } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { isTcpFree, isHttpHealthy, isSmartAgent, findFreePort } from './ports.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -25,7 +26,6 @@ const require = createRequire(PKG_DIR + '/')
 
 const DATA_DIR = process.env.CANNBOT_INSIGHT_HOME || path.join(homedir(), '.cannbot-insight')
 const BASE_PORT = Number.parseInt(process.env.CANNBOT_INSIGHT_PORT || '21025', 10)
-const SMART_AGENT_PORT = BASE_PORT + 1
 
 const CLI_COMMANDS = new Set([
   'tui', 'sessions', 'session', 'stats', 'compare', 'search', 'turn',
@@ -114,10 +114,12 @@ async function startWebUi(rawArgs) {
 
   // 端口探测
   const port = killExisting ? BASE_PORT : await findFreePort(BASE_PORT)
+  if (port == null) { console.error('[cbi] 无可用端口'); process.exit(1) }
   log(`端口: ${port}`)
 
-  // smart-agent 可选：检测到 python3 + server.py 才启动，缺失静默降级
-  const agent = await maybeStartSmartAgent()
+  // smart-agent 可选：检测到 python3 + server.py 才启动，缺失静默降级；
+  // 端口必须避让 next 实占端口（见 maybeStartSmartAgent）
+  const agent = await maybeStartSmartAgent(port)
 
   // 启动 next start
   log('启动 CANNBot-Insight...')
@@ -201,45 +203,62 @@ function ensurePrismaClient() {
   }
 }
 
-async function findFreePort(start) {
-  const net = await import('node:net')
-  for (let p = start; p < start + 128; p++) {
-    const taken = await new Promise((resolve) => {
-      const s = net.createServer()
-      s.once('error', () => resolve(true))
-      s.once('listening', () => { s.close(); resolve(false) })
-      s.listen(p, '127.0.0.1')
-    })
-    if (!taken) return p
-    warn(`端口 ${p} 被占，尝试下一个...`)
-  }
-  console.error('[cbi] 无可用端口'); process.exit(1)
+// smart-agent 端口候选区间：BASE+1 起 3 个。必须避开 next 实占端口——
+// BASE 被占时 next 会滚到 BASE+1，若 smart-agent 仍钉 BASE+1 且先 spawn，
+// python 抢先绑定 → next start EADDRINUSE 崩溃（客户实测 21026）。
+const agentPortCandidates = (nextPort) => {
+  const out = []
+  for (let p = BASE_PORT + 1; p < BASE_PORT + 4; p++) if (p !== nextPort) out.push(p)
+  return out
 }
 
-async function maybeStartSmartAgent() {
+async function maybeStartSmartAgent(nextPort) {
   const serverPy = path.join(PKG_DIR, 'smart-agent', 'server.py')
   if (!existsSync(serverPy)) return null
+
+  // ① 已有存活的 smart-agent（上次运行遗留）→ 直接复用，不重复 spawn。
+  // 正身判定：/health 响应体须带 cannbot-smart-agent 服务标识——通用 /health
+  // 服务（Actuator、dev server 等）绝不复用，否则 CANNBOT_AGENT_URL 指向
+  // 陌生后端，breather/v2 全部调用打错服务
+  for (const p of agentPortCandidates(nextPort)) {
+    if (await isSmartAgent(p)) {
+      log(`smart-agent 已在运行 (port ${p})，复用`)
+      process.env.CANNBOT_AGENT_URL = `http://localhost:${p}`
+      return null
+    }
+  }
+
   let pythonBin = null
   for (const c of ['python3', 'python']) {
     try { execSync(`command -v ${c}`, { stdio: 'pipe' }); pythonBin = c; break } catch {}
   }
   if (!pythonBin) { warn('未检测到 python3 —— smart-agent 后端跳过（breather/v2 分析功能降级）'); return null }
-  log(`检测到 ${pythonBin}，启动 smart-agent (port ${SMART_AGENT_PORT})...`)
+
+  // ② 找空闲端口起一个（避让 next 实占端口）
+  let agentPort = null
+  for (const p of agentPortCandidates(nextPort)) {
+    if (await isTcpFree(p)) { agentPort = p; break }
+  }
+  if (agentPort == null) {
+    warn(`smart-agent 端口 ${BASE_PORT + 1}-${BASE_PORT + 3} 均被占用（已避让 next 的 ${nextPort}），跳过`)
+    return null
+  }
+  log(`检测到 ${pythonBin}，启动 smart-agent (port ${agentPort})...`)
   const child = spawn(pythonBin, ['server.py'], {
     cwd: path.join(PKG_DIR, 'smart-agent'),
     detached: true,
-    env: { ...process.env, CANNBOT_AGENT_PORT: String(SMART_AGENT_PORT) },
+    env: { ...process.env, CANNBOT_AGENT_PORT: String(agentPort) },
     stdio: 'ignore',
   })
   child.unref()
-  // 健康检查（最多 5s）
+  // 健康检查（最多 5s，内置 fetch 无 curl 依赖；校验服务标识，锁 /health 契约）
   for (let i = 0; i < 10; i++) {
-    try {
-      execSync(`curl -s http://localhost:${SMART_AGENT_PORT}/health`, { stdio: 'ignore' })
+    if (await isSmartAgent(agentPort)) {
       log('smart-agent ready ✓')
-      process.env.CANNBOT_AGENT_URL = `http://localhost:${SMART_AGENT_PORT}`
+      process.env.CANNBOT_AGENT_URL = `http://localhost:${agentPort}`
       return child
-    } catch { await sleep(500) }
+    }
+    await sleep(500)
   }
   warn('smart-agent 5s 内未就绪，跳过（后端仍可用）')
   return child
@@ -248,15 +267,16 @@ async function maybeStartSmartAgent() {
 function waitForReady(port) {
   return new Promise((resolve) => {
     let tries = 0
-    const tick = () => {
+    const tick = async () => {
       tries++
-      try {
-        execSync(`curl -s http://127.0.0.1:${port}`, { stdio: 'ignore' })
+      if (await isHttpHealthy(port, '/', 2000)) {
         log(`服务就绪 (port ${port})`)
         resolve()
-      } catch {
-        if (tries > 60) { warn('服务 60s 内未就绪，不再等待'); resolve() }
-        else setTimeout(tick, 1000)
+      } else if (tries > 60) {
+        warn('服务 60s 内未就绪，不再等待')
+        resolve()
+      } else {
+        setTimeout(tick, 1000)
       }
     }
     tick()

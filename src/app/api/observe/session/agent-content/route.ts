@@ -13,22 +13,24 @@ import { recoverAgentMdFromSystem } from '@/lib/agent-md-session-recover';
 import { prisma } from '@/lib/db';
 
 /**
- * Skills tab 的 subagent 行"全文"按钮：取 agent .md 内容。
+ * Skills tab 的 subagent 行"全文"按钮（单一入口）：取 agent .md 内容。
  *
- * 两个来源（proxy 扩展层优先、磁盘兜底；source 查询参数可选 'system' | 'disk'）：
+ * 两级优先——会话恢复为主数据、磁盘扫描兜底（UI 只有一个"全文"按钮，
+ * 不再区分来源；内容行按响应 via 字段标识实际命中的路径）：
  *
- * 1. **system 注入**（source=system，主路径）：proxy 捕获的子代理 jsonl 每条
+ * 1. **会话恢复 · system 注入**（主路径）：proxy 捕获的子代理 jsonl 每条
  *    assistant 行带顶层 system 字段 = 运行时注入的 agent .md 正文（显式 agent
  *    派发形态，正常会话 88/88 覆盖）。这是**运行时真正生效的那份声明**——远端
  *    机器当时的版本（实测 designer 真身 8,606 字 vs 本机磁盘 demo 4,771 /
  *    glacier 6,793，均非同版本），多插件同名天然无歧义（注入的就是当时加载的
  *    那份）。不依赖子代理 Read 过该文件——声明已注入上下文，子代理不会再去
  *    磁盘读一遍（正常会话仅 3 个验收类子代理 Read 过【别人的】md）。
- * 2. **磁盘扫描**（source=disk，兜底）：AGENTS_SCAN_ROOT（或自动探测 skills-dev
- *    根）下 agents/ 目录的当前文件——适用于会话内无该 agent 声明数据的形态
+ * 2. **磁盘扫描**（兜底）：AGENTS_SCAN_ROOT（或自动探测 skills-dev 根）下
+ *    agents/ 目录的当前文件——适用于会话内无该 agent 声明数据的形态
  *    （opencode 工作流派发的 general 子代理：system 是通用 prompt，守卫排除）。
  *
- * source 缺省 = system 优先、磁盘兜底。
+ * source 查询参数：'system' | 'disk' 显式单源（测试/调试用）；缺省（含旧 UI
+ * 传入的 'session' 等其他值）= 两级优先。
  *
  * 与 skill-content 路由平行：skill-content 取 SKILL.md（从 session invoke 恢复），
  * agent-content 取 agent .md（从子代理 system 注入恢复）。

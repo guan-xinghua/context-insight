@@ -48,6 +48,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     const files = packDryRun().map((f) => f.path)
     for (const must of [
       "bin/cannbot-insight.mjs",
+      "bin/ports.mjs",
       "scripts/postinstall.mjs",
       "src/lib/version.ts",
       "src/lib/ingest/adapters/claude-jsonl.ts",
@@ -61,7 +62,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     }
   }, 120_000)
 
-  it("裁剪生效：tests/docs/运行时数据/lockfile 不进包", () => {
+  it("裁剪生效：tests/docs/运行时数据/lockfile/home 泄漏树 不进包", () => {
     const files = packDryRun().map((f) => f.path)
     const forbidden = (p: string) =>
       p === "tests" || p.startsWith("tests/") ||
@@ -69,9 +70,21 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
       p === ".env" ||
       p.endsWith("dev.db") || p.endsWith("dev.db-journal") ||
       p === "package-lock.json" ||
-      p === ".next" || p.startsWith(".next/")
+      p === ".next" || p.startsWith(".next/") ||
+      p === "home" || p.startsWith("home/")
     const leaked = files.filter(forbidden)
     expect(leaked, `以下文件不应进包: ${leaked.join(", ")}`).toEqual([])
+  }, 120_000)
+
+  it("产物文件数哨兵：≤ 450（当前 ~370；暴涨说明构建垃圾混入——曾混入 E2E 泄漏的 home/ 构建树 29MB）", () => {
+    const r = spawnSync("npm", ["pack", "--dry-run", "--json"], {
+      cwd: PKG_DIR, encoding: "utf8", timeout: 120_000,
+    })
+    expect(r.status).toBe(0)
+    const parsed = JSON.parse(r.stdout as string) as Array<{ entryCount: number }>
+    expect(parsed.length).toBe(1)
+    expect(parsed[0].entryCount).toBeGreaterThan(300)
+    expect(parsed[0].entryCount).toBeLessThanOrEqual(450)
   }, 120_000)
 
   it("package.json 发布就绪：无 private、版本单轨、bin 与 postinstall 齐备", () => {

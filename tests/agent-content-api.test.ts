@@ -80,6 +80,18 @@ describe('agent-content route（system 注入优先）', () => {
     expect(d.content.startsWith('# verifier')).toBe(true);
   });
 
+  it('source=session（旧 UI 值）→ 按缺省两级优先处理（via=system，兼容缓存中的旧前端）', async () => {
+    fakePrisma.session.findFirst.mockResolvedValue({
+      id: 'ses_cuid_1',
+      taskId: 'ses_norm_fixture',
+      sourcePath: path.join(FIXTURE_DIR, 'ses_norm_fixture.jsonl.gz'),
+    });
+    const res = await GET(makeRequest('taskId=ses_norm_fixture&agentName=designer&source=session'));
+    const d = await res.json();
+    expect(d.via).toBe('system');
+    expect(d.content.startsWith('# designer')).toBe(true);
+  });
+
   it('system 无数据（agent 名不在会话里）→ 降级磁盘扫描', async () => {
     fakePrisma.session.findFirst.mockResolvedValue({
       id: 'ses_cuid_1',

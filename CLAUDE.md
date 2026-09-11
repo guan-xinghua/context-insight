@@ -127,7 +127,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 2. **解决冲突**: 如有冲突，手动解决后继续
 3. **运行测试**: `npm run test` — 全部通过才能继续
 4. **更新文档**: README.md / README-zh.md（如有功能变更）
-5. **更新版本号**: `src/lib/version.ts` 与 `package.json` version 同步改（单轨同值） — 三段式 `0.x.y`，仅在新增特性或修复严重 bug 时 +0.0.1，小修小补不升版本
+5. **版本号（PR 粒度）**: 提交本身不升版本；每次合 PR 前统一升一次（+0.0.1），**只升本 PR 实际改动的包**——PR 触达 `packages/insight` 才升 insight（`src/lib/version.ts` 与 `package.json` version 同步改，单轨同值），触达 `packages/cpx` 才升 cpx（`src/version.ts` 与 `package.json` 同步改），未触达的包不动；CHANGELOG 的 Unreleased 段落定版号
 6. **提交推送**: `git commit -m "[type] v0.xx: 描述"` → `[feat]` `[fix]` `[test]` `[docs]` `[chore]`
 
 ## Code Conventions
@@ -146,7 +146,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **Comments**: Don't write them unless asked
 - **Doc files**: Don't create `.md` / README unless explicitly requested
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
-- **Version bumps**: three-segment `0.x.y`, +0.0.1 only when adding features or fixing serious bugs, update `src/lib/version.ts` and `package.json` version together (single-track)
+- **Version bumps**: PR-granularity — bump once per merged PR (+0.0.1), **only the packages this PR actually touched** — insight only when `packages/insight` changed (`src/lib/version.ts` + `package.json` together, single-track), cpx only when `packages/cpx` changed (`src/version.ts` + `package.json`); untouched packages stay; individual commits don't bump
 - **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4
 - **Charts**: Pure SVG, no chart libraries — match TraceView DAG style

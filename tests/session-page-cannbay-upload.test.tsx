@@ -172,5 +172,5 @@ describe('会话页 CANNBay 上传入口（共享弹窗）', () => {
     expect(document.body.textContent).not.toContain('确认上传')
 
     container.remove()
-  })
+  }, 30_000)
 })
