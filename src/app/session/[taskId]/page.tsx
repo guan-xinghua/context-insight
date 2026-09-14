@@ -493,6 +493,7 @@ export default function SessionDetailPage({
   const [traceHighlight, setTraceHighlight] = useState<TurnHighlight | null>(null)
   const [selectedBridgeId, setSelectedBridgeId] = useState<string | null>(null)
   const [selectedTurnDetail, setSelectedTurnDetail] = useState<TurnDetailData | null>(null)
+  const [turnDetailLoading, setTurnDetailLoading] = useState(false)
   const [executions, setExecutions] = useState<ExecutionItem[]>([])
   const [bridges, setBridges] = useState<BridgeItem[]>([])
   const [allSkillEvents, setAllSkillEvents] = useState<SkillEventForDetail[]>([])
@@ -925,6 +926,7 @@ export default function SessionDetailPage({
     }
 
     async function fetchTurnDetail() {
+      setTurnDetailLoading(true)
       try {
         const res = await fetch(`/api/observe/session/turns/${encodeURIComponent(selectedTurnId!)}`)
         if (res.ok) {
@@ -933,6 +935,8 @@ export default function SessionDetailPage({
         }
       } catch {
         setSelectedTurnDetail(null)
+      } finally {
+        setTurnDetailLoading(false)
       }
     }
 
@@ -1515,6 +1519,14 @@ export default function SessionDetailPage({
         <div ref={turnDetailRef} className="flex-1 min-h-0 overflow-y-auto">
           {selectedTurnDetail ? (
             <TurnDetail turn={selectedTurnDetail} highlight={traceHighlight} />
+          ) : turnDetailLoading ? (
+            <div className="flex flex-col gap-3 p-6" data-testid="turn-detail-loading">
+              <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
+              <div className="text-xs text-muted-foreground">Loading turn…</div>
+            </div>
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground">
               Select a turn from the timeline

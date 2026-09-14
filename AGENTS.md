@@ -13,8 +13,9 @@ UI version tracked in `src/lib/version.ts` — `package.json` version stays in s
 
 | Command | Purpose |
 |---------|---------|
-| `./start.sh` | Auto port (21025+), kills existing server via `.next/dev/lock` PID, runs `prisma migrate dev` + `next dev` |
+| `./start.sh` | **Production mode (default)**: auto port (21025+), kills existing server, `next build` (cached via `.next/BUILD_ID`; auto-rebuilds when sources changed) + `next start` — zero per-request compile |
 | `./start.sh -u` | Same but also `npm install` first |
+| `./start.sh -d` | Dev mode (`next dev`): hot reload while editing insight source; first request per route compiles on demand |
 | `./start.sh -c tui` | Backend + CLI TUI mode (backend stops when CLI exits) |
 | `../cpx/install.sh` | Standalone cpx installer (also invoked by `./start.sh`); capture works without insight, `cpx list` browses captures; import is insight's own job (UI / auto-import at capture exit) |
 | `npm run test` | `vitest run` — all tests |

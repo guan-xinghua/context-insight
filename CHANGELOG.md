@@ -2,6 +2,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [Unreleased]
+
+### Added
+- 【Turns tab 点击 turn 加载慢优化（实测最坏 turn 424ms/444KB；首击 dev 编译秒级）】三层治理：
+  - **生产模式成为默认**：`./start.sh` = `next build` + `next start`（dev 按需编译是"某 turn 首次点击数秒"的主因，生产模式请求零编译）。构建产物缓存于 `.next/BUILD_ID`，**源码（src/prisma/public/配置）比缓存新时自动重建**——无需记任何 flag；`-f` 强制重建；改 insight 源码要热重载时 `-d` 回 dev；生产实例 PID 文件防新旧并存端口漂移；`-c` CLI 模式保持 dev（免构建快速拉起）
+  - **读侧热路径缓存**（`src/lib/lru-cache.ts` 进程内 LRU）：① `readFullContext` / `readTurnRequestParams` 按 `path+mtime+size` 键控（此前每次点击各整文件 gunzip+逐行 parse 一遍，数 MB 会话每击两遍全量解析；捕获 resume/追加自动失效）② `computeSystemOverhead` 永久缓存（只依赖首 assistant turn，落库后不可变）③ `inputMessagesJson` 重建按 turnId 键控 + 60s TTL（O(前序全量) DB 扫描，turns append-only 下历史重建结果不变）
+  - **loading 骨架**：点击后 fetch 期间中间面板显示脉冲骨架，消灭空白期体感
+
+### Fixed
+- 【测试误报：npm-publish「lockfile 单轨不漂移」用例删除（issue #5）】insight 的 package-lock.json 被 .gitignore 忽略（各机器本地生成、不入库），该用例读本地 lockfile 断言与 package.json 同值——版本升级后重装前所有拉取新提交的机器必红一次（环境过期被误报为代码错误）；且 pack/publish 均不读 lockfile，对发布物零影响。删除该用例及模块顶层 lockfile 读取（附带消除全新 clone 未 install 时 readFileSync throw 致整测试文件崩的边界）；真正入库的单轨（version.ts ↔ package.json）与 CLI bundle --version 校验保留。注：cpx 的 lockfile 入库，其同款用例语境成立，不受影响
+
 ## [v0.2.27] - 2026-09-10
 
 ### Added

@@ -8,11 +8,15 @@
 
 // npm 发布就绪 IT：发布到公共 registry 前，用 `npm pack --dry-run`（零网络、零落盘）
 // 从 npm 的真实视角验证将要发布的包内容与元数据——
-//   ① 产物清单：bin 启动器 / postinstall / 源码 / prisma schema / export-view bundle / LICENSE 在包内
-//   ② 裁剪生效：tests / docs / 运行时数据 / lockfile 不进包（.npmignore 兜住）
+//   ① 产物清单：bin 启动器 / postinstall / 源码 / prisma schema / export-view bundle / CLI bundle 在包内
+//   ② 裁剪生效：tests / docs / 运行时数据 / home 泄漏树 / lockfile 不进包（.npmignore 兜住）
 //   ③ package.json 发布就绪：无 private、版本与展示版本单一源 version.ts 单轨一致、
 //      bin（cannbot-insight/cbi）与 postinstall 钩子齐备
-//   ④ package-lock.json 顶部版本与 package.json 同值（单轨不漂移）
+//   ④ 产物文件数哨兵（300-450）；CLI bundle 实跑 --version 与展示版本一致
+//
+// 注：不校验 package-lock.json——它被 .gitignore 忽略不入库（各机器本地生成），
+// 版本升级后重装前必"漂移"，属环境过期而非代码错误（issue #5）；且 pack/publish
+// 均不读 lockfile，对发布物零影响。
 
 import { describe, it, expect } from "vitest"
 import { spawnSync } from "node:child_process"
@@ -25,7 +29,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PKG_DIR = path.resolve(__dirname, "..")
 
 const pkgJson = JSON.parse(fs.readFileSync(path.join(PKG_DIR, "package.json"), "utf8"))
-const lockJson = JSON.parse(fs.readFileSync(path.join(PKG_DIR, "package-lock.json"), "utf8"))
 
 interface PackFile { path: string; size: number }
 
@@ -98,11 +101,6 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     expect(pkgJson.license).toBeTruthy()
     expect(pkgJson.engines?.node).toMatch(/>=20/)
   }, 120_000)
-
-  it("package-lock.json 顶部版本与 package.json 同值（单轨不漂移）", () => {
-    expect(lockJson.version).toBe(pkgJson.version)
-    expect(lockJson.packages?.[""]?.version).toBe(pkgJson.version)
-  })
 
   it("CLI bundle 可运行：dist/cli.mjs --version 输出与展示版本一致（node_modules 内别名免疫）", () => {
     const build = spawnSync(process.execPath, ["scripts/build-cli.mjs"], { cwd: PKG_DIR, encoding: "utf8", timeout: 120_000 })

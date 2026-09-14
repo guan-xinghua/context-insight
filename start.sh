@@ -53,15 +53,20 @@ CLI_CMD=""
 KILL_EXISTING=false
 FRESH=false
 ADVANCED=false
+# 默认生产模式（next build 缓存复用 + 请求零编译——dev 按需编译是 Turns tab
+# 首击秒级卡顿的主因）；开发改代码要热重载时用 -d
+PROD=true
 ALLOWED_CLI_COMMANDS="tui sessions session turn search compare stats import delete config"
-while getopts "uc:kfa" opt; do
+while getopts "uc:kfadp" opt; do
   case $opt in
     u) UPDATE=true ;;
     c) CLI=true; CLI_CMD="$OPTARG" ;;
     k) KILL_EXISTING=true ;;
     f) FRESH=true ;;
     a) ADVANCED=true ;;
-    *) echo "Usage: $0 [-u] [-k] [-f] [-a] [-c <command|tui>]  (-u: update; -k: kill port; -f: fresh build; -a: show advanced tabs; -c: CLI mode)" >&2; exit 1 ;;
+    d) PROD=false ;;
+    p) PROD=true ;;
+    *) echo "Usage: $0 [-u] [-k] [-f] [-a] [-d] [-c <command|tui>]  (-u: update; -k: kill port; -f: force rebuild; -a: show advanced tabs; -d: dev mode — default is production; -c: CLI mode)" >&2; exit 1 ;;
   esac
 done
 
@@ -140,6 +145,18 @@ if [ -f "$LOCK_FILE" ]; then
     sleep 2
   fi
   rm -f "$LOCK_FILE"
+fi
+
+# 生产实例无 dev lock——用 PID 文件同款清理，防新旧实例并存端口漂移
+PROD_PID_FILE="$SCRIPT_DIR/tmp/next-prod.pid"
+if [ -f "$PROD_PID_FILE" ]; then
+  OLD_PID=$(cat "$PROD_PID_FILE" 2>/dev/null)
+  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "[start] Stopping existing prod server (PID $OLD_PID)..."
+    kill "$OLD_PID" 2>/dev/null || true
+    sleep 2
+  fi
+  rm -f "$PROD_PID_FILE"
 fi
 
 BASE_PORT=21025
@@ -242,6 +259,29 @@ fi
 
 echo "[start] Launching CANNBot-Insight on port $PORT..."
 
+# 生产模式（默认）：next build + next start。dev 模式对 API 路由按需编译——
+# "某个 turn 首次点击数秒"的主因即此；生产模式启动时一次性构建，请求零编译。
+# 构建产物复用：源码（src/prisma/public/配置）没有比 .next/BUILD_ID 更新的
+# 文件即跳过重建——改代码后自动重建，无需记 -f；-f 仍可强制。
+NEXT_CMD="dev"
+if [ "$PROD" = true ] && [ "$CLI" != true ]; then
+  NEED_BUILD=true
+  if [ "$FRESH" != true ] && [ -f ".next/BUILD_ID" ]; then
+    STALE=$(find src prisma public package.json next.config.ts tsconfig.json -newer .next/BUILD_ID -print -quit 2>/dev/null || true)
+    if [ -z "$STALE" ]; then
+      NEED_BUILD=false
+      echo "[start] Production build cached (.next/BUILD_ID up to date) — skip"
+    else
+      echo "[start] Sources changed since last build ($STALE ...) — rebuilding"
+    fi
+  fi
+  if [ "$NEED_BUILD" = true ]; then
+    echo "[start] Production build (next build)..."
+    npm run build || { echo "[start] ERROR: build failed" >&2; exit 1; }
+  fi
+  NEXT_CMD="start"
+fi
+
 # Build the embedded export-view bundle (self-contained interactive HTML export)
 echo "[setup] Building export-view bundle..."
 npm run build:export-view >/dev/null 2>&1 || echo "  [warn] export-view build failed — HTML export disabled until npm run build:export-view succeeds"
@@ -251,9 +291,8 @@ if [ "$CLI" = true ]; then
 
   # Start backend in background (stdout→file: avoid VSCode auto port-forward hijacking
   # the printed URL and assigning a random local port instead of 21025)
-  npx next dev -H 127.0.0.1 --port $PORT > "$SCRIPT_DIR/tmp/next-dev.log" 2>&1 &
+  npx next $NEXT_CMD -H 127.0.0.1 --port $PORT > "$SCRIPT_DIR/tmp/next-$NEXT_CMD.log" 2>&1 &
   BACKEND_PID=$!
-
   # Wait for backend to be ready
   echo "[start] Waiting for backend (port $PORT)..."
   for i in $(seq 1 60); do
@@ -269,8 +308,9 @@ if [ "$CLI" = true ]; then
   kill $BACKEND_PID 2>/dev/null || true
   echo "[start] CLI exited, backend stopped"
 else
-  npx next dev -H 127.0.0.1 --port $PORT > "$SCRIPT_DIR/tmp/next-dev.log" 2>&1 &
+  npx next $NEXT_CMD -H 127.0.0.1 --port $PORT > "$SCRIPT_DIR/tmp/next-$NEXT_CMD.log" 2>&1 &
   NEXT_PID=$!
+  if [ "$NEXT_CMD" = "start" ]; then echo "$NEXT_PID" > "$PROD_PID_FILE"; fi
 
   echo "[start] Waiting for server (port $PORT)..."
   for i in $(seq 1 30); do

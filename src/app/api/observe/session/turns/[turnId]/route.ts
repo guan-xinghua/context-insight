@@ -14,7 +14,21 @@ import { isContinuationTurn } from '@/lib/shared/command-parser';
 import { listSubagentSessions } from '@/lib/ingest/adapters/claude-jsonl';
 import { readFullContext, readTurnRequestParams, type FullContext } from '@/lib/ingest/adapters/claude-jsonl-full-context';
 import { isClaudeFormatSession } from '@/lib/shared/session-format';
+import { LruCache } from '@/lib/lru-cache';
 import path from 'node:path';
+
+// 读侧热路径缓存：每次点击 turn 的重复确定性计算——
+//   systemOverhead：只依赖首个 assistant turn（落库后不可变），永久缓存
+//   inputMessages 重建：O(前序全量) DB 扫描，turns append-only 下历史 turn
+//     重建结果不变；TTL 兜底 live 会话重导入等极端情形
+const systemOverheadCache = new LruCache<string, number>(256);
+const reconstructionCache = new LruCache<string, string>(64, 60_000);
+
+/** 测试钩子：清空本模块缓存。 */
+export function __clearTurnDetailCaches(): void {
+  systemOverheadCache.clear();
+  reconstructionCache.clear();
+}
 
 // Read the verbatim captured context (system prompt, tools, memory files, skills)
 // from the session's capture file via Session.sourcePath. The proxy writes
@@ -52,6 +66,9 @@ async function readSessionFullContext(sessionId: string, subagentSessionId: stri
 // Compute stable system overhead from the first assistant turn
 // For root turns: use root session; for subagent turns: use subagent's own turns
 async function computeSystemOverhead(sessionId: string, subagentSessionId: string | null): Promise<number> {
+  const cacheKey = `${sessionId}:${subagentSessionId ?? ''}`;
+  const hit = systemOverheadCache.get(cacheKey);
+  if (hit !== undefined) return hit;
   const where = subagentSessionId
     ? { sessionId, role: 'assistant', subagentSessionId }
     : { sessionId, role: 'assistant', isSubagent: false };
@@ -79,7 +96,9 @@ async function computeSystemOverhead(sessionId: string, subagentSessionId: strin
   const toolArgsTokens = priorToolCalls.reduce((s, tc) => s + Math.round((tc.argsJson?.length ?? 0) / 3.5), 0);
 
   const visibleEstimated = priorMessages.reduce((s, ct) => s + Math.round((ct.content?.length ?? 0) / 3.5), 0) + toolArgsTokens;
-  return Math.max(0, firstAssistant.inputMessagesTokens - visibleEstimated);
+  const value = Math.max(0, firstAssistant.inputMessagesTokens - visibleEstimated);
+  systemOverheadCache.set(cacheKey, value);
+  return value;
 }
 
 export async function GET(
@@ -162,6 +181,11 @@ export async function GET(
     // Reconstruct inputMessagesJson if not stored (import optimization: not stored during import)
     let inputMessagesJson = turn.inputMessagesJson;
     if (!inputMessagesJson && turn.role === 'assistant') {
+      const cacheKey = turn.id;
+      const hit = reconstructionCache.get(cacheKey);
+      if (hit !== undefined) {
+        inputMessagesJson = hit;
+      } else {
       // For subagent turns, only include prior turns in the same subagent session
       // For root turns, only include prior root turns (skip subagent turns)
       const prevWhere = turn.isSubagent && turn.subagentSessionId
@@ -266,10 +290,12 @@ export async function GET(
       }
 
       inputMessagesJson = JSON.stringify(messages);
+      reconstructionCache.set(cacheKey, inputMessagesJson);
+      }
       // The stored count predates the wire-order merge (reminder turn was its
       // own message); use the reconstructed list length so header == list.
-      if (turn.agentName !== 'compaction') {
-        (turn as { inputMessagesCount?: number }).inputMessagesCount = messages.length;
+      if (turn.agentName !== 'compaction' && inputMessagesJson) {
+        (turn as { inputMessagesCount?: number }).inputMessagesCount = JSON.parse(inputMessagesJson).length;
       }
     }
 

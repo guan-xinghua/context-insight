@@ -12,6 +12,7 @@
 // 依赖核心 claude-jsonl 的行解析 + message 扫描 helper，不改核心。proxy 以后
 // 加新扩展字段（metadata/cache/retry/…）在本文件扩展，核心不动。
 
+import fs from 'node:fs';
 import {
   parseJsonlLines,
   extractSystemText,
@@ -25,16 +26,45 @@ import {
   parseClaudeAvailableSkills,
   parseOpencodeAvailableSkills,
 } from '@/lib/skill-coverage';
+import { LruCache } from '@/lib/lru-cache';
 
 export interface FullContextTool {
   name: string;
   description: string;
 }
+
 export interface FullContext {
   systemPrompt: string;
   tools: FullContextTool[];
   memoryFiles: string;
   skills: string;
+}
+
+// 整文件解析结果缓存：readFullContext / readTurnRequestParams 每次调用都
+// gunzip + 逐行 JSON.parse 整个捕获文件（Turn 详情 API 每次点击各调一次，
+// 数 MB 会话 = 每击两遍全量解析）。键含 mtime+size——捕获 resume / 追加
+// 写入后自动失效，跨请求复用安全（读侧扩展层，产物确定性）。
+function statKey(filePath: string): string | null {
+  try {
+    const st = fs.statSync(filePath.endsWith('.gz') ? filePath : (fs.existsSync(`${filePath}.gz`) ? `${filePath}.gz` : filePath));
+    return `${filePath}:${st.mtimeMs}:${st.size}`;
+  } catch {
+    try {
+      const st = fs.statSync(filePath);
+      return `${filePath}:${st.mtimeMs}:${st.size}`;
+    } catch {
+      return null;
+    }
+  }
+}
+
+const fullContextCache = new LruCache<string, FullContext | null>(16);
+const turnParamsCache = new LruCache<string, TurnRequestParams | null>(256);
+
+/** 测试钩子：清空本模块缓存。 */
+export function __clearFullContextCaches(): void {
+  fullContextCache.clear();
+  turnParamsCache.clear();
 }
 
 // 扫 message content 取 memory(CLAUDE.md) / skills（claude-format 通用逻辑，
@@ -59,6 +89,17 @@ function scanMessageContext(lines: ClaudeJsonlLine[]): { memoryFiles: string; sk
 }
 
 export function readFullContext(filePath: string): FullContext | null {
+  const key = statKey(filePath);
+  if (key) {
+    const hit = fullContextCache.get(key);
+    if (hit !== undefined) return hit;
+  }
+  const result = readFullContextUncached(filePath);
+  if (key) fullContextCache.set(key, result);
+  return result;
+}
+
+function readFullContextUncached(filePath: string): FullContext | null {
   const lines = parseJsonlLines(filePath);
   if (lines.length === 0) return null;
 
@@ -104,6 +145,17 @@ export interface TurnRequestParams {
 }
 
 export function readTurnRequestParams(filePath: string, turnIndex: number): TurnRequestParams | null {
+  const key = statKey(filePath);
+  if (key) {
+    const hit = turnParamsCache.get(`${key}#${turnIndex}`);
+    if (hit !== undefined) return hit;
+  }
+  const result = readTurnRequestParamsUncached(filePath, turnIndex);
+  if (key) turnParamsCache.set(`${key}#${turnIndex}`, result);
+  return result;
+}
+
+function readTurnRequestParamsUncached(filePath: string, turnIndex: number): TurnRequestParams | null {
   const lines = parseJsonlLines(filePath);
   // turnIndex 指向 DB 里的 turn 序号，proxy jsonl 里 assistant 行按出现顺序
   // 对应 turnIndex（assistant 行 = 每个 wire 轮的响应）。roundIndex 也从 0 起，
