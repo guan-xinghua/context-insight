@@ -93,15 +93,23 @@ async function probeOpencodeRefresh(
       subagentStats.max_updated ?? 0
     );
 
-    const incompleteParent = db.prepare(
-      `SELECT COUNT(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL`
-    ).get(taskId) as { cnt: number };
+    // 活跃流式须过新鲜度窗口：未完成 assistant 只有在"最近 STREAM_FRESH_MS
+    // 内有更新且时间戳不超前系统时钟"才算正在写。被遗弃的未完成消息（用户
+    // Esc 打断 / opencode 崩溃 / VM 时钟回拨留下的超前 time_updated）会永远
+    // 缺 completed 标记——不过滤会把 settled 永久堵死，轮次间歇也不再同步
+    // （客户现场：一条遗弃消息堵塞 54 分钟、积压 7 条消息不导入）。
+    const STREAM_FRESH_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    const freshArgs = [now - STREAM_FRESH_MS, now];
+    const incompleteFreshParent = db.prepare(
+      `SELECT COUNT(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL AND time_updated >= ? AND time_updated <= ?`
+    ).get(taskId, ...freshArgs) as { cnt: number };
 
-    const incompleteSub = db.prepare(
-      `SELECT COUNT(*) as cnt FROM message WHERE session_id IN (SELECT id FROM session WHERE parent_id = ?) AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL`
-    ).get(taskId) as { cnt: number };
+    const incompleteFreshSub = db.prepare(
+      `SELECT COUNT(*) as cnt FROM message WHERE session_id IN (SELECT id FROM session WHERE parent_id = ?) AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL AND time_updated >= ? AND time_updated <= ?`
+    ).get(taskId, ...freshArgs) as { cnt: number };
 
-    const streaming = (incompleteParent.cnt + incompleteSub.cnt) > 0;
+    const streaming = (incompleteFreshParent.cnt + incompleteFreshSub.cnt) > 0;
 
     const latestParent = db.prepare(
       `SELECT json_extract(data, '$.role') as role FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1`

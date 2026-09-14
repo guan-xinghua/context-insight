@@ -2,7 +2,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
-## [Unreleased]
+## [v0.2.28] - 2026-09-14
+
+### Added
+- 【增量刷新漂移检测：源回溯性变化自动降级全量替换】`deltaRefreshSession` 的位次匹配（ranked key）合法性前提是"每个上下文的既有轮次 = 新读序列的前缀"（append-only）——opencode 升级引入 step 部件后旧消息多产空轮，前缀关系破裂 → 位次全盘错位 → user/assistant 角色互相覆写、空轮膨胀计数（已导入 > 源数，countChanged 恒 false，同步判死；现场靠手动删库重导恢复）。现在增量前逐上下文校验既有段：源回缩 / 身份字段（role/agentName/subagentSessionId）错位 / 内容改写（非前缀延长；尾部增长合法）任一命中即放弃带病增量，删光本会话轮次后一次性插入本次全量读入（与初导同源同序，位次关系重建，本地库秒级）；**替换事务后同步重算 Session 聚合并回写**（与 merge 路径共用 `recomputeAndApplySessionAggregates`——漂移替换曾跳过此步，Session 行残留位次错乱期的脏聚合，且漂移典型场景一次性触发后 countChanged/timeChanged 均不再变化、无后续刷新可矫正）；返回值增 `fullRebuild`/`rebuiltTurns` 标识，`addedTurns` 改为相对替换前的净增（不再把总轮数报成「新增 N 轮」，toast/route 提示「源已回溯变化，全量重建 N 轮」）。claude-jsonl 路径同享防护
+
+### Fixed
+- 【opencode 自动同步被遗弃消息永久堵塞（客户现场）】`auto-refresh-probe` 的 `streaming` 判定原为"存在未完成 assistant 消息"——被遗弃的未完成消息（用户 Esc 打断 / opencode 崩溃 / VM 时钟回拨留下的超前 `time_updated`，`time.completed` 永远缺失）会把 `settled` 永久置 false，轮询每 5 秒都提前返回，轮次间歇也不再同步（现场：一条遗弃消息堵塞 54 分钟、积压 7 条消息不导入）。修复：流式判定加**新鲜度窗口**——未完成消息只有"最近 5 分钟内有更新且时间戳不超前系统时钟"才算活跃；遗弃残留不再堵塞，响应落定后 5 秒内恢复同步
+- 【活跃会话自动同步打断阅读（客户场景）】导入仍在对话的会话后查看某 turn，会话持续写入触发自动同步——此前每次同步 `setLoading(true)` 整页闪回 "Loading session…" 并 unmount 全部面板（时间线/turn 详情/上下文面板），活跃会话几秒一次，正在读的 turn 上下文被反复冲掉。修复：自动同步（SSE 与轮询两条路径）改走 `loadAllData(background)`——原地更新状态，列表/滚动/选中详情全程不打断；手动刷新按钮保留前台反馈。配套：turn 详情新增「⟳ 刷新」按钮与"再点同一 turn 即重取"自然交互（自动同步刻意不碰详情，live 写入中的 turn 由用户择时取最新）
 
 ### Added
 - 【Turns tab 点击 turn 加载慢优化（实测最坏 turn 424ms/444KB；首击 dev 编译秒级）】三层治理：

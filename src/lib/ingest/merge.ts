@@ -50,6 +50,54 @@ export function keyByRankedTurn<T extends { subagentSessionId: string | null | u
   return new Map([...rowKeys.entries()].map(([row, key]) => [key, row]));
 }
 
+// 漂移检测：增量位次匹配的合法性前提是"每个上下文（main/subagent）的既有
+// 轮次 = 新读序列的前缀"（append-only）。逐上下文校验既有段：
+//   - 源侧回缩（新读 < 既有）→ 漂移
+//   - 身份字段（role / agentName / subagentSessionId）任一位不一致 → 漂移
+//     （位次错位的直接表征：user 轮对上 assistant 行）
+//   - 内容改写/回缩（新内容既不相等也不是既有内容的前缀延长）→ 漂移；
+//     尾部增长合法（in-flight 轮补全/追写）
+// 任一上下文命中即判定整体漂移，调用方降级全量替换。
+export function detectRankedPrefixDrift<T extends {
+  subagentSessionId: string | null | undefined;
+  turnIndex: number;
+  role: string;
+  agentName: string | null | undefined;
+  content: string | null;
+}>(
+  existing: T[],
+  incoming: T[],
+): boolean {
+  // 既有侧来自 findMany（无序）——须按 turnIndex 升序还原导入序；新读侧
+  // 本就是读序（turnIndex 按读序赋值），同款排序幂等
+  const byCtx = (rows: T[], sorted: boolean): Map<string, T[]> => {
+    const ordered = sorted ? [...rows].sort((a, b) => a.turnIndex - b.turnIndex) : rows;
+    const m = new Map<string, T[]>();
+    for (const r of ordered) {
+      const ctx = r.subagentSessionId ?? 'main';
+      const arr = m.get(ctx) ?? [];
+      arr.push(r);
+      m.set(ctx, arr);
+    }
+    return m;
+  };
+  const existingByCtx = byCtx(existing, true);
+  const incomingByCtx = byCtx(incoming, false);
+  for (const [ctx, e] of existingByCtx) {
+    const n = incomingByCtx.get(ctx) ?? [];
+    if (n.length < e.length) return true;
+    for (let i = 0; i < e.length; i++) {
+      if (e[i].role !== n[i].role) return true;
+      if ((e[i].agentName ?? null) !== (n[i].agentName ?? null)) return true;
+      if ((e[i].subagentSessionId ?? null) !== (n[i].subagentSessionId ?? null)) return true;
+      const eC = e[i].content ?? '';
+      const nC = n[i].content ?? '';
+      if (nC !== eC && !nC.startsWith(eC)) return true;
+    }
+  }
+  return false;
+}
+
 export function mergeTurns(existingTurns: TurnRow[], newTurns: TurnRow[]): TurnRow[] {
   const existingKeys = new Set(keyByRankedTurn(existingTurns).keys());
   const incomingKeys = rankedKeyMap(newTurns);

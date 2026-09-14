@@ -36,6 +36,14 @@ export async function POST(request: NextRequest) {
 
     const result = await deltaRefreshSession(taskId, prisma);
 
+    // 漂移全量重建单独提示：addedTurns 是相对替换前的净增，总轮数在
+    // rebuiltTurns——不能把整个会话的轮数报成「新增 N 轮」
+    const message = result.fullRebuild
+      ? `检测到源回溯性变化（位次漂移），已全量重建 ${result.rebuiltTurns ?? 0} 轮`
+      : result.addedTurns > 0
+        ? `增量刷新完成，新增 ${result.addedTurns} 轮，更新 ${result.updatedTurns} 轮`
+        : `增量刷新完成，更新 ${result.updatedTurns} 轮`;
+
     return NextResponse.json({
       success: true,
       sessionId: session.id,
@@ -44,9 +52,9 @@ export async function POST(request: NextRequest) {
       addedToolCalls: result.addedToolCalls,
       updatedToolCalls: result.updatedToolCalls,
       addedSkillEvents: result.addedSkillEvents,
-      message: result.addedTurns > 0
-        ? `增量刷新完成，新增 ${result.addedTurns} 轮，更新 ${result.updatedTurns} 轮`
-        : `增量刷新完成，更新 ${result.updatedTurns} 轮`,
+      fullRebuild: result.fullRebuild ?? false,
+      rebuiltTurns: result.rebuiltTurns ?? 0,
+      message,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

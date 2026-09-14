@@ -108,7 +108,7 @@ function formatTimestamp(ts: string | null): string {
   }
 }
 
-export function TurnDetail({ turn, highlight }: { turn: TurnDetailData; highlight?: TurnHighlight | null }) {
+export function TurnDetail({ turn, highlight, onRefresh }: { turn: TurnDetailData; highlight?: TurnHighlight | null; onRefresh?: () => void }) {
   if (!turn) return null
 
   const contentLength = (turn.content ?? "").length + (turn.contentJson ?? "").length
@@ -132,6 +132,19 @@ export function TurnDetail({ turn, highlight }: { turn: TurnDetailData; highligh
         )}
         {isLongContent && (
           <Badge variant="outline">long content</Badge>
+        )}
+        <span className="flex-1" />
+        {onRefresh && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={onRefresh}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onRefresh() }}
+            className="text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none border rounded px-1.5 py-0.5"
+            title="重新加载本 turn（会话仍在进行时，详情不会随自动同步刷新，点此取最新）"
+          >
+            ⟳ 刷新
+          </span>
         )}
       </div>
 

@@ -494,6 +494,7 @@ export default function SessionDetailPage({
   const [selectedBridgeId, setSelectedBridgeId] = useState<string | null>(null)
   const [selectedTurnDetail, setSelectedTurnDetail] = useState<TurnDetailData | null>(null)
   const [turnDetailLoading, setTurnDetailLoading] = useState(false)
+  const [turnDetailRefreshKey, setTurnDetailRefreshKey] = useState(0)
   const [executions, setExecutions] = useState<ExecutionItem[]>([])
   const [bridges, setBridges] = useState<BridgeItem[]>([])
   const [allSkillEvents, setAllSkillEvents] = useState<SkillEventForDetail[]>([])
@@ -656,7 +657,7 @@ export default function SessionDetailPage({
 
   const frameworkParam = framework ? `&framework=${encodeURIComponent(framework)}` : ""
 
-  async function loadAllData() {
+  async function loadAllData(background = false) {
     async function fetchSessionData() {
       try {
         const sessionRes = await fetch(`/api/observe/session?taskId=${encodeURIComponent(taskId)}${frameworkParam}`)
@@ -746,7 +747,11 @@ export default function SessionDetailPage({
       }
     }
 
-    setLoading(true)
+    // 前台加载（首屏/切会话）才闪整页 Loading；自动同步走 background ——
+    // 原地更新 turns/session 等状态，列表/滚动/选中的 turn 详情全程不被打断
+    // （此前每次自动同步整页 unmount 重挂，活跃会话几秒一次，正在读的 turn
+    // 上下文被反复冲掉——客户无法阅读）
+    if (!background) setLoading(true)
     setError(null)
     // allSettled + 每个自带 10s 超时：冷编译/WSL2 网络抖动时单个 fetch 卡住
     // 不会永久阻塞整个页面（Promise.all 会等最慢的那个）
@@ -824,10 +829,11 @@ export default function SessionDetailPage({
           if (refreshRes.ok && active) {
             const added = refreshData.addedTurns ?? 0
             const updated = refreshData.updatedTurns ?? 0
-            const msg = added > 0 ? `自动同步: +${added} 轮` : (updated > 0 ? `自动同步: 更新 ${updated} 轮` : "自动同步完成")
+            const msg = refreshData.fullRebuild
+              ? `自动同步: 源已回溯变化，全量重建 ${refreshData.rebuiltTurns ?? added} 轮`
+              : added > 0 ? `自动同步: +${added} 轮` : (updated > 0 ? `自动同步: 更新 ${updated} 轮` : "自动同步完成")
             toast.success(msg, { duration: 3000 })
-            setLoading(true)
-            loadAllData().finally(() => {
+            loadAllData(true).finally(() => {
               refreshingRef.current = false
               setRefreshing(false)
             })
@@ -892,10 +898,11 @@ export default function SessionDetailPage({
         if (refreshRes.ok && active) {
           const added = refreshData.addedTurns ?? 0
           const updated = refreshData.updatedTurns ?? 0
-          const msg = added > 0 ? `自动同步: +${added} 轮` : (updated > 0 ? `自动同步: 更新 ${updated} 轮` : "自动同步完成")
+          const msg = refreshData.fullRebuild
+            ? `自动同步: 源已回溯变化，全量重建 ${refreshData.rebuiltTurns ?? added} 轮`
+            : added > 0 ? `自动同步: +${added} 轮` : (updated > 0 ? `自动同步: 更新 ${updated} 轮` : "自动同步完成")
           toast.success(msg, { duration: 3000 })
-          setLoading(true)
-          loadAllData().finally(() => {
+          loadAllData(true).finally(() => {
             refreshingRef.current = false
             setRefreshing(false)
           })
@@ -941,7 +948,7 @@ export default function SessionDetailPage({
     }
 
     fetchTurnDetail()
-  }, [selectedTurnId])
+  }, [selectedTurnId, turnDetailRefreshKey])
 
   // No scroll on turn selection — keep current scroll position
 
@@ -1494,6 +1501,7 @@ export default function SessionDetailPage({
             highlightSubagentTurnId={highlightSubagentTurnId}
             scrollToTurnId={scrollToTurnId}
             onSelectTurn={(turnId) => {
+              if (turnId === selectedTurnId) setTurnDetailRefreshKey(k => k + 1)
               setSelectedTurnId(turnId)
               setHighlightSubagentTurnId(null)
               setScrollToTurnId(null)
@@ -1518,7 +1526,7 @@ export default function SessionDetailPage({
 
         <div ref={turnDetailRef} className="flex-1 min-h-0 overflow-y-auto">
           {selectedTurnDetail ? (
-            <TurnDetail turn={selectedTurnDetail} highlight={traceHighlight} />
+            <TurnDetail turn={selectedTurnDetail} highlight={traceHighlight} onRefresh={() => setTurnDetailRefreshKey(k => k + 1)} />
           ) : turnDetailLoading ? (
             <div className="flex flex-col gap-3 p-6" data-testid="turn-detail-loading">
               <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />

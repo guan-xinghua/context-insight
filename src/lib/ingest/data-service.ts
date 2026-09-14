@@ -18,7 +18,7 @@ import { isProxyVersion } from '../shared/session-format';
 import { normalize } from './normalize';
 import { splitIntoTurns, resetIdCounter } from './turn-split';
 import type { TurnRow, ToolCallRow, SkillEventRow } from './turn-split';
-import { dedupSession, mergeToolCalls, mergeSkillEvents, diffTurns, diffToolCalls, rankedKeyMap, keyByRankedTurn } from './merge';
+import { dedupSession, mergeToolCalls, mergeSkillEvents, diffTurns, diffToolCalls, rankedKeyMap, keyByRankedTurn, detectRankedPrefixDrift } from './merge';
 import { buildBridges, resetIdCounter as resetBridgeIdCounter } from './bridge-builder';
 import { splitExecutions, resetIdCounter as resetExecIdCounter } from './execution-split';
 import type { ExecutionRow } from './execution-split';
@@ -718,10 +718,92 @@ export async function importSession(
   }
 }
 
+// 轮次落库后的 Session 聚合重算 + 回写（merge 路径与漂移全量替换路径共用）。
+// 聚合字段（totalTokens/totalCost/endTime/query 预览等）只在此处落库——
+// 漂移全量替换若跳过此步，Session 行会永久残留替换前（位次错乱状态下）
+// 算出的脏聚合；且漂移典型场景（opencode 升级发生在会话间歇）是一次性
+// 触发，替换后轮数已与源相等、安静会话的 maxTimeUpdated 不再变化，没有
+// 后续刷新能矫正。返回重算后的总轮数。
+async function recomputeAndApplySessionAggregates(
+  prisma: PrismaClient,
+  session: { id: string; sourcePath: string | null; version: string | null },
+  srcType: string,
+  rootExecutionId: string | null,
+): Promise<number> {
+  const allTurns = await prisma.turn.findMany({ where: { sessionId: session.id } });
+  const allToolCalls = await prisma.toolCall.findMany({
+    where: { turnId: { in: allTurns.map(t => t.id) } },
+  });
+  const allSkillEvents = await prisma.skillEvent.findMany({
+    where: { turnId: { in: allTurns.map(t => t.id) } },
+  });
+
+  const turnRowsForAgg = allTurns.map(t => ({
+    ...t,
+    subagentType: null,
+    cost: 0,
+    createdAt_ts: t.createdAt_ts ? t.createdAt_ts.toISOString() : null,
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+  }));
+  const updatedAggregates = computeSessionAggregates(
+    turnRowsForAgg,
+    allToolCalls as unknown as ToolCallRow[],
+    allSkillEvents as unknown as SkillEventRow[],
+  );
+
+  const safeNum = (n: number) => (typeof n === 'number' && !isNaN(n)) ? n : 0;
+  const safeDate = (d: Date | null) => d instanceof Date && !isNaN(d.getTime()) ? d : null;
+  const query = previewText(allTurns.find(t => t.role === 'user')?.content);
+
+  // 同 merge 路径的历史脏数据矫正：proxy 捕获（含无 source 标记的早期产物，
+  // 靠 wire 指纹兜底识别）重刷新时回填 framework/version，修复错显归属。
+  // 反向矫正：历史上被污染导出件误标的 claude-proxy 徽标清掉（导出件
+  // latency 靠 source 行内识别仍生效，不受 version 影响）。
+  let refreshProxyFix: { framework?: string; version: string | null } | null = null;
+  if (srcType === 'claude-jsonl' && session.sourcePath) {
+    const cls = classifyProxyCapture(session.sourcePath);
+    if (cls.isProxy) {
+      const agentVersion = extractClaudeVersion(session.sourcePath);
+      const marker = cls.marker!;
+      refreshProxyFix = {
+        framework: cls.framework!,
+        version: agentVersion ? `${agentVersion}-${marker}` : marker,
+      };
+    } else if (isProxyVersion(session.version)) {
+      refreshProxyFix = { version: extractClaudeVersion(session.sourcePath) };
+    }
+  }
+
+  await prisma.session.update({
+    where: { id: session.id },
+    data: {
+      ...(refreshProxyFix ?? {}),
+      totalTokens: safeNum(updatedAggregates.totalTokens),
+      totalInputTokens: safeNum(updatedAggregates.totalInputTokens),
+      totalOutputTokens: safeNum(updatedAggregates.totalOutputTokens),
+      totalReasoningTokens: safeNum(updatedAggregates.totalReasoningTokens),
+      totalCacheReadTokens: safeNum(updatedAggregates.totalCacheReadTokens),
+      totalCacheWriteTokens: safeNum(updatedAggregates.totalCacheWriteTokens),
+      totalCost: safeNum(updatedAggregates.totalCost),
+      totalLatencyMs: safeNum(updatedAggregates.totalLatencyMs),
+      totalToolCallCount: safeNum(updatedAggregates.totalToolCallCount),
+      totalLlmCallCount: safeNum(updatedAggregates.totalLlmCallCount),
+      totalSkillLoadCount: safeNum(updatedAggregates.totalSkillLoadCount),
+      totalSubagentCount: safeNum(updatedAggregates.totalSubagentCount),
+      endTime: safeDate(updatedAggregates.endTime),
+      rootExecutionId,
+      ...(query ? { query } : {}),
+      ...(updatedAggregates.model ? { model: updatedAggregates.model } : {}),
+    },
+  });
+
+  return allTurns.length;
+}
+
 export async function deltaRefreshSession(
   sessionId: string,
   prisma: PrismaClient,
-): Promise<{ addedTurns: number; updatedTurns: number; addedToolCalls: number; updatedToolCalls: number; addedSkillEvents: number }> {
+): Promise<{ addedTurns: number; updatedTurns: number; addedToolCalls: number; updatedToolCalls: number; addedSkillEvents: number; fullRebuild?: boolean; rebuiltTurns?: number }> {
   const session = await prisma.session.findFirst({ where: { taskId: sessionId } });
   if (!session || !session.sourcePath) {
     throw new Error(`Session not found or no sourcePath: "${sessionId}"`);
@@ -831,6 +913,56 @@ export async function deltaRefreshSession(
         parentExecutionId: et.parentExecutionId,
     }));
     const existingTurnByRankedKey = keyByRankedTurn(existingTurnRows);
+
+    // ── 漂移检测（增量合法性前置校验）──────────────────────────────────
+    // 位次匹配（ranked key）的合法性前提：每个上下文的"既有轮次 = 新读序列
+    // 的前缀"（append-only）。源侧对旧消息的产出回溯性变化会打破前缀关系——
+    // 现场：opencode 升级引入 step 部件后，同一旧消息多产出空轮 → 位次全盘
+    // 错位 → user/assistant 角色互相覆写、空轮重复膨胀计数（已导入 > 源数，
+    // countChanged 恒 false，同步判死）。检测到漂移即放弃带病增量，降级为
+    // 全量替换：删光本会话轮次后一次性插入本次全量读入（与初导同源同序，
+    // 位次关系重建，本地库秒级，绝对正确）。
+    if (detectRankedPrefixDrift(existingTurnRows, turns)) {
+      const newTurnsData = turns.map(t => {
+        const { cost: _turnCost, subagentType: _subagentType, ...rest } = t;
+        return { ...rest, sessionId: session.id, createdAt_ts: toDate(rest.createdAt_ts), completedAt: toDate(rest.completedAt) };
+      });
+      const newToolCallsData = toolCalls.map(tc => ({
+        ...tc,
+        startedAt: toDate(tc.startedAt),
+        completedAt: toDate(tc.completedAt),
+      }));
+      const newSkillEventsData = skillEvents.map(se => ({
+        ...se,
+        startedAt: toDate(se.startedAt),
+        completedAt: toDate(se.completedAt),
+      }));
+      const executionGraph = buildExecutionGraph(
+        turns, toolCalls, skillEvents,
+        normalized as unknown as RawInteraction[], sessionId, toolUseIdMapping,
+      );
+      await prisma.$transaction(async (tx) => {
+        await tx.turn.deleteMany({ where: { sessionId: session.id } }); // 级联 toolCalls/skillEvents
+        await batchCreateMany(tx, 'Turn' as Prisma.ModelName, newTurnsData);
+        await batchCreateMany(tx, 'ToolCall' as Prisma.ModelName, newToolCallsData);
+        await batchCreateMany(tx, 'SkillEvent' as Prisma.ModelName, newSkillEventsData);
+        await replaceExecutionGraph(tx, session.id, executionGraph);
+      }, { maxWait: 30000, timeout: 60000 });
+      // 全量替换也必须重算 Session 聚合（与 merge 路径同源）——否则残留替换前
+      // 的脏聚合且无后续刷新可矫正（见 recomputeAndApplySessionAggregates）
+      const rebuiltCount = await recomputeAndApplySessionAggregates(
+        prisma, session, srcType, executionGraph.rootExecutionId,
+      );
+      return {
+        addedTurns: Math.max(0, rebuiltCount - oldTurnCount),
+        updatedTurns: 0,
+        addedToolCalls: toolCalls.length,
+        updatedToolCalls: 0,
+        addedSkillEvents: skillEvents.length,
+        fullRebuild: true,
+        rebuiltTurns: rebuiltCount,
+      };
+    }
 
     const existingTcByToolCallId = new Map<string, ToolCallRow>();
     for (const tc of existingToolCalls) {
@@ -974,74 +1106,10 @@ export async function deltaRefreshSession(
       await replaceExecutionGraph(tx, session.id, executionGraph);
     }, { maxWait: 30000, timeout: 60000 });
 
-    const allTurnsAfterMerge = await prisma.turn.findMany({ where: { sessionId: session.id } });
-    const allToolCallsAfterMerge = await prisma.toolCall.findMany({
-      where: { turnId: { in: allTurnsAfterMerge.map(t => t.id) } },
-    });
-    const allSkillEventsAfterMerge = await prisma.skillEvent.findMany({
-      where: { turnId: { in: allTurnsAfterMerge.map(t => t.id) } },
-    });
-
-    const turnRowsForAgg = allTurnsAfterMerge.map(t => ({
-      ...t,
-      subagentType: null,
-      cost: 0,
-      createdAt_ts: t.createdAt_ts ? t.createdAt_ts.toISOString() : null,
-      completedAt: t.completedAt ? t.completedAt.toISOString() : null,
-    }));
-    const updatedAggregates = computeSessionAggregates(
-      turnRowsForAgg,
-      allToolCallsAfterMerge as unknown as ToolCallRow[],
-      allSkillEventsAfterMerge as unknown as SkillEventRow[],
+    const newTurnCount = await recomputeAndApplySessionAggregates(
+      prisma, session, srcType, rootExecutionId,
     );
 
-    const safeNum = (n: number) => (typeof n === 'number' && !isNaN(n)) ? n : 0;
-    const safeDate = (d: Date | null) => d instanceof Date && !isNaN(d.getTime()) ? d : null;
-    const query = previewText(allTurnsAfterMerge.find(t => t.role === 'user')?.content);
-
-    // 同 merge 路径的历史脏数据矫正：proxy 捕获（含无 source 标记的早期产物，
-    // 靠 wire 指纹兜底识别）重刷新时回填 framework/version，修复错显归属。
-    // 反向矫正：历史上被污染导出件误标的 claude-proxy 徽标清掉（导出件
-    // latency 靠 source 行内识别仍生效，不受 version 影响）。
-    let refreshProxyFix: { framework?: string; version: string | null } | null = null;
-    if (srcType === 'claude-jsonl') {
-      const cls = classifyProxyCapture(session.sourcePath);
-      if (cls.isProxy) {
-        const agentVersion = extractClaudeVersion(session.sourcePath);
-        const marker = cls.marker!;
-        refreshProxyFix = {
-          framework: cls.framework!,
-          version: agentVersion ? `${agentVersion}-${marker}` : marker,
-        };
-      } else if (isProxyVersion(session.version)) {
-        refreshProxyFix = { version: extractClaudeVersion(session.sourcePath) };
-      }
-    }
-
-    await prisma.session.update({
-      where: { id: session.id },
-      data: {
-        ...(refreshProxyFix ?? {}),
-        totalTokens: safeNum(updatedAggregates.totalTokens),
-        totalInputTokens: safeNum(updatedAggregates.totalInputTokens),
-        totalOutputTokens: safeNum(updatedAggregates.totalOutputTokens),
-        totalReasoningTokens: safeNum(updatedAggregates.totalReasoningTokens),
-        totalCacheReadTokens: safeNum(updatedAggregates.totalCacheReadTokens),
-        totalCacheWriteTokens: safeNum(updatedAggregates.totalCacheWriteTokens),
-        totalCost: safeNum(updatedAggregates.totalCost),
-        totalLatencyMs: safeNum(updatedAggregates.totalLatencyMs),
-        totalToolCallCount: safeNum(updatedAggregates.totalToolCallCount),
-        totalLlmCallCount: safeNum(updatedAggregates.totalLlmCallCount),
-        totalSkillLoadCount: safeNum(updatedAggregates.totalSkillLoadCount),
-        totalSubagentCount: safeNum(updatedAggregates.totalSubagentCount),
-        endTime: safeDate(updatedAggregates.endTime),
-        rootExecutionId,
-        ...(query ? { query } : {}),
-        ...(updatedAggregates.model ? { model: updatedAggregates.model } : {}),
-      },
-    });
-
-    const newTurnCount = allTurnsAfterMerge.length;
     return {
       addedTurns: Math.max(0, newTurnCount - oldTurnCount),
       updatedTurns: appliedTurnUpdates.length,
