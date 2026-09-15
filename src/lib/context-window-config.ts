@@ -38,6 +38,7 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   "glm-5": 200000,
   "glm-5.1": 200000,
   "glm-5.2": 1000000,
+  "glm-5.3": 1000000,
   "deepseek-v3": 131072,
   "deepseek-r1": 128000,
   "deepseek-v4": 1000000,

@@ -25,6 +25,11 @@ function git(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: 'pipe', timeout: 60_000 });
 }
 
+// git 管道 IT（上传/导入往返）显式超时：镜像 fetch 会与并行的其它用例争锁
+// 排队，默认 5s 在全新克隆首跑的满载下偶发超时（实测单跑 ~1-3s），30s 为
+// 实测上限加余量
+const GIT_PIPELINE_TIMEOUT_MS = 30_000;
+
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cannbay-schema-it-'));
 const BARE = path.join(TMP, 'remote.git');
 const SEED = path.join(TMP, 'seed');
@@ -227,7 +232,7 @@ describe('cannbay schema：列清单对账 round-trip（数据全不能少）', 
     expect(await prisma.session.findFirst({ where: { taskId: SID } })).toBeNull();
     const result = await cannbay2.importCannbay2Session(SID, prisma);
     expect(result).toBeTruthy();
-  });
+  }, GIT_PIPELINE_TIMEOUT_MS);
 
   it('③ 逐列对账：0 丢失 0 损造', async () => {
     const s = await prisma.session.findFirst({ where: { taskId: SID } });
@@ -252,7 +257,7 @@ describe('cannbay schema：列清单对账 round-trip（数据全不能少）', 
     // bridge 重推导：subagent 会话 + 派发关联恢复
     const bridges = await prisma.interactionBridge.findMany({ where: { sessionId: s!.id } });
     expect(bridges.some(b => b.subagentSessionId === SUB_ID)).toBe(true);
-  });
+  }, GIT_PIPELINE_TIMEOUT_MS);
 });
 
 describe('cannbay schema：⑤ cpx 捕获治理上传 → 再导入 —— meta 过治理且不覆盖 proxy 徽标', () => {
@@ -290,7 +295,7 @@ describe('cannbay schema：⑤ cpx 捕获治理上传 → 再导入 —— meta 
     expect(s!.version?.endsWith('-proxy')).toBe(true);
     expect(s!.version).toContain('2.1.234.467');
     await prisma.session.deleteMany({ where: { taskId: CPX_SID } });
-  });
+  }, GIT_PIPELINE_TIMEOUT_MS);
 });
 
 describe('cannbay schema：④ 混排容错（native / legacy-proxy / 纯 x_cannbay 同文件）', () => {

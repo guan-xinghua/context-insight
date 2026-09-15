@@ -13,6 +13,10 @@ import { DELETE } from '@/app/api/ingest/delete-session/route';
 
 const createdSessionIds: string[] = [];
 
+// DB 级 IT：多会话 seed + DELETE 路由级联，本体 <1s；满载并行下测试库
+// SQLite 锁竞争偶发超默认 5s（全量单跑正常、偶发超时实测），15s 为容错上限
+const DB_IT_TIMEOUT_MS = 15_000;
+
 async function seedSession(taskId: string, framework: string = 'unknown') {
   const session = await prisma.session.create({ data: { taskId, framework } });
   createdSessionIds.push(session.id);
@@ -76,7 +80,7 @@ describe('delete-session API (batch)', () => {
     for (const id of [a.id, b.id, c.id]) {
       createdSessionIds.splice(createdSessionIds.indexOf(id), 1);
     }
-  });
+  }, DB_IT_TIMEOUT_MS);
 
   it('scopes deletion by framework when taskId collides across frameworks', async () => {
     const stamp = `${Date.now()}`;
@@ -96,7 +100,7 @@ describe('delete-session API (batch)', () => {
     const gone = await prisma.session.findUnique({ where: { id: drop.id } });
     expect(gone).toBeNull();
     createdSessionIds.splice(createdSessionIds.indexOf(drop.id), 1);
-  });
+  }, DB_IT_TIMEOUT_MS);
 
   it('skips list entries missing taskId but still deletes valid ones', async () => {
     const a = await seedSession(`partial-${Date.now()}`, 'opencode');
@@ -117,7 +121,7 @@ describe('delete-session API (batch)', () => {
     const gone = await prisma.session.findUnique({ where: { id: a.id } });
     expect(gone).toBeNull();
     createdSessionIds.splice(createdSessionIds.indexOf(a.id), 1);
-  });
+  }, DB_IT_TIMEOUT_MS);
 
   it('returns deleted:0 for an empty batch list without touching existing rows', async () => {
     const res = await DELETE(makeDeleteRequest({ sessions: [] }));
@@ -125,12 +129,12 @@ describe('delete-session API (batch)', () => {
     expect(res.status).toBe(200);
     expect(data.deleted).toBe(0);
     expect(data.batch).toBe(0);
-  });
+  }, DB_IT_TIMEOUT_MS);
 
   it('still rejects a missing taskId in the single-session path', async () => {
     const res = await DELETE(makeDeleteRequest({}));
     expect(res.status).toBe(400);
-  });
+  }, DB_IT_TIMEOUT_MS);
 });
 
 describe('delete-session API (cascade: no orphan child rows)', () => {
@@ -145,7 +149,7 @@ describe('delete-session API (cascade: no orphan child rows)', () => {
     expect(await prisma.toolCall.findUnique({ where: { id: toolCall.id } })).toBeNull();
     expect(await prisma.skillEvent.findUnique({ where: { id: skillEvent.id } })).toBeNull();
     createdSessionIds.splice(createdSessionIds.indexOf(session.id), 1);
-  });
+  }, DB_IT_TIMEOUT_MS);
 
   it('batch delete cascades to child rows', async () => {
     const { session, turn, toolCall, skillEvent } = await seedSessionWithChildren(`cascade-batch-${Date.now()}`);
@@ -159,5 +163,5 @@ describe('delete-session API (cascade: no orphan child rows)', () => {
     expect(await prisma.toolCall.findUnique({ where: { id: toolCall.id } })).toBeNull();
     expect(await prisma.skillEvent.findUnique({ where: { id: skillEvent.id } })).toBeNull();
     createdSessionIds.splice(createdSessionIds.indexOf(session.id), 1);
-  });
+  }, DB_IT_TIMEOUT_MS);
 });

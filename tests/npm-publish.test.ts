@@ -32,6 +32,16 @@ const pkgJson = JSON.parse(fs.readFileSync(path.join(PKG_DIR, "package.json"), "
 
 interface PackFile { path: string; size: number }
 
+// npm ≤11 输出数组 [{files, entryCount}]；npm ≥12 改为按包名索引的对象且去掉
+// entryCount（文件数改由 files.length 得出）。两种格式归一成同一形状。
+function parsePackJson(stdout: string): Array<{ files: PackFile[]; entryCount: number }> {
+  const parsed: unknown = JSON.parse(stdout)
+  const list = Array.isArray(parsed)
+    ? (parsed as Array<{ files?: PackFile[]; entryCount?: number }>)
+    : Object.values(parsed as Record<string, { files?: PackFile[]; entryCount?: number }>)
+  return list.map((e) => ({ files: e.files ?? [], entryCount: e.entryCount ?? e.files?.length ?? 0 }))
+}
+
 function packDryRun(): PackFile[] {
   const r = spawnSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: PKG_DIR,
@@ -41,7 +51,7 @@ function packDryRun(): PackFile[] {
   if (r.status !== 0) {
     throw new Error(`npm pack --dry-run 失败:\n${r.stderr}\n${r.stdout}`)
   }
-  const parsed = JSON.parse(r.stdout) as Array<{ files: PackFile[] }>
+  const parsed = parsePackJson(r.stdout)
   expect(parsed.length).toBe(1)
   return parsed[0].files
 }
@@ -84,7 +94,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
       cwd: PKG_DIR, encoding: "utf8", timeout: 120_000,
     })
     expect(r.status).toBe(0)
-    const parsed = JSON.parse(r.stdout as string) as Array<{ entryCount: number }>
+    const parsed = parsePackJson(r.stdout as string)
     expect(parsed.length).toBe(1)
     expect(parsed[0].entryCount).toBeGreaterThan(300)
     expect(parsed[0].entryCount).toBeLessThanOrEqual(450)
