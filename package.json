@@ -24,14 +24,16 @@
     "pretest:watch": "node scripts/ensure-native.mjs && node scripts/ensure-test-db.mjs",
     "pretest:cli": "node scripts/ensure-native.mjs && node scripts/ensure-test-db.mjs",
     "pretest:bench": "node scripts/ensure-native.mjs && node scripts/ensure-test-db.mjs",
-    "test": "vitest run",
+    "test": "vitest run tests/ut",
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
-    "test:cli": "vitest run tests/cli/",
+    "test:cli": "vitest run tests/ut/cli/",
     "test:bench": "vitest bench --run",
     "test:report": "vitest run --reporter=verbose --reporter=junit --outputFile=test-report/junit.xml",
     "test:report:html": "vitest run --reporter=html --outputFile=test-report/index.html",
-    "test:report:serve": "vite preview --outDir test-report --port 21031 --host"
+    "test:report:serve": "vite preview --outDir test-report --port 21031 --host",
+    "test:e2e": "node scripts/ensure-native.mjs && node scripts/ensure-test-db.mjs && vitest run tests/e2e",
+    "test:all": "vitest run"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

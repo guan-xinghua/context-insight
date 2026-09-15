@@ -19,6 +19,7 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   "gpt-4.1": 1047576,
   "gpt-4.1-mini": 1047576,
   "gpt-4.1-nano": 1047576,
+  "gpt-6-astra": 1050000,
   "o3": 200000,
   "o3-mini": 100000,
   "o4-mini": 200000,

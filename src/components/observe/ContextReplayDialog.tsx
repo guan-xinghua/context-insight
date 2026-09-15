@@ -11,6 +11,7 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { buildSubagentNumbers } from "@/lib/subagent-numbering"
 import {
   Dialog,
   DialogContent,
@@ -107,11 +108,11 @@ function computeTimelines(turns: TurnRowItem[]): AgentTimeline[] {
   return timelines
 }
 
-function displayLabel(s: AgentTimeline, timelines: AgentTimeline[]): string {
+function displayLabel(s: AgentTimeline, numbers: Map<string, number>): string {
   if (s.isRoot) return s.agentName
   const aname = s.agentName === "ascendc-kernel-architect" ? "ascendc-arch" : s.agentName === "ascendc-kernel-developer" ? "ascendc-dev" : s.agentName
-  const idx = timelines.filter(a => a.agentName === s.agentName && !a.isRoot).indexOf(s) + 1
-  return `${aname} #${idx}`
+  const num = numbers.get(s.sessionId)
+  return num !== undefined ? `${aname} #${num}` : aname
 }
 
 interface ContextReplayDialogProps {
@@ -133,6 +134,7 @@ export function ContextReplayDialog({ open, onOpenChange, turns, sessionModel }:
   }, [sessionModel, open])
 
   const timelines = useMemo(() => computeTimelines(turns), [turns])
+  const subagentNumbers = useMemo(() => buildSubagentNumbers(turns), [turns])
 
   if (!open || timelines.length === 0) return null
 
@@ -150,6 +152,7 @@ export function ContextReplayDialog({ open, onOpenChange, turns, sessionModel }:
           timelines={timelines}
           turns={turns}
           contextWindowLimit={contextWindowLimit}
+          subagentNumbers={subagentNumbers}
         />
       </DialogContent>
     </Dialog>
@@ -168,10 +171,12 @@ function ContextReplayPlayer({
   timelines,
   turns,
   contextWindowLimit,
+  subagentNumbers,
 }: {
   timelines: AgentTimeline[]
   turns: TurnRowItem[]
   contextWindowLimit: number
+  subagentNumbers: Map<string, number>
 }) {
   const maxTurnIndex = Math.max(...turns.map(t => t.turnIndex), 0)
   const [currentTurn, setCurrentTurn] = useState(0)
@@ -324,7 +329,7 @@ function ContextReplayPlayer({
             const pts = tl.visiblePoints
             if (pts.length === 0) return null
 
-            const label = displayLabel(tl, timelines)
+            const label = displayLabel(tl, subagentNumbers)
             const isDead = !tl.isAlive && currentTurn > tl.deathTurn
             const activeColor = isDead ? "#9ca3af" : tl.color
             const strokeW = tl.isRoot ? 2.5 : 1.5
@@ -504,7 +509,7 @@ function ContextReplayPlayer({
       <div className="flex flex-wrap gap-1.5 items-center border-t pt-2 max-h-[80px] overflow-y-auto">
         <span className="text-xs text-muted-foreground shrink-0">Agents ({timelines.length}):</span>
         {currentTurnPoints.map(tl => {
-          const label = displayLabel(tl, timelines)
+          const label = displayLabel(tl, subagentNumbers)
           const isDead = !tl.isAlive && currentTurn > tl.deathTurn
           const hasTokens = tl.visiblePoints.length > 0
           return (

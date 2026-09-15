@@ -116,3 +116,93 @@ export function analyzeReads(reads: ReadEntry[]): {
 
   return { overlappingReads, totalLinesRead, uniqueLinesRead, redundancyRate };
 }
+
+// ── codex exec 形态的文件读取提取 ─────────────────────────────────────
+// codex 会话（第三方转换件产出 claude 信封）没有独立 Read 工具——文件读写
+// 全部内嵌在 exec 工具参数的 exec_command({cmd:"..."}) shell 脚本里
+// （cat / sed -n / head / tail / rg …）。从 argsJson 提取文件级读取：
+// sed -n 'a,bp' 给精确行区间，cat/head/tail/rg 按整文件参与重叠统计；
+// rg --files 是目录列举，跳过。
+
+export interface ExecFileRead {
+  filePath: string;
+  range: ReadRange;
+}
+
+const FULL_RANGE: ReadRange = { type: 'full', start: 0, end: null };
+
+function isFilePathLike(s: string): boolean {
+  if (!s || s.startsWith('-')) return false;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(s)) return false;
+  if (/^\d+$/.test(s)) return false;
+  return s.startsWith('/') || s.startsWith('./') || s.startsWith('../') || s.startsWith('~')
+    || s.includes('/') || /\.[A-Za-z0-9]{1,8}$/.test(s);
+}
+
+function readFileOpsFromSegment(seg: string): ExecFileRead[] {
+  const toks = seg.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+  if (toks.length === 0) return [];
+  const head = toks[0];
+  const rest = toks.slice(1).map(t => t.replace(/^['"]|['"]$/g, ''));
+
+  if (head === 'cat') {
+    return rest.filter(isFilePathLike).map(f => ({ filePath: f, range: FULL_RANGE }));
+  }
+  if (head === 'sed') {
+    // -i 原地替换是写操作（≈ Edit 工具），不计入读取
+    if (rest.some(t => t === '-i' || t === '--in-place' || /^(-i|--in-place=)/.test(t))) return [];
+    let range: ReadRange | null = null;
+    const files: string[] = [];
+    for (const t of rest) {
+      const rm = t.match(/^(\d+)(?:,(\d+))?p$/);
+      if (rm) {
+        range = { type: 'partial', start: Number(rm[1]), end: rm[2] ? Number(rm[2]) : Number(rm[1]) };
+        continue;
+      }
+      // s/y 编辑命令（sed 's/a/b/' file）不是路径——含 / 会骗过 isFilePathLike
+      if (/^(s|y)\//.test(t) || /^[aic]$/.test(t)) continue;
+      if (t.startsWith('-')) continue;
+      if (isFilePathLike(t)) files.push(t);
+    }
+    return files.map(f => ({ filePath: f, range: range ?? FULL_RANGE }));
+  }
+  if (head === 'head' || head === 'tail') {
+    return rest.filter(t => !t.startsWith('-') && isFilePathLike(t)).map(f => ({ filePath: f, range: FULL_RANGE }));
+  }
+  if (head === 'rg' || head === 'grep') {
+    if (rest.some(t => t === '--files')) return [];
+    const positional = rest.filter(t => !t.startsWith('-'));
+    if (positional.length < 2) return [];
+    return positional.slice(1).filter(isFilePathLike).map(f => ({ filePath: f, range: FULL_RANGE }));
+  }
+  return [];
+}
+
+export function extractExecFileReads(argsJson: string | null): ExecFileRead[] {
+  if (!argsJson) return [];
+  let input = '';
+  try {
+    const a = JSON.parse(argsJson) as { input?: unknown };
+    if (typeof a.input === 'string') input = a.input;
+  } catch {
+    return [];
+  }
+  const out: ExecFileRead[] = [];
+  const seen = new Set<string>();
+  for (const m of input.matchAll(/exec_command\(\{cmd:"((?:[^"\\]|\\.)*)"/g)) {
+    const cmd = m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+    for (const seg of cmd.split(/\n|&&|\|\||;|\|/)) {
+      for (const r of readFileOpsFromSegment(seg.trim())) {
+        // 目录尾斜杠跳过（与 Read 分支 isDirectoryRead 同口径）；rg 递归搜
+        // 目录树（参数无尾斜杠）无法在此判别，按文件计入——已知近似
+        if (r.filePath.endsWith('/')) continue;
+        const key = `${r.filePath}:${r.range.type}:${r.range.start}-${r.range.end}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push(r);
+        }
+      }
+    }
+  }
+  return out;
+}

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { isCommandTurn, isCommandCaveat, isCommandStdout, parseCommandTurns, formatCommandDisplay, isContinuationTurn, parseContinuationTurn } from "@/lib/shared/command-parser"
+import { buildSubagentNumbers } from "@/lib/subagent-numbering"
 
 interface TurnRowItem {
   turnId: string
@@ -454,15 +455,17 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
   }
 
   const subagentBlocksByTurnId = new Map<string, SubagentLane[]>()
+  const subagentNumbers = buildSubagentNumbers(turns)
   for (const [turnId, bs] of bridgesByTurnId) {
     const lanes: SubagentLane[] = []
     for (const b of bs) {
       const sid = b.subagentSessionId
       const sturns = sid ? (subTurnsBySession.get(sid) ?? []) : []
+      const laneNum = sid ? subagentNumbers.get(sid) : undefined
       lanes.push({
         bridgeId: b.bridgeId,
         sessionId: sid,
-        name: b.agentName ?? b.subagentName ?? b.subagentType ?? "subagent",
+        name: (b.agentName ?? b.subagentName ?? b.subagentType ?? "subagent") + (laneNum !== undefined ? ` #${laneNum}` : ""),
         type: b.subagentType,
         summary: b.dispatchContent,
         turns: sturns,

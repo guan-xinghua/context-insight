@@ -108,7 +108,7 @@ function formatTimestamp(ts: string | null): string {
   }
 }
 
-export function TurnDetail({ turn, highlight, onRefresh }: { turn: TurnDetailData; highlight?: TurnHighlight | null; onRefresh?: () => void }) {
+export function TurnDetail({ turn, highlight, onRefresh, subagentLabel }: { turn: TurnDetailData; highlight?: TurnHighlight | null; onRefresh?: () => void; subagentLabel?: string }) {
   if (!turn) return null
 
   const contentLength = (turn.content ?? "").length + (turn.contentJson ?? "").length
@@ -125,7 +125,7 @@ export function TurnDetail({ turn, highlight, onRefresh }: { turn: TurnDetailDat
           {ROLE_ICONS[turn.role]} {turn.role}
         </Badge>
         {turn.isSubagent && (
-          <Badge variant="orange">{turn.subagentName ?? "subagent"}</Badge>
+          <Badge variant="orange">{subagentLabel ?? turn.subagentName ?? "subagent"}</Badge>
         )}
         {turn.agentName && (
           <Badge variant="outline">{turn.agentName}</Badge>
@@ -200,6 +200,7 @@ export function TurnDetail({ turn, highlight, onRefresh }: { turn: TurnDetailDat
         reasoningTokens={turn.reasoningTokens}
         role={turn.role}
         highlight={highlight}
+        toolCallCount={turn.toolCalls.length}
       />
 
       {turn.toolCalls.length > 0 && (

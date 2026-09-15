@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # insight 单元用例入口（供仓顶 scripts/run-tests.sh 转调，也可单独执行）。
 # 依赖缺失时自动 npm install（fresh clone / 流水线一条命令可跑；postinstall
-# 会生成 Prisma client）。CANNBOT_TEST_SKIP_SLOW=1：跳过慢速/环境敏感用例
-# （见 vitest.config.ts 项目级 exclude）。
+# 会生成 Prisma client）。
+# tests 分层：tests/ut 默认跑（npm run test）；tests/e2e（真 CLI/浏览器/环境
+# 依赖）显式跑：npm run test:e2e。
 #
 # Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -24,4 +25,4 @@ if [ ! -x node_modules/.bin/vitest ]; then
   exit 1
 fi
 
-CANNBOT_TEST_SKIP_SLOW=1 npm run test
+npm run test

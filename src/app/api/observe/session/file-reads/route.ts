@@ -8,7 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { parseReadArgs, isDirectoryRead, computeRange, analyzeReads } from '@/lib/file-reads';
+import { parseReadArgs, isDirectoryRead, computeRange, analyzeReads, extractExecFileReads } from '@/lib/file-reads';
+import type { ReadRange } from '@/lib/file-reads';
 import type { ReadEntry } from '@/lib/file-reads';
 
 interface FileAnalysis {
@@ -53,27 +54,33 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const toolCalls = await prisma.toolCall.findMany({
-      where: {
-        toolName: { in: ['read', 'Read'] },
-        turn: { sessionId: session.id },
-      },
-      select: {
-        argsJson: true,
-        resultJson: true,
-        turn: {
-          select: {
-            id: true,
-            turnIndex: true,
-            agentName: true,
-            isSubagent: true,
-            subagentName: true,
-            subagentSessionId: true,
-            contentSummary: true,
-          },
-        },
-      },
-    });
+    // 双查询：Read 需要 resultJson（目录判定）；exec 只消费 argsJson——
+    // 合并查询会把 exec 的 resultJson 一并拉出（实测单会话 16MB 纯浪费）
+    const turnSelect = {
+      id: true,
+      turnIndex: true,
+      agentName: true,
+      isSubagent: true,
+      subagentName: true,
+      subagentSessionId: true,
+      contentSummary: true,
+    } as const;
+    const [readCalls, execCalls] = await Promise.all([
+      prisma.toolCall.findMany({
+        where: { toolName: { in: ['read', 'Read'] }, turn: { sessionId: session.id } },
+        select: { toolName: true, argsJson: true, resultJson: true, turn: { select: turnSelect } },
+      }),
+      prisma.toolCall.findMany({
+        where: { toolName: 'exec', turn: { sessionId: session.id } },
+        select: { toolName: true, argsJson: true, turn: { select: turnSelect } },
+      }),
+    ]);
+    const toolCalls: Array<{
+      toolName: string;
+      argsJson: string | null;
+      resultJson?: string | null;
+      turn: (typeof readCalls)[number]['turn'];
+    }> = [...readCalls, ...execCalls];
 
     const subSessionIds = [...new Set(
       toolCalls
@@ -95,13 +102,19 @@ export async function GET(request: NextRequest) {
     const fileMap = new Map<string, { displayPath: string; reads: ReadEntry[] }>();
 
     for (const tc of toolCalls) {
-      const args = parseReadArgs(tc.argsJson);
-      if (!args || !args.filePath) continue;
-      if (isDirectoryRead(args.filePath, tc.resultJson)) continue;
-
-      const filePath = args.filePath;
-      const displayPath = args.summary || filePath;
-      const range = computeRange(args);
+      // exec（codex 形态）：一次 exec 可命中多个文件（内嵌多条命令），
+      // 逐文件生成读取条目；Read 走原参数解析
+      const perFile: Array<{ filePath: string; displayPath: string; range: ReadRange }> = [];
+      if (tc.toolName === 'exec') {
+        for (const r of extractExecFileReads(tc.argsJson)) {
+          perFile.push({ filePath: r.filePath, displayPath: r.filePath, range: r.range });
+        }
+      } else {
+        const args = parseReadArgs(tc.argsJson);
+        if (!args || !args.filePath) continue;
+        if (isDirectoryRead(args.filePath, tc.resultJson ?? null)) continue;
+        perFile.push({ filePath: args.filePath, displayPath: args.summary || args.filePath, range: computeRange(args) });
+      }
 
       const agent = tc.turn.isSubagent
         ? (tc.turn.agentName || tc.turn.subagentName || 'subagent')
@@ -111,18 +124,20 @@ export async function GET(request: NextRequest) {
         ? (promptMap.get(tc.turn.subagentSessionId) ?? null)
         : null;
 
-      if (!fileMap.has(filePath)) {
-        fileMap.set(filePath, { displayPath, reads: [] });
+      for (const pf of perFile) {
+        if (!fileMap.has(pf.filePath)) {
+          fileMap.set(pf.filePath, { displayPath: pf.displayPath, reads: [] });
+        }
+        fileMap.get(pf.filePath)!.reads.push({
+          turnId: tc.turn.id,
+          turnIndex: tc.turn.turnIndex,
+          agent,
+          prompt,
+          subagentSessionId: tc.turn.subagentSessionId ?? null,
+          llmOutput: tc.turn.contentSummary ?? null,
+          range: pf.range,
+        });
       }
-      fileMap.get(filePath)!.reads.push({
-        turnId: tc.turn.id,
-        turnIndex: tc.turn.turnIndex,
-        agent,
-        prompt,
-        subagentSessionId: tc.turn.subagentSessionId ?? null,
-        llmOutput: tc.turn.contentSummary ?? null,
-        range,
-      });
     }
 
     const files: FileAnalysis[] = [];

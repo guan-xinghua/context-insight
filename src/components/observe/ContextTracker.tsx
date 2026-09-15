@@ -15,6 +15,7 @@ import { ZoomInIcon, ZoomOutIcon, RotateCcwIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ContextReplayDialog } from "@/components/observe/ContextReplayDialog"
 import { isCommandTurn, isContinuationTurn, parseCommandTurns, formatCommandDisplay } from "@/lib/shared/command-parser"
+import { buildSubagentNumbers } from "@/lib/subagent-numbering"
 
 interface TurnRowItem {
   turnId: string
@@ -295,19 +296,32 @@ export function ContextTracker({ turns, sessionModel, onNavigateToTurn }: Contex
   }, [sessionModel])
   const agentStats = useMemo(() => computeAgentStats(turns, contextWindowLimit), [turns, contextWindowLimit])
 
+  const subagentNumbers = useMemo(() => buildSubagentNumbers(turns), [turns])
   const displayLabel = useCallback((s: AgentStats) => {
     if (s.isRoot) return s.agentName
     const aname = s.agentName === "ascendc-kernel-architect" ? "ascendc-arch" : s.agentName === "ascendc-kernel-developer" ? "ascendc-dev" : s.agentName
-    const idx = agentStats.filter(a => a.agentName === s.agentName && !a.isRoot).indexOf(s) + 1
-    return `${aname} #${idx}`
-  }, [agentStats])
+    const num = subagentNumbers.get(s.sessionId)
+    return num !== undefined ? `${aname} #${num}` : aname
+  }, [subagentNumbers])
 
   const visibleStats = showAll ? agentStats : agentStats.slice(0, 5)
 
   if (agentStats.length === 0) {
+    // 区分病因：有轮次但全 0 token = 源日志 assistant 行缺 message.usage
+    //（第三方转换件常见），与"真的没数据"提示不同，避免被当成页面坏了
+    const noTokenData = turns.length > 0 && !turns.some(t => t.totalTokens > 0)
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-muted-foreground text-sm">No context data available</div>
+      <div className="flex flex-col items-center justify-center h-full gap-2 p-8">
+        <div className="text-muted-foreground text-sm">
+          {noTokenData ? "无 token 用量数据，无法绘制上下文曲线" : "No context data available"}
+        </div>
+        {noTokenData && (
+          <div className="text-muted-foreground/70 max-w-lg text-center text-xs leading-relaxed">
+            本会话 {turns.length} 个轮次的 token 计数全为 0——源日志的 assistant 行缺少
+            message.usage（常见于第三方格式转换件未输出 usage 字段）。轮次与耗时数据正常，
+            可查看其它页签；源数据补上 usage 后重新导入即可恢复本页。
+          </div>
+        )}
       </div>
     )
   }
@@ -553,19 +567,7 @@ function GrowthChart({ agentStats, contextWindowLimit, displayLabel, onNavigateT
       time: formatTimestamp(t.createdAt),
       turn: t,
     }))
-    const chartEvents = s.events
-      .filter(e => e.type !== "start" && e.type !== "end" && e.type !== "compact")
-      .map(e => {
-        const eventTurn = s.turns.find(t => t.turnIndex === e.turnIndex)
-        if (!eventTurn) return null
-        return {
-          type: e.type, x: toXFn(eventTurn.createdAt ? new Date(eventTurn.createdAt).getTime() : 0),
-          y: toYFn(eventTurn.totalTokens),
-          note: e.note, growth: e.growth,
-        }
-      })
-      .filter(e => e !== null) as Array<{ type: string; x: number; y: number; note: string | undefined; growth: number | undefined }>
-    return { sessionId: s.sessionId, color, label, isRoot, points, totalTurns: s.totalTurns, events: chartEvents }
+    return { sessionId: s.sessionId, color, label, isRoot, points, totalTurns: s.totalTurns }
   })
 
   const lineLabels = (() => {
@@ -734,36 +736,6 @@ function GrowthChart({ agentStats, contextWindowLimit, displayLabel, onNavigateT
                     strokeWidth={isActive ? 2 : 1}
                   />
                 ))}
-                {line.events.map((evt, i) => {
-                  const showLabel = isActive || highlightedSessionId === line.sessionId
-                  let markerColor = line.color
-                  let markerShape: React.ReactNode = null
-                  if (evt.type === "growth") {
-                    markerColor = line.color
-                    markerShape = <polygon points={`0,-8 4.5,0 -4.5,0`} fill={markerColor} opacity={0.85} />
-                  } else if (evt.type === "peak") {
-                    markerColor = "#f59e0b"
-                    markerShape = <polygon points="0,-8 3,-3 8,0 3,3 0,8 -3,3 -8,0 -3,-3" fill={markerColor} opacity={0.9} />
-                  } else if (evt.type === "warning") {
-                    markerColor = "#ef4444"
-                    markerShape = (
-                      <g>
-                        <polygon points="0,-8 7,5 -7,5" fill={markerColor} opacity={0.9} />
-                        <line x1="0" y1="-4" x2="0" y2="1" stroke="white" strokeWidth={1.5} />
-                        <circle cx="0" cy="3" r="1" fill="white" />
-                      </g>
-                    )
-                  }
-                  if (!markerShape) return null
-                  return (
-                    <g key={`evt-${line.sessionId}-${i}`} transform={`translate(${evt.x},${evt.y - 2})`} opacity={isWeakened ? 0.15 : 0.9}>
-                      {markerShape}
-                      {showLabel && evt.note && (
-                        <text x={8} y={-4} fontSize={8} fill={evt.type === "warning" ? "#ef4444" : evt.type === "peak" ? "#f59e0b" : line.color} fontFamily="system-ui, sans-serif">{evt.note}</text>
-                      )}
-                    </g>
-                  )
-                })}
               </g>
             )
           })}

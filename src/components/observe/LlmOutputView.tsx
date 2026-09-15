@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import { CopyButton } from "./CopyButton"
 import { BashEscapeView, parseBashEscape } from "./BashEscapeView"
 import { highlightKeyword, type TurnHighlight } from "@/lib/shared/highlight"
+import { stripThinkingAndReminder } from "@/lib/shared/text-strip"
 
 interface LlmOutputViewProps {
   content: string | null
@@ -22,6 +23,7 @@ interface LlmOutputViewProps {
   reasoningTokens?: number
   role?: string | null
   highlight?: TurnHighlight | null
+  toolCallCount?: number
 }
 
 function formatTokenCount(n: number): string {
@@ -92,6 +94,7 @@ export function LlmOutputView({
   reasoningTokens,
   role,
   highlight,
+  toolCallCount,
 }: LlmOutputViewProps) {
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false)
   const [prevKw, setPrevKw] = useState<string | null>(null)
@@ -132,7 +135,16 @@ export function LlmOutputView({
 
   if (!content && !contentJson) return null
 
-  const summary = contentSummary ?? (content ? (content.length > 200 ? content.substring(0, 200) + "..." : content) : null)
+  // 折叠态预览优先展示正文（text section）开头：thinking 块会吃掉 200 字符
+  // 摘要预算（contentSummary 生成于 ingest 期），导致预览全是思考过程、
+  // 正文一字不见，被误读为"output 没展示"。thinking 有独立折叠块与 token 徽标。
+  // 剥离与 ingest 同口径：user turn 的 <system-reminder> 前缀同样不进预览。
+  const textPreview = stripThinkingAndReminder(sections.find(s => s.type === "text")?.content ?? null)
+  const summary = (textPreview
+    ? (textPreview.length > 200 ? textPreview.substring(0, 200) + "..." : textPreview)
+    : null)
+    ?? contentSummary
+    ?? (content ? (content.length > 200 ? content.substring(0, 200) + "..." : content) : null)
 
   const HEADER_LABELS: Record<string, string> = {
     user: "User Input",
@@ -208,7 +220,11 @@ export function LlmOutputView({
                 <div className="flex items-center gap-2 px-2 py-1.5 bg-emerald-50/30 dark:bg-emerald-500/5">
                   <Badge variant="green">text</Badge>
                   {outputTokens > 0 && (
-                    <span className="text-muted-foreground text-xs">{formatTokenCount(outputTokens)}t</span>
+                    // usage 的 output 不分块：带工具调用时参数 token 计入
+                    // outputTokens，记在 text 头上会像"token 去哪了"——注明构成
+                    <span className="text-muted-foreground text-xs">
+                      {formatTokenCount(outputTokens)}t{(toolCallCount ?? 0) > 0 ? ` · 含 ${toolCallCount} 个工具调用参数` : ""}
+                    </span>
                   )}
                   <CopyButton text={section.content} className="ml-auto size-4 text-muted-foreground hover:text-foreground" />
                 </div>

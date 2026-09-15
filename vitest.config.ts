@@ -22,22 +22,8 @@ export default defineConfig({
         resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
         test: {
           name: "insight",
-          include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+          include: ["tests/ut/**/*.test.ts", "tests/ut/**/*.test.tsx", "tests/e2e/**/*.test.ts", "tests/e2e/**/*.test.tsx"],
           setupFiles: ["./tests/setup.ts"],
-          // CANNBOT_TEST_SKIP_SLOW=1（scripts/run-tests.sh/流水线）：跳过慢速与
-          // 环境敏感用例——upload IT 慢；e2e 三件依赖 gitignore 的本地 fixture
-          // opencode-sample.db，fresh clone 不具备
-          ...(process.env.CANNBOT_TEST_SKIP_SLOW === "1"
-            ? {
-                exclude: [
-                  "**/node_modules/**",
-                  "tests/session-page-cannbay-upload.test.tsx",
-                  "tests/e2e-import-observe.test.ts",
-                  "tests/cannbay2.test.ts",
-                  "tests/adapters/opencode-db.test.ts",
-                ],
-              }
-            : {}),
         },
       },
     ],

@@ -19,12 +19,17 @@ import { parseJsonlLines } from '@/lib/ingest/adapters/claude-jsonl';
 // reconstructs from imported DB turns).
 // verbatim: no server-side truncation — the client collapses per message
 // with an expand toggle (like the Turns tab)
+//
+// ?delta=1：每轮只回 requestMessages[newFrom..]（新增段，append-only 历史
+// 的增量），客户端按 newFrom 前缀拼接还原快照。全量快照是 O(N²) 复制——
+// 数千轮会话（4408 轮实测）直接爆 V8 字符串上限（"Invalid string length"）。
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
     const full = searchParams.get('full') === '1';
+    const delta = searchParams.get('delta') === '1';
     if (!taskId) {
       return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
     }
@@ -63,6 +68,10 @@ export async function GET(request: NextRequest) {
 
     const history: Array<{ role: string; content: string; timestamp: string | null }> = [];
     let pending: { msgsSnapshot: WireMessage[]; blocks: unknown[]; model: string | null; usage: unknown; ts: string | null; text: string; xb?: { schema?: string; version?: number; data?: { roundIndex?: number } } } | null = null;
+    // 上一轮全量快照长度（newFrom 基准）。不能回读 rounds[last].requestMessages.length
+    // ——delta 模式下那里存的是截断后的增量，回读会让 newFrom 指错位置，
+    // slice 失效退回 O(N²) 全量复制（实测 4.4MB 捕获仍爆 V8 上限）
+    let prevSnapshotLen = 0;
 
     const snapshot = (): WireMessage[] => history.map(h => ({ role: h.role, content: preview(h.content), timestamp: h.timestamp }));
 
@@ -78,13 +87,14 @@ export async function GET(request: NextRequest) {
       // roundIndex 权威化（spec §4.1 "wire 轮次对齐权威键"）：x_cannbay.data.roundIndex
       // 优先；缺失（legacy 文件 / 老 norm）回退数组序号（rounds.length + 1）
       const xbRound = pending.xb ? (pending.xb.schema === 'cc-wire-round' && pending.xb.version === 1 ? pending.xb.data?.roundIndex : undefined) : undefined;
+      const newFrom = prevSnapshotLen;
       rounds.push({
         index: xbRound ?? rounds.length + 1,
         timestamp: pending.ts,
         model: pending.model,
         usage: usageOf(pending.usage),
-        newFrom: rounds.length === 0 ? 0 : (rounds[rounds.length - 1].requestMessages.length),
-        requestMessages: pending.msgsSnapshot,
+        newFrom,
+        requestMessages: delta ? pending.msgsSnapshot.slice(newFrom) : pending.msgsSnapshot,
         response: {
           content: preview(JSON.stringify(pending.blocks)),
           blocks: pending.blocks.map(b => (b as { type?: string })?.type ?? '?'),
@@ -92,6 +102,7 @@ export async function GET(request: NextRequest) {
         },
       });
       history.push({ role: 'assistant', content: JSON.stringify(pending.blocks), timestamp: pending.ts });
+      prevSnapshotLen = pending.msgsSnapshot.length;
       pending = null;
     };
 
@@ -125,6 +136,7 @@ export async function GET(request: NextRequest) {
       taskId,
       sourcePath: session.sourcePath,
       full,
+      delta,
       totalRounds: rounds.length,
       rounds,
     });

@@ -53,13 +53,13 @@ prisma/dev.db-journal
 /dev.db-journal
 
 # test data (large files)
-tests/data/opencode-sessions.db
-tests/data/opencode-sessions.db-shm
-tests/data/opencode-sessions.db-wal
+tests/ut/data/opencode-sessions.db
+tests/ut/data/opencode-sessions.db-shm
+tests/ut/data/opencode-sessions.db-wal
 # e2e fixture db is rebuilt from opencode-sample.sql at test time (OAT: no binary)
-tests/data/e2e/opencode-sample.db
-tests/data/e2e/opencode-sample.db-shm
-tests/data/e2e/opencode-sample.db-wal
+tests/ut/data/e2e/opencode-sample.db
+tests/ut/data/e2e/opencode-sample.db-shm
+tests/ut/data/e2e/opencode-sample.db-wal
 
 # favicon: use src/app/icon.svg (text) instead of binary .ico (OAT: no binary)
 src/app/favicon.ico

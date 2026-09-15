@@ -98,6 +98,8 @@ function truncateTo200(text: string | null): string | null {
   return text.substring(0, 200);
 }
 
+import { stripThinkingAndReminder } from '../shared/text-strip';
+
 function isSkillToolCall(toolName: string): boolean {
   const lower = toolName.toLowerCase();
   return lower.startsWith('skill/') || lower === 'skill' || lower === 'load_skill';
@@ -218,11 +220,10 @@ export function splitIntoTurns(
     const role = interaction.role === 'subagent' ? 'assistant' : interaction.role;
 
     const content = interaction.content;
-    // 摘要剥掉 user turn 里的 <system-reminder> 前缀块（全文保留在 content，
-    // wire 保真）—— 时间线预览显示真实提示而非 XML 标签
-    const contentSummary = content?.startsWith('<system-reminder>')
-      ? truncateTo200(content.replace(/^<system-reminder>[\s\S]*?<\/system-reminder>\s*/, '') || null)
-      : truncateTo200(content);
+    // 摘要剥掉 <thinking> 块与 user turn 里的 <system-reminder> 前缀块（全文
+    // 保留在 content，wire 保真）—— thinking 会吃掉 200 字符摘要预算，时间线
+    // 预览全是思考过程、正文不可见，被误读为 output 未展示
+    const contentSummary = truncateTo200(stripThinkingAndReminder(content));
 
     const usage = interaction.usage;
     const totalTokens = usage?.total ?? 0;

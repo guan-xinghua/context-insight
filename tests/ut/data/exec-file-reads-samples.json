@@ -1,0 +1,50 @@
+[
+  {
+    "name": "cat 单文件（真实样本）",
+    "argsJson": "{\"input\":\"text( await tools.exec_command({cmd:\\\"cat /home/s00955551/fan/merge/bn3d_training_update_grad.md\\\"}));\\n\"}",
+    "expect": [
+      { "filePath": "/home/s00955551/fan/merge/bn3d_training_update_grad.md", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "多命令拼接：pwd && rg 定位 && sed 精确区间",
+    "argsJson": "{\"input\":\"text( await tools.exec_command({cmd:\\\"pwd && rg --files -g 'AGENTS.md' . && sed -n '20,60p' src/lib/foo.ts\\\"}));\\n\"}",
+    "expect": [
+      { "filePath": "src/lib/foo.ts", "type": "partial", "start": 20, "end": 60 }
+    ]
+  },
+  {
+    "name": "rg --files 目录列举跳过；rg 带模式命中文件",
+    "argsJson": "{\"input\":\"text( await tools.exec_command({cmd:\\\"rg --files -g '*skills*' .codex power merge | head -60\\\"}));\\ntext( await tools.exec_command({cmd:\\\"rg 'def main' app/main.py tests/x_test.go\\\"}));\\n\"}",
+    "expect": [
+      { "filePath": "app/main.py", "type": "full", "start": 0, "end": null },
+      { "filePath": "tests/x_test.go", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "head/tail 数值参数不误判为文件；URL/git 远端排除",
+    "argsJson": "{\"input\":\"text( await tools.exec_command({cmd:\\\"head -n 50 README.md && git ls-remote https://gitcode.com/xusxx/skills-dev.git\\\"}));\\n\"}",
+    "expect": [
+      { "filePath": "README.md", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "sed 单行 Np 区间；cat 多文件",
+    "argsJson": "{\"input\":\"text( await tools.exec_command({cmd:\\\"sed -n '42p' package.json && cat a.py b/c.ts\\\"}));\\n\"}",
+    "expect": [
+      { "filePath": "package.json", "type": "partial", "start": 42, "end": 42 },
+      { "filePath": "a.py", "type": "full", "start": 0, "end": null },
+      { "filePath": "b/c.ts", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "sed -i 替换命令不当路径；目录尾斜杠跳过",
+    "argsJson": "{\"input\":\"text( await tools.exec_command({cmd:\\\"sed -i 's/bare_assert_count(p.check.text)/bare_assert_count(p.check)/' /home/fan/x.py && cat build/\\\"}));\\n\"}",
+    "expect": []
+  },
+  {
+    "name": "非 exec 形态 / 坏 JSON 返回空",
+    "argsJson": "not-json",
+    "expect": []
+  }
+]

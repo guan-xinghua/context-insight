@@ -25,9 +25,23 @@ interface WireRound {
 interface WireRoundsData {
   taskId: string;
   sourcePath: string;
+  delta?: boolean;
   totalRounds: number;
   rounds: WireRound[];
   error?: string;
+}
+
+// delta 模式还原：服务端只回每轮新增段 requestMessages[newFrom..]（append-only
+// 历史的增量，全量快照 O(N²) 会爆 V8 字符串上限），按前缀拼回完整快照后，
+// newFrom 分界/字符统计/渲染全部照旧。acc = 上一轮快照；本轮快照 =
+// acc 截到 newFrom + 本轮增量（首条增量是上一轮的 assistant 响应）。
+function expandDeltaRounds(rounds: WireRound[]): void {
+  let acc: WireMessage[] = [];
+  for (const r of rounds) {
+    const snap = acc.slice(0, r.newFrom).concat(r.requestMessages);
+    r.requestMessages = snap;
+    acc = snap;
+  }
 }
 
 const ROLE_VARIANT: Record<string, "blue" | "green" | "purple" | "gray"> = {
@@ -37,21 +51,33 @@ const ROLE_VARIANT: Record<string, "blue" | "green" | "purple" | "gray"> = {
 };
 
 export function WireRounds({ taskId }: { taskId: string }) {
-  const [data, setData] = useState<WireRoundsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<{ taskId: string; data: WireRoundsData | null; error: string | null } | null>(null);
 
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [openMsgs, setOpenMsgs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
-    setError(null);
-    fetch(`/api/observe/session/wire-rounds?taskId=${encodeURIComponent(taskId)}`)
-      .then(r => r.json())
-      .then((j: WireRoundsData) => { if (alive) { if (j.error) setError(j.error); else setData(j); } })
-      .catch(e => { if (alive) setError(String(e)); });
+    void (async () => {
+      try {
+        const res = await fetch(`/api/observe/session/wire-rounds?taskId=${encodeURIComponent(taskId)}&delta=1`);
+        const j = await res.json() as WireRoundsData;
+        if (!alive) return;
+        if (j.error) setState({ taskId, data: null, error: j.error });
+        else {
+          if (j.delta) expandDeltaRounds(j.rounds);
+          setState({ taskId, data: j, error: null });
+        }
+      } catch (e) {
+        if (alive) setState({ taskId, data: null, error: String(e) });
+      }
+    })();
     return () => { alive = false; };
   }, [taskId]);
+
+  // 切换会话时旧结果视为无数据（置空态由异步回调驱动，不在 effect 里同步 setState）
+  const data = state?.taskId === taskId ? state.data : null;
+  const error = state?.taskId === taskId ? state.error : null;
 
   if (error) {
     return <div className="p-4 text-sm text-muted-foreground">{error}</div>;

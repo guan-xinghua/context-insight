@@ -7,7 +7,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { use } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,6 +23,7 @@ import { BRAND_NAME } from "@/lib/branding"
 import type { TurnHighlight } from "@/lib/shared/highlight"
 import { TurnTimeline } from "@/components/observe/TurnTimeline"
 import { TurnDetail } from "@/components/observe/TurnDetail"
+import { buildSubagentNumbers } from "@/lib/subagent-numbering"
 import { UploadToCannbayDialog } from "@/components/UploadToCannbayDialog"
 import { WireRounds } from "@/components/observe/WireRounds"
 import { TurnContextPanel } from "@/components/observe/TurnContextPanel"
@@ -510,6 +511,13 @@ export default function SessionDetailPage({
   // 主 agent 编排 的真名（主 agent Skill invoke 的 workflow skill skillName）。
   // null=未取/无 workflow；MAIN_AGENT_WORKFLOW_NAME 回退由端点返回。
   const [mainAgentWorkflowName, setMainAgentWorkflowName] = useState<string | null>(null)
+  // 同名 subagent 统一编号（与 Context/Replay 同源）：身份 = subagentSessionId，
+  // 序 = 同名首 turn 时间先后。Turns 时间线、Turn 详情、Context 面板、Error Turns 共用。
+  const subagentNumbers = useMemo(() => buildSubagentNumbers(turns), [turns])
+  const withSubagentNum = useCallback((base: string, sid: string | null): string => {
+    const num = sid ? subagentNumbers.get(sid) : undefined
+    return num !== undefined ? `${base} #${num}` : base
+  }, [subagentNumbers])
   // 主 agent 编排 合成行的逐栏数据：dispatch 计数（编排动作）+ 主 agent turn 的 token 汇总。
   const mainAgentWorkflowStats = useMemo(() => {
     const dispatchCount = allSkillEvents.filter(e => !e.isSubagent && e.eventType === "dispatch").length
@@ -1269,7 +1277,7 @@ export default function SessionDetailPage({
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="font-mono text-muted-foreground">#{t.turnIndex}</span>
                         <Badge variant="outline" className="text-xs">{t.role}</Badge>
-                        {t.isSubagent && t.subagentName && <Badge variant="orange" className="text-xs">🔗 {t.subagentName}</Badge>}
+                        {t.isSubagent && t.subagentName && <Badge variant="orange" className="text-xs">🔗 {withSubagentNum(t.subagentName, t.subagentSessionId)}</Badge>}
                         {errors.cancelled > 0 && <Badge variant="orange" className="text-xs">{errors.cancelled} cancelled</Badge>}
                         {errors.failed > 0 && <Badge variant="red" className="text-xs">{errors.failed} failed</Badge>}
                         {errors.skillFail > 0 && <Badge variant="red" className="text-xs">{errors.skillFail} skill_fail</Badge>}
@@ -1413,7 +1421,7 @@ export default function SessionDetailPage({
           const subTurns = turns.filter(t => t.subagentSessionId === bridge.subagentSessionId)
           const lastSubTurn = subTurns[subTurns.length - 1]
           subagentContexts.push({
-            label: bridge.subagentName ?? bridge.subagentType ?? "subagent",
+            label: withSubagentNum(bridge.subagentName ?? bridge.subagentType ?? "subagent", bridge.subagentSessionId),
             agentName: lastSubTurn?.agentName ?? null,
             model: lastSubTurn?.model ?? null,
             inputMessagesJson: null as string | null,
@@ -1434,7 +1442,7 @@ export default function SessionDetailPage({
       // Also: if selected turn IS a subagent turn, show its own context
       if (selectedTurnItem?.isSubagent && selectedTurnDetail) {
         subagentContexts.push({
-          label: selectedTurnItem.subagentName ?? "subagent",
+          label: withSubagentNum(selectedTurnItem.subagentName ?? "subagent", selectedTurnItem.subagentSessionId),
           agentName: selectedTurnItem.agentName ?? null,
           model: selectedTurnDetail.model ?? null,
           inputMessagesJson: null as string | null,
@@ -1465,7 +1473,7 @@ export default function SessionDetailPage({
       }
       // Also update subagent context if selected turn is a subagent
       const selfSubCtx = selectedTurnItem.isSubagent
-        ? subagentContexts.find(c => c.label === (selectedTurnItem.subagentName ?? "subagent") && c.contextWindowPct === selectedTurnDetail.contextWindowPct)
+        ? subagentContexts.find(c => c.label === withSubagentNum(selectedTurnItem.subagentName ?? "subagent", selectedTurnItem.subagentSessionId) && c.contextWindowPct === selectedTurnDetail.contextWindowPct)
         : null
       if (selfSubCtx) {
         selfSubCtx.inputMessagesJson = selectedTurnDetail.inputMessagesJson ?? null
@@ -1526,7 +1534,14 @@ export default function SessionDetailPage({
 
         <div ref={turnDetailRef} className="flex-1 min-h-0 overflow-y-auto">
           {selectedTurnDetail ? (
-            <TurnDetail turn={selectedTurnDetail} highlight={traceHighlight} onRefresh={() => setTurnDetailRefreshKey(k => k + 1)} />
+            <TurnDetail
+              turn={selectedTurnDetail}
+              highlight={traceHighlight}
+              onRefresh={() => setTurnDetailRefreshKey(k => k + 1)}
+              subagentLabel={selectedTurnItem?.isSubagent
+                ? withSubagentNum(selectedTurnDetail.subagentName ?? selectedTurnItem.subagentName ?? "subagent", selectedTurnItem.subagentSessionId)
+                : undefined}
+            />
           ) : turnDetailLoading ? (
             <div className="flex flex-col gap-3 p-6" data-testid="turn-detail-loading">
               <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
