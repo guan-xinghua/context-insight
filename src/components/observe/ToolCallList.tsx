@@ -129,22 +129,63 @@ export function ToolCallList({ toolCalls, highlight }: ToolCallListProps) {
   return (
     <div ref={rootRef} className="space-y-1.5">
       {skillCalls.map(tc => {
+        const isExpanded = expandedIds.has(tc.id)
         const displayState = toolCallDisplayState(tc.state, tc.errorType, tc.resultJson)
         const skillLabel = extractSkillLabel(tc.argsJson)
 
         return (
-          <div key={tc.id} className="flex items-center gap-2 px-2 py-1 rounded-md border-l-3 border-l-yellow-400 bg-yellow-50/20 dark:bg-yellow-500/5 text-xs">
-            <Badge variant="yellow" className="text-xs">⚡</Badge>
-            {skillLabel ? (
-              <span className="font-medium text-foreground/80">{skillLabel}</span>
-            ) : (
-              <span className="font-medium text-foreground/80">{tc.toolName}</span>
+          <div key={tc.id} className="rounded-md border-l-3 border-l-yellow-400 bg-yellow-50/20 dark:bg-yellow-500/5 text-xs">
+            {/* 此前是死行：无点击、无 Args/Result——task 派发类 skill 调用
+                （Args=prompt、Result=subagent 报告）整段不可见（现场 #8：
+                1022t Args + 3595t Result 只剩一行"⚡ task completed"） */}
+            <span
+              role="button"
+              tabIndex={0}
+              className="w-full flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer hover:bg-accent/30 transition-colors"
+              onClick={() => toggleExpanded(tc.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(tc.id) }}
+            >
+              <Badge variant="yellow" className="text-xs">⚡</Badge>
+              {skillLabel ? (
+                <span className="font-medium text-foreground/80">{skillLabel}</span>
+              ) : (
+                <span className="font-medium text-foreground/80">{tc.toolName}</span>
+              )}
+              <Badge variant={displayState.variant} className="text-xs">{displayState.label}</Badge>
+              {tc.durationMs > 0 && (
+                <span className="text-muted-foreground">{formatDuration(tc.durationMs)}</span>
+              )}
+              {(tc.argsJson || tc.resultJson) && <CopyButton text={[tc.argsJson, tc.resultJson].filter(Boolean).join("\n\n---\n\n")} className="ml-auto size-4 text-muted-foreground hover:text-foreground" />}
+              {!tc.argsJson && !tc.resultJson && <span className="ml-auto" />}
+              <span className="text-muted-foreground shrink-0">{isExpanded ? "▼" : "▶"}</span>
+            </span>
+
+            {isExpanded && (
+              <div className="px-2 pb-2 space-y-2">
+                {tc.argsJson && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-xs font-medium text-muted-foreground">Args</span>
+                      <CopyButton text={tc.argsJson} className="size-4 text-muted-foreground hover:text-foreground" />
+                    </div>
+                    <pre className="text-xs whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto bg-muted/30 p-1.5 rounded">
+                      {highlightKeyword(truncateJson(tc.argsJson, 2000) ?? tc.argsJson, highlight?.keyword)}
+                    </pre>
+                  </div>
+                )}
+                {tc.resultJson && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-xs font-medium text-muted-foreground">Result</span>
+                      <CopyButton text={tc.resultJson} className="size-4 text-muted-foreground hover:text-foreground" />
+                    </div>
+                    <pre className="text-xs whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto bg-muted/30 p-1.5 rounded">
+                      {highlightKeyword(truncateJson(tc.resultJson, 2000) ?? tc.resultJson, highlight?.keyword)}
+                    </pre>
+                  </div>
+                )}
+              </div>
             )}
-            <Badge variant={displayState.variant} className="text-xs">{displayState.label}</Badge>
-            {tc.durationMs > 0 && (
-              <span className="text-muted-foreground">{formatDuration(tc.durationMs)}</span>
-            )}
-            <span className="text-muted-foreground ml-auto">→ Skills</span>
           </div>
         )
       })}

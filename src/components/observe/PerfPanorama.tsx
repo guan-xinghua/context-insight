@@ -39,6 +39,7 @@ interface Props {
   taskId: string
   framework?: string
   onJumpToTurn?: (turn: number) => void
+  onJumpToSubagent?: (agentSessionId: string) => void
 }
 
 interface PerfModel {
@@ -144,7 +145,7 @@ function computeWallSlices(subtasks: ExecItem[]): number[] {
   return slices
 }
 
-export function PerfPanorama({ taskId, framework, onJumpToTurn }: Props) {
+export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent }: Props) {
   const [items, setItems] = useState<ExecItem[] | null>(null)
   const [turns, setTurns] = useState<TurnPerf[] | null>(null)
   const [bridges, setBridges] = useState<BridgePerf[]>([])
@@ -324,7 +325,7 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn }: Props) {
           />
 
           {/* duration + token charts */}
-          <TripleChart model={model} />
+          <TripleChart model={model} onJumpToSubagent={onJumpToSubagent} />
 
           {/* perf top — 子代理 Top 排序表(自 PerfPanorama) */}
           {perfTop.subagents.length > 0 && (
@@ -386,7 +387,7 @@ function TokenBar({ input, cacheRead, cacheWrite, output, reasoning }: {
 }
 
 // ── charts: task duration (stacked 总耗时=LLM+LLM外) + stacked tokens ───────
-function TripleChart({ model }: { model: PerfModel }) {
+function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSubagent?: (agentSessionId: string) => void }) {
   const { sub, slices } = model
   const n = sub.length
 
@@ -438,12 +439,16 @@ function TripleChart({ model }: { model: PerfModel }) {
                 </g>
               )
             })}
-            {sub.map((_, i) => {
+            {sub.map((r, i) => {
               const topY = yDur(wall[i])
               const llmH = (llm[i] / dmax) * chartH
               const nonLlmH = (nonLlm[i] / dmax) * chartH
+              const jump = onJumpToSubagent && r.agentSessionId
+                ? () => onJumpToSubagent(r.agentSessionId!)
+                : undefined
               return (
-                <g key={`d${i}`}>
+                <g key={`d${i}`} onClick={jump} style={jump ? { cursor: "pointer" } : undefined}>
+                  <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"}（${r.agentName ?? "?"}）\n总耗时 ${fmtMs(wall[i] * 1000)} · tokens ${fmtTok(tokTot[i])}\n点击跳转 Turns 定位该 subagent`}</title>
                   <rect x={x(i)} y={padT + chartH - llmH} width={barW} height={llmH} fill={DUR_LLM} />
                   {nonLlm[i] > 0 && (
                     <rect x={x(i)} y={topY} width={barW} height={nonLlmH} fill={DUR_NONLLM} />
@@ -462,8 +467,14 @@ function TripleChart({ model }: { model: PerfModel }) {
               <rect x={padL + 90} y={padT + chartH + 6} width={9} height={9} fill={DUR_NONLLM} />
               <text x={padL + 103} y={padT + chartH + 14} fontSize="9" className="fill-muted-foreground">LLM 外耗时</text>
             </g>
-            {sub.map((_, i) => (
-              <text key={`dl${i}`} x={x(i) + barW / 2} y={padT + chartH + 30} textAnchor="middle" fontSize="8" className="fill-muted-foreground">
+            {sub.map((r, i) => (
+              <text
+                key={`dl${i}`} x={x(i) + barW / 2} y={padT + chartH + 30} textAnchor="middle" fontSize="8"
+                className="fill-muted-foreground"
+                onClick={onJumpToSubagent && r.agentSessionId ? () => onJumpToSubagent(r.agentSessionId!) : undefined}
+                style={onJumpToSubagent && r.agentSessionId ? { cursor: "pointer" } : undefined}
+              >
+                <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"} — 点击跳转 Turns`}</title>
                 {`#${i + 1}`}
               </text>
             ))}
@@ -492,14 +503,18 @@ function TripleChart({ model }: { model: PerfModel }) {
                       </g>
                     )
                   })}
-                  {sub.map((_, i) => {
+                  {sub.map((r, i) => {
                     const inH = (tokIn[i] / tmax) * chartH
                     const crH = (tokCr[i] / tmax) * chartH
                     const cwH = (tokCw[i] / tmax) * chartH
                     const outH = (tokOut[i] / tmax) * chartH
                     const xs = x(i)
+                    const jump = onJumpToSubagent && r.agentSessionId
+                      ? () => onJumpToSubagent(r.agentSessionId!)
+                      : undefined
                     return (
-                      <g key={`t${i}`}>
+                      <g key={`t${i}`} onClick={jump} style={jump ? { cursor: "pointer" } : undefined}>
+                        <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"}（${r.agentName ?? "?"}）\ntokens ${fmtTok(tokTot[i])} · 总耗时 ${fmtMs(wall[i] * 1000)}\n点击跳转 Turns 定位该 subagent`}</title>
                         <rect x={xs} y={yT(tokIn[i])} width={barW} height={inH} fill={TOKEN_COLORS.input} />
                         <rect x={xs} y={yT(tokIn[i] + tokCr[i])} width={barW} height={crH} fill={TOKEN_COLORS.cacheRead} />
                         <rect x={xs} y={yT(tokIn[i] + tokCr[i] + tokCw[i])} width={barW} height={cwH} fill={TOKEN_COLORS.cacheWrite} />
@@ -523,8 +538,16 @@ function TripleChart({ model }: { model: PerfModel }) {
                       <text x={padL + idx * 100 + 13} y={baseY + 14} fontSize="9" className="fill-muted-foreground">{s.l}</text>
                     </g>
                   ))}
-                  {sub.map((_, i) => (
-                    <text key={`tlx${i}`} x={x(i) + barW / 2} y={baseY + 30} textAnchor="middle" fontSize="8" className="fill-muted-foreground">{`#${i + 1}`}</text>
+                  {sub.map((r, i) => (
+                    <text
+                      key={`tlx${i}`} x={x(i) + barW / 2} y={baseY + 30} textAnchor="middle" fontSize="8"
+                      className="fill-muted-foreground"
+                      onClick={onJumpToSubagent && r.agentSessionId ? () => onJumpToSubagent(r.agentSessionId!) : undefined}
+                      style={onJumpToSubagent && r.agentSessionId ? { cursor: "pointer" } : undefined}
+                    >
+                      <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"} — 点击跳转 Turns`}</title>
+                      {`#${i + 1}`}
+                    </text>
                   ))}
                 </>
               )

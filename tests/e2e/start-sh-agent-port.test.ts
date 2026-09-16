@@ -18,11 +18,12 @@
  *    现在候选避让 next 实占端口。
  */
 import { describe, it, expect } from "vitest"
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { promisify } from "node:util"
 import net from "node:net"
 import http from "node:http"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -90,8 +91,12 @@ async function freeQuadBase(): Promise<number> {
   throw new Error("20 次内未找到四连空闲端口段")
 }
 
-function pick(base: number, nextPort: number) {
-  return execFileAsync("bash", [PICK, String(base), String(nextPort)], { timeout: 30_000 })
+function pick(base: number, nextPort: number, insightRoot?: string, mode?: string) {
+  const args = [PICK, String(base), String(nextPort)]
+  // 显式占位：undefined 跳过会让后续参数错位（mode 落到 INSIGHT_ROOT 槽）
+  args.push(insightRoot ?? "")
+  if (mode) args.push(mode)
+  return execFileAsync("bash", args, { timeout: 30_000 })
 }
 
 describe("smart-agent 端口选择器（pick-smart-agent-port.sh）", () => {
@@ -143,7 +148,7 @@ describe("smart-agent 端口选择器（pick-smart-agent-port.sh）", () => {
       if (ok) break
       await new Promise((r) => setTimeout(r, 200))
     }
-    const { stdout, stderr } = await pick(base, base)
+    const { stdout, stderr } = await pick(base, base, undefined, "clean")
     expect(stdout.trim()).toBe(String(base + 1))
     expect(stderr).toContain("Restarting smart-agent")
     await expect(child).rejects.toThrow() // 子进程被终止（非零退出）
@@ -193,4 +198,75 @@ describe("smart-agent 端口选择器（pick-smart-agent-port.sh）", () => {
     // head -1 取到而杀错进程（macOS 正走 lsof 分支），必须带 LISTEN 过滤
     expect(sh).toContain('lsof -ti "tcp:$port" -sTCP:LISTEN')
   })
+
+  // 规则 3：自家 insight 残留实例（开发期累积的 next-server 僵尸占满候选端口）
+  const PKG_ROOT = path.resolve(__dirname, "../..")
+
+  /** 模拟自家 insight 残留：cmdline 首段 next-server + cwd 在包内 + 监听端口。 */
+  function spawnStaleInsight(port: number, cwd: string) {
+    return spawn("bash", ["-c",
+      `exec -a next-server node -e 'require("net").createServer().listen(${port}, "127.0.0.1")'`,
+    ], { cwd, stdio: "ignore" })
+  }
+
+  async function waitListening(port: number): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      const ok = await new Promise<boolean>((resolve) => {
+        const s = net.connect(port, "127.0.0.1", () => { s.destroy(); resolve(true) })
+        s.on("error", () => resolve(false))
+      })
+      if (ok) return
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    throw new Error("stale insight simulator never listened")
+  }
+
+  // is_our_insight 依赖 /proc/<pid>/{cmdline,cwd}——macOS 无 /proc 恒不认定
+  //（行为回退为避让，正确但断言必失败），非 Linux 跳过击杀断言
+  it.skipIf(!fs.existsSync("/proc"))("自家 insight 残留实例（next-server + cwd 在包内）：击杀回收并复用端口", async () => {
+    const base = await freeQuadBase()
+    const child = spawnStaleInsight(base + 1, PKG_ROOT)
+    const exited = new Promise<number | null>((resolve) => child.once("exit", resolve))
+    child.once("error", () => {}) // spawn 失败兜底，避免 unhandled
+    try {
+      await waitListening(base + 1)
+      const { stdout, stderr } = await pick(base, base, PKG_ROOT, "clean")
+      expect(stdout.trim()).toBe(String(base + 1))
+      expect(stderr).toContain("stale insight instance")
+      await exited // 被脚本击杀
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+    }
+  }, 60_000)
+
+  it("别人的 next-server（cwd 不在包内）：不认定、不杀、错开到下一候选", async () => {
+    const base = await freeQuadBase()
+    // 双重限定的另一半：仅 cmdline 匹配不足以击杀（别的 Next.js 项目）
+    const child = spawnStaleInsight(base + 1, os.tmpdir())
+    child.once("error", () => {})
+    try {
+      await waitListening(base + 1)
+      const { stdout, stderr } = await pick(base, base, PKG_ROOT, "clean")
+      expect(stdout.trim()).toBe(String(base + 2))
+      expect(stderr).toContain("non-smart-agent process")
+      expect(child.exitCode === null).toBe(true) // 未被杀
+    } finally {
+      child.kill("SIGKILL")
+    }
+  }, 60_000)
+
+  it("keep 模式（默认启动）：自家实例也不杀——用户并跑双实例的保障", async () => {
+    const base = await freeQuadBase()
+    const child = spawnStaleInsight(base + 1, PKG_ROOT)
+    child.once("error", () => {})
+    try {
+      await waitListening(base + 1)
+      const { stdout, stderr } = await pick(base, base, PKG_ROOT, "keep")
+      expect(stdout.trim()).toBe(String(base + 2))
+      expect(stderr).toContain("non-smart-agent process")
+      expect(child.exitCode === null).toBe(true) // 未被杀
+    } finally {
+      child.kill("SIGKILL")
+    }
+  }, 60_000)
 })

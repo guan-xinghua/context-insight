@@ -159,9 +159,26 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
     [agents]
   )
 
+  // 墙钟跨度 = start→next 切片（与 Perf 柱状图同口径）：execution 从自己开始
+  // 到下一个 execution 开始，最后一项用自身 latencyMs 兜底。直接用
+  // Execution.latencyMs 是首口径——现场：subagent 跑数分钟、4.8M tokens，
+  // 泳道只显示首轮的 5.1s
+  const wallMs = useMemo(() => {
+    const m = new Map<string, number>()
+    for (let i = 0; i < sorted.length; i++) {
+      const start = new Date(sorted[i].createdAt).getTime()
+      const next = i + 1 < sorted.length ? new Date(sorted[i + 1].createdAt).getTime() : null
+      m.set(sorted[i].executionId, next != null ? Math.max(0, next - start) : sorted[i].latencyMs)
+    }
+    return m
+  }, [sorted])
+
   const globalEndMs = useMemo(() =>
-    agents.length === 0 ? 1 : Math.max(...agents.map(a => new Date(a.createdAt).getTime() + a.latencyMs)),
-    [agents]
+    agents.length === 0 ? 1 : Math.max(...agents.map(a => {
+      const w = wallMs.get(a.executionId) ?? a.latencyMs
+      return new Date(a.createdAt).getTime() + w
+    })),
+    [agents, wallMs]
   )
 
   const totalDuration = globalEndMs - globalStartMs || 1
@@ -193,7 +210,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
       const trackEnds: number[] = []
       const packed = agents.map(agent => {
         const startMs = new Date(agent.createdAt).getTime()
-        const endMs = startMs + agent.latencyMs
+        const endMs = startMs + (wallMs.get(agent.executionId) ?? agent.latencyMs)
         let ti = trackEnds.findIndex(e => e <= startMs)
         if (ti === -1) { ti = trackEnds.length; trackEnds.push(endMs) }
         else trackEnds[ti] = endMs
@@ -201,7 +218,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
       })
       return { key, def, packed, trackCount: trackEnds.length }
     })
-  }, [sorted])
+  }, [sorted, wallMs])
 
   const bridgeBySessionId = useMemo(() => {
     const map = new Map<string, BridgeItem>()
@@ -222,14 +239,15 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
   const handleMouseEnter = useCallback((e: React.MouseEvent, agent: AgentItem, laneLabel: string) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const bridge = agent.isSubagent && agent.agentSessionId ? bridgeBySessionId.get(agent.agentSessionId) : undefined
-    const endMs = new Date(agent.createdAt).getTime() + agent.latencyMs
+    const wall = wallMs.get(agent.executionId) ?? agent.latencyMs
+    const endMs = new Date(agent.createdAt).getTime() + wall
     setTooltip({
       x: rect.left + rect.width / 2,
       y: rect.top,
       label: agent.agentName ?? (agent.isSubagent ? "subagent" : "root"),
       tokens: agent.tokens,
       maxSingleCallTokens: agent.maxSingleCallTokens,
-      latencyMs: agent.latencyMs,
+      latencyMs: wall,
       startTime: formatTimeAbsolute(agent.createdAt),
       endTime: formatTimeAbsolute(new Date(endMs).toISOString()),
       toolCallCount: agent.toolCallCount,
@@ -237,7 +255,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
       lane: laneLabel,
       status: bridge?.status ?? "completed",
     })
-  }, [bridgeBySessionId])
+  }, [bridgeBySessionId, wallMs])
 
   const handleMouseLeave = useCallback(() => setTooltip(null), [])
 
@@ -284,7 +302,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
                   ))}
                   {packed.map(({ agent, trackIdx }) => {
                     const startPct = getStartPct(agent.createdAt)
-                    const widthPct = getWidthPct(agent.latencyMs)
+                    const widthPct = getWidthPct(wallMs.get(agent.executionId) ?? agent.latencyMs)
                     const agentColor = getAgentColor(agent.agentName)
                     const bridge = agent.isSubagent && agent.agentSessionId ? bridgeBySessionId.get(agent.agentSessionId) : undefined
                     const isError = bridge?.status === "error" || bridge?.status === "failed"

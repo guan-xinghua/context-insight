@@ -115,6 +115,89 @@ describe('① LlmOutputView：预览优先正文，thinking 不再霸占折叠�
     // 展开区全文保真
     expect(html).toContain('internal noise')
   })
+
+  it('stopReason=length 的空输出轮渲染截断解释而非整块消失（现场 #1975）', () => {
+    // 现场 vbYQjB 最后一轮：content=[]、32000 output token 全部消耗、
+    // stopReason=length——修复前整块 return null，用户只看到"突然结束"
+    const html = renderToStaticMarkup(createElement(LlmOutputView, {
+      content: null,
+      contentJson: null,
+      contentSummary: null,
+      outputTokens: 32000,
+      reasoningTokens: 0,
+      role: 'assistant',
+      finishReason: 'length',
+    }))
+    expect(html).toContain('max_tokens 截断')
+    expect(html).toContain('32.0kt 输出已消耗')
+  })
+
+  it('正常 end_turn 空轮不误标截断', () => {
+    const html = renderToStaticMarkup(createElement(LlmOutputView, {
+      content: null,
+      contentJson: null,
+      contentSummary: null,
+      outputTokens: 0,
+      role: 'assistant',
+      finishReason: 'end_turn',
+    }))
+    expect(html).toBe('')
+  })
+
+  it('length 截断但有部分文本的轮：挂徽标、不弹空输出解释（正文可见）', () => {
+    const html = renderToStaticMarkup(createElement(LlmOutputView, {
+      content: '半截的回答文本，尚未写完就被',
+      contentJson: null,
+      contentSummary: null,
+      outputTokens: 32000,
+      role: 'assistant',
+      finishReason: 'length',
+    }))
+    expect(html).toContain('max_tokens 截断')
+    expect(html).toContain('半截的回答文本')
+    expect(html).not.toContain('输出已消耗')
+  })
+
+  it('content_filter：审查截断空轮显示专属徽标与解释', () => {
+    const html = renderToStaticMarkup(createElement(LlmOutputView, {
+      content: null,
+      contentJson: null,
+      contentSummary: null,
+      outputTokens: 800,
+      role: 'assistant',
+      finishReason: 'content_filter',
+    }))
+    expect(html).toContain('内容过滤截断')
+    expect(html).toContain('内容审查策略截断')
+  })
+
+  it('refusal：拒答空轮显示专属徽标与解释', () => {
+    const html = renderToStaticMarkup(createElement(LlmOutputView, {
+      content: null,
+      contentJson: null,
+      contentSummary: null,
+      outputTokens: 0,
+      role: 'assistant',
+      finishReason: 'refusal',
+    }))
+    expect(html).toContain('模型拒答')
+    expect(html).toContain('拒绝了本次请求')
+  })
+
+  it('正常 finish 显示中性徽标（非红色 ⛔）', () => {
+    for (const fr of ['tool_calls', 'end_turn', 'stop_sequence', 'stop']) {
+      const html = renderToStaticMarkup(createElement(LlmOutputView, {
+        content: '正常回复',
+        contentJson: null,
+        contentSummary: null,
+        outputTokens: 100,
+        role: 'assistant',
+        finishReason: fr,
+      }))
+      expect(html).toContain(`finish: ${fr}`)
+      expect(html).not.toContain('⛔')
+    }
+  })
 })
 
 describe('② splitIntoTurns：contentSummary 剥 thinking/reminder，content 全文保真', () => {

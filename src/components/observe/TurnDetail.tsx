@@ -201,6 +201,7 @@ export function TurnDetail({ turn, highlight, onRefresh, subagentLabel }: { turn
         role={turn.role}
         highlight={highlight}
         toolCallCount={turn.toolCalls.length}
+        finishReason={turn.finishReason}
       />
 
       {turn.toolCalls.length > 0 && (

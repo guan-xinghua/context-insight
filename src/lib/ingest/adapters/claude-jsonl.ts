@@ -727,8 +727,16 @@ export function buildAssistantInteraction(
     ? [...allToolCalls, ...skillInvocations]
     : mergedToolCalls;
 
-  // Skip if no content and no tool calls
-  if (!mergedContent && !mergedToolCalls) return null;
+  // Skip if no content and no tool calls——但携带 usage/finishReason 的空组保留：
+  // 现场回归（vbYQjB #1975 后）：subagent 最后一轮 stopReason=length、content=[]、
+  // 32000t output——整组丢弃会把截断事实连同 usage 一起从 insight 消失，时间线
+  // 上一轮 read 后"突然结束"、token 统计少算。空 turn 落库（content null），
+  // 显示层按 finishReason=length 给出截断解释；真正的空行仍丢
+  if (!mergedContent && !mergedToolCalls) {
+    const carriesSignal = mergedFinishReason != null
+      || (mergedUsage != null && ((mergedUsage.output ?? 0) > 0 || (mergedUsage.input ?? 0) > 0));
+    if (!carriesSignal) return null;
+  }
 
   // 单行 native assistant 的跨度是 0——填 0 会短路掉下面的 gap 回填（latency==null
   // 才触发），completed 就永远等于 created（工具区间塌成零长）。跨度为 0 时给 null，

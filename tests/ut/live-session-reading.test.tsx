@@ -170,9 +170,14 @@ describe('活跃会话自动同步不打断阅读', () => {
 
     // ① 同步期间整页未闪回 Loading（若闪断，详情与 mark 会消失）
     expect(container.textContent).not.toContain('Loading session...')
-    // ② 正在读的详情原样保留；时间线原地增长
-    expect(container.textContent).toContain('FIRST-ANSWER')
+    // ② 正在读的详情原样保留；时间线原地增长。固定 settle（2s）在满载下
+    // 偶发不够（同步拉取 500ms 慢窗 + 渲染链被调度挤后 → 只见首轮 2 行，
+    // 本机两次间歇失败单跑均绿）——改为轮询等到行数达标，上限 6s
+    for (let i = 0; i < 120 && turnRows(container).length < 4; i++) {
+      await act(async () => { await new Promise(r => setTimeout(r, 50)) })
+    }
     expect(turnRows(container).length).toBeGreaterThanOrEqual(4)
+    expect(container.textContent).toContain('FIRST-ANSWER')
     expect(container.textContent).toContain('NEW-TURN-MARK')
 
     // ③ 再点同一 turn → 详情重新拉取（live turn 取最新的自然交互）

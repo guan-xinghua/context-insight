@@ -1757,7 +1757,17 @@ export default function SessionDetailPage({
     }
     return (
       <div className="h-full overflow-auto p-4 space-y-4">
-        <PerfPanorama taskId={taskId} framework={framework} onJumpToTurn={handleTurnIndex} />
+        <PerfPanorama
+          taskId={taskId}
+          framework={framework}
+          onJumpToTurn={handleTurnIndex}
+          onJumpToSubagent={(sid) => {
+            // Perf 柱子（subagent 执行段）→ Turns：定位该 subagent 首个 turn，
+            // navigateToTab 自带 subagent lane 高亮
+            const t = turns.find(x => x.isSubagent && x.subagentSessionId === sid)
+            if (t) navigateToTab("turns", t.turnId)
+          }}
+        />
       </div>
     )
   }

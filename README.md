@@ -43,7 +43,7 @@ cannbot-insight            # first run: auto-build + migrate (~30s-2min), then s
 | Flag | Effect |
 |------|--------|
 | `-a`, `--advanced` | Show advanced tabs (wireRounds/replay) |
-| `-k`, `--kill` | Kill any process on port 21025 and reuse it |
+| `-k`, `--kill` | Stop all insight/smart-agent instances of this repo, then start on 21025 (falls back to the next free port if occupied by others) |
 | `-f`, `--fresh` | Clear the build cache and rebuild |
 
 ### Option 1: Web UI from source

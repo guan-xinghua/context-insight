@@ -24,6 +24,7 @@ interface LlmOutputViewProps {
   role?: string | null
   highlight?: TurnHighlight | null
   toolCallCount?: number
+  finishReason?: string | null
 }
 
 function formatTokenCount(n: number): string {
@@ -95,15 +96,33 @@ export function LlmOutputView({
   role,
   highlight,
   toolCallCount,
+  finishReason,
 }: LlmOutputViewProps) {
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false)
   const [prevKw, setPrevKw] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
   const sections = parseContentSections(content, contentJson)
+  // 异常完成原因显式化（正常类 stop/tool_calls/end_turn/tool_use 不标——
+  // Overview 的 finish: 小字足够，加徽标是噪音）：截断/审查/拒答类的输出
+  // 不完整或为空，静默吞掉会被读成"突然结束/没输出"。两套线缆约定都认
+  //（OpenAI 'length'/'content_filter'；Claude 透传 'max_tokens'/'refusal'，
+  // claude-emitter 原样透传 stop_reason，scoring collect 同款判定）。
+  // 两档：有部分文本只挂徽标（正文可见）；全空的再加强制展开 + 解释文案
+  const ABNORMAL_FINISH: Record<string, { label: string; emptyNote: string }> = {
+    length: { label: "⛔ max_tokens 截断", emptyNote: `本轮输出被 max_tokens 上限截断（stopReason = ${finishReason}）：{TOKENS}t 输出已消耗，但没有文本落盘（content 为空）。该轮不是正常收尾——若需完整结果，请提高该 agent 的输出上限或缩小单轮任务后重试。` },
+    max_tokens: { label: "⛔ max_tokens 截断", emptyNote: `本轮输出被 max_tokens 上限截断（stopReason = ${finishReason}）：{TOKENS}t 输出已消耗，但没有文本落盘（content 为空）。该轮不是正常收尾——若需完整结果，请提高该 agent 的输出上限或缩小单轮任务后重试。` },
+    content_filter: { label: "⛔ 内容过滤截断", emptyNote: `本轮输出被内容审查策略截断（stopReason = content_filter）：生成中途被拦截，落盘内容不完整或为空。请检查提示词或调整审查策略。` },
+    refusal: { label: "⛔ 模型拒答", emptyNote: `模型拒绝了本次请求（stopReason = refusal）：无有效输出落盘。请检查任务描述是否触发拒答策略。` },
+  }
+  const abnormal = finishReason != null ? ABNORMAL_FINISH[finishReason] : undefined
+  const abnormalEmpty = abnormal != null && sections.every(s => !s.content.trim())
   // 短输出默认展开（直接可读）；长输出默认折叠（标题行 + token 数概览，
-  // 点击展开）。与 LLM Input 的两级折叠习惯一致。
-  const [isExpanded, setIsExpanded] = useState((outputTokens ?? 0) <= 2000 && (content?.length ?? 0) <= 6000)
+  // 点击展开）。与 LLM Input 的两级折叠习惯一致。全空异常轮强制展开——解释
+  // 必须直接可见，不能再让用户点一层才看到"为什么是空的"
+  const [isExpanded, setIsExpanded] = useState(
+    abnormalEmpty || ((outputTokens ?? 0) <= 2000 && (content?.length ?? 0) <= 6000)
+  )
 
   // Trace-search jump: when the highlight keyword changes, auto-expand so the
   // highlighted match is visible. Uses the render-phase prop-change pattern
@@ -133,7 +152,7 @@ export function LlmOutputView({
     return () => clearTimeout(t)
   }, [highlight, isExpanded])
 
-  if (!content && !contentJson) return null
+  if (!content && !contentJson && !abnormalEmpty) return null
 
   // 折叠态预览优先展示正文（text section）开头：thinking 块会吃掉 200 字符
   // 摘要预算（contentSummary 生成于 ingest 期），导致预览全是思考过程、
@@ -165,6 +184,11 @@ export function LlmOutputView({
       >
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium">{headerLabel}</span>
+          {abnormal ? (
+            <Badge variant="red">{abnormal.label}</Badge>
+          ) : finishReason ? (
+            <Badge variant="outline">finish: {finishReason}</Badge>
+          ) : null}
           {summary && (
             <span className="text-muted-foreground truncate max-w-[400px]">{summary}</span>
           )}
@@ -181,6 +205,12 @@ export function LlmOutputView({
           {isExpanded ? "▼" : "▶"}
         </span>
       </span>
+
+      {isExpanded && abnormalEmpty && abnormal && (
+        <div className="border-t px-3 py-3 text-sm text-red-600 dark:text-red-400">
+          {abnormal.emptyNote.replace("{TOKENS}", formatTokenCount(outputTokens))}
+        </div>
+      )}
 
       {isExpanded && sections.length > 0 && (
         <div className="border-t px-3 py-2 space-y-3">

@@ -43,7 +43,7 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 | 标志 | 作用 |
 |------|------|
 | `-a`, `--advanced` | 显示高级 tab（wireRounds/replay） |
-| `-k`, `--kill` | 杀掉占用 21025 端口的进程并复用 |
+| `-k`, `--kill` | 停掉本仓所有 insight/smart-agent 实例后从 21025 启动（被他方占用时顺延下一个空闲端口） |
 | `-f`, `--fresh` | 清空构建缓存重建 |
 
 ### 方式一：源码运行 Web UI

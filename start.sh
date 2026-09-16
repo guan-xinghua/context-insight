@@ -136,8 +136,10 @@ if [ "$UPDATE" = true ] || [ ! -f "prisma/dev.db" ]; then
   npx prisma migrate dev --name init
 fi
 
+# -k 语义：杀掉所有自家实例（dev 锁记录的 dev server 也算）后从 BASE_PORT
+# 起一个；默认路径零杀——只启动一个新的、端口顺延，任何现存进程都不碰
 LOCK_FILE=".next/dev/lock"
-if [ -f "$LOCK_FILE" ]; then
+if [ "$KILL_EXISTING" = true ] && [ -f "$LOCK_FILE" ]; then
   OLD_PID=$(python3 -c "import json; print(json.load(open('$LOCK_FILE'))['pid'])" 2>/dev/null || cat "$LOCK_FILE" | grep -o '"pid":[0-9]*' | grep -o '[0-9]*')
   if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
     echo "[start] Stopping existing dev server (PID $OLD_PID)..."
@@ -147,59 +149,108 @@ if [ -f "$LOCK_FILE" ]; then
   rm -f "$LOCK_FILE"
 fi
 
-# 生产实例无 dev lock——用 PID 文件同款清理，防新旧实例并存端口漂移
+# 生产实例支持多开（用户常态：并行两个实例各占一端口）。旧实现在此按
+# PID 文件杀"上一实例"（单实例假设），双开时第二个启动会把第一个杀掉，
+# 已删。防端口漂移由下方端口扫描顺延承担；累积的僵尸实例用 -k 全量
+# 清理（kill_all_insight）。PID 文件仅作记录（launch 段写入最新实例）。
 PROD_PID_FILE="$SCRIPT_DIR/tmp/next-prod.pid"
-if [ -f "$PROD_PID_FILE" ]; then
-  OLD_PID=$(cat "$PROD_PID_FILE" 2>/dev/null)
-  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-    echo "[start] Stopping existing prod server (PID $OLD_PID)..."
-    kill "$OLD_PID" 2>/dev/null || true
-    sleep 2
-  fi
-  rm -f "$PROD_PID_FILE"
-fi
 
 BASE_PORT=21025
 PORT=$BASE_PORT
 
-# -k: kill any process occupying BASE_PORT, then use that port
-if [ "$KILL_EXISTING" = true ]; then
-  OCCUPIER_PID=$(lsof -ti :$BASE_PORT 2>/dev/null || true)
-  if [ -n "$OCCUPIER_PID" ]; then
-    echo "[start] -k: Killing process on port $BASE_PORT (PID $OCCUPIER_PID)..."
-    kill $OCCUPIER_PID 2>/dev/null || true
-    sleep 2
-  else
-    echo "[start] -k: Port $BASE_PORT is free, no process to kill"
+# 端口占用查询三级 fallback（与 pick-smart-agent-port.sh 同款）：本机 WSL2
+# 上 lsof 对部分 LISTEN 套接字失明（ss 可见 21025 占用、lsof 全列表为空，
+# 实测）——只信 lsof 会让 -k 恒报 "free"，next start EADDRINUSE 秒死，
+# 主脚本 wait 立即返回再被 trap 收尾（"把自己杀掉"的完整链条）。
+port_pid() {
+  local port=$1
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null | grep ":$port " | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2
+  elif command -v lsof >/dev/null 2>&1; then
+    # -sTCP:LISTEN 必须：不带则 lsof 匹配连接两端，ESTABLISHED 的客户端
+    # （cpx 自动导入 curl、API 探测等）会被一并误杀
+    lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null | head -1
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | head -1
   fi
-  PORT=$BASE_PORT
-else
-  # Find next available port
-  MAX_ATTEMPTS=128
-  for i in $(seq 0 $((MAX_ATTEMPTS - 1))); do
-    PORT=$((BASE_PORT + i))
-    if (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
-      echo "[start] Port $PORT is in use, trying next..."
-      continue
-    fi
-    break
-  done
+}
 
-  if [ $PORT -ge $((BASE_PORT + MAX_ATTEMPTS)) ]; then
-    echo "[start] ERROR: No available port in range $BASE_PORT-$((BASE_PORT + MAX_ATTEMPTS - 1))" >&2
-    exit 1
+port_busy() {
+  local port=$1
+  [ -n "$(port_pid "$port")" ]
+}
+
+# -k：杀掉所有自家实例（不限端口，扫进程表）——next 系（cmdline 含
+# next-server / next start / npx next）且 cwd 在本包，以及 cwd 在
+# smart-agent 的 python 进程（cmdline 锚定解释器：vim/less/grep server.py
+# 的命令行也含该字样，只凭 pgrep 会把编辑器一并 SIGTERM）。别人的 Next
+# 项目（cwd 不在包内）与无关进程不碰。/proc 读取失败（macOS）按不认定
+# 处理——端口清理交由下方 -k 的忙端口回退。
+kill_all_insight() {
+  local pid cmd cwd killed=""
+  for pid in $(pgrep -f 'next-server|next start|npx next' 2>/dev/null || true); do
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    case "$cwd" in
+      "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
+        echo "[start] -k: stopping insight instance (PID $pid)..."
+        kill "$pid" 2>/dev/null || true
+        killed=1
+        ;;
+    esac
+  done
+  for pid in $(pgrep -f 'server\.py' 2>/dev/null || true); do
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
+    case "$cmd" in
+      python*) ;;
+      *) continue ;;
+    esac
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    if [ "$cwd" = "$SCRIPT_DIR/smart-agent" ]; then
+      echo "[start] -k: stopping smart-agent (PID $pid)..."
+      kill "$pid" 2>/dev/null || true
+      killed=1
+    fi
+  done
+  [ -n "$killed" ] || echo "[start] -k: no existing insight instance found"
+}
+
+# -k: 杀掉所有自家实例后优先 BASE_PORT；等待超时后仍被占（macOS 无
+# /proc 杀不掉任何实例、或占用者是设计上不杀的无关进程）则回退顺延扫描，
+# 不在忙端口上硬绑——next start EADDRINUSE 秒死会重演"主脚本 wait 立即
+# 返回再被 trap 收尾"的事故链。默认零杀、端口顺延
+if [ "$KILL_EXISTING" = true ]; then
+  kill_all_insight
+  for _ in $(seq 1 20); do
+    port_busy "$BASE_PORT" || break
+    sleep 0.5
+  done
+fi
+
+MAX_ATTEMPTS=128
+for i in $(seq 0 $((MAX_ATTEMPTS - 1))); do
+  PORT=$((BASE_PORT + i))
+  if (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
+    echo "[start] Port $PORT is in use, trying next..."
+    continue
   fi
+  break
+done
+
+if [ $PORT -ge $((BASE_PORT + MAX_ATTEMPTS)) ]; then
+  echo "[start] ERROR: No available port in range $BASE_PORT-$((BASE_PORT + MAX_ATTEMPTS - 1))" >&2
+  exit 1
 fi
 
 # Launch Python smart-agent (v2 backend) in background.
 # 端口选择与存量进程处置交给 scripts/pick-smart-agent-port.sh（可独立行为测试）：
-# 避让 next 实占 PORT（防 EADDRINUSE 撞车）；/health 验明正身才杀旧重启，
-# 无关进程不杀、错开端口；无可用候选则跳过 smart-agent（主服务不受影响）。
+# 避让 next 实占 PORT（防 EADDRINUSE 撞车）；/health 验明正身才杀旧重启；
+# 自家 insight 残留实例（next-server + cwd 在包内）击杀回收；无关进程不杀、
+# 错开端口；无可用候选则跳过 smart-agent（主服务不受影响）。
 AGENT_PID=""
 AGENT_LOG="$SCRIPT_DIR/tmp/smart-agent.log"
 
 if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
-  AGENT_PORT=$(bash "$SCRIPT_DIR/scripts/pick-smart-agent-port.sh" "$BASE_PORT" "$PORT")
+  AGENT_PORT=$(bash "$SCRIPT_DIR/scripts/pick-smart-agent-port.sh" "$BASE_PORT" "$PORT" "$SCRIPT_DIR" "$([ "$KILL_EXISTING" = true ] && echo clean || echo keep)")
   if [ -n "$AGENT_PORT" ]; then
     mkdir -p "$SCRIPT_DIR/tmp"
     (cd "$SCRIPT_DIR/smart-agent" && CANNBOT_AGENT_PORT=$AGENT_PORT python3 server.py) > "$AGENT_LOG" 2>&1 &
@@ -225,22 +276,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-BASE_PORT=21025
-PORT=$BASE_PORT
-
-# -k: kill any process occupying BASE_PORT, then use that port
-if [ "$KILL_EXISTING" = true ]; then
-  OCCUPIER_PID=$(lsof -ti :$BASE_PORT 2>/dev/null || true)
-  if [ -n "$OCCUPIER_PID" ]; then
-    echo "[start] -k: Killing process on port $BASE_PORT (PID $OCCUPIER_PID)..."
-    kill $OCCUPIER_PID 2>/dev/null || true
-    sleep 2
-  else
-    echo "[start] -k: Port $BASE_PORT is free, no process to kill"
-  fi
-  PORT=$BASE_PORT
-else
-  # Find next available port (skips AGENT_PORT since smart-agent is already listening).
+# 二次定端口（smart-agent 已 LISTEN 其端口，普通扫描自然避开它）。
+# 注意：此处不再重复 -k kill——旧实现把上方 -k 分支整段复制了一份，
+# kill 跑两遍且无 LISTEN 过滤，会误杀与端口 ESTABLISHED 的客户端进程
+# （"把自己杀掉"事故来源）；-k 路径 PORT 已定为 BASE_PORT，直接用。
+if [ "$KILL_EXISTING" != true ]; then
   MAX_ATTEMPTS=128
   for i in $(seq 0 $((MAX_ATTEMPTS - 1))); do
     PORT=$((BASE_PORT + i))
