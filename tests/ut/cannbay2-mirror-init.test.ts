@@ -36,7 +36,7 @@ function git(cmd: string, cwd: string): void {
 }
 
 function makeRemote(cacheDir: string): Cannbay2Remote {
-  return { pullUrl: BARE, pushUrl: BARE, branch: 'main', rootDir: 'sessions', cacheDir, paradigmRoots: true };
+  return { pullUrl: BARE, pushUrl: BARE, pushAuth: null, branch: 'main', rootDir: 'sessions', cacheDir, paradigmRoots: true };
 }
 
 beforeAll(() => {

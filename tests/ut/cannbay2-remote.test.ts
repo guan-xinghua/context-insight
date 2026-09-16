@@ -10,6 +10,9 @@
 // 分支/目录白名单（shell 注入面）、resolve 优先级（body > env > 硬编码）、
 // localStorage 迁移、错误消息脱敏。
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 process.env.CANNBAY2_REMOTE_URL = '/tmp/unit-env-remote.git';
@@ -150,18 +153,23 @@ describe('resolveCannbay2Remote：body > env > 硬编码默认', () => {
   it('body 目录替换 sessions 前缀', () => {
     expect(remote.resolveCannbay2Remote({ directory: 'trace/2026-08' }).rootDir).toBe('trace/2026-08');
   });
-  it('凭据同时进 pull/push URL', () => {
+  it('凭据：pull 原样内嵌，push 拆为无凭据 URL + pushAuth（atomgit 拒请求直带密码）', () => {
     const r = remote.resolveCannbay2Remote({ address: 'https://ai.gitcode.com/a/b', authMode: 'token', token: 'tk' });
     expect(r.pullUrl).toBe('https://oauth2:tk@gitcode.com/a/b');
-    expect(r.pushUrl).toBe(r.pullUrl);
+    expect(r.pushUrl).toBe('https://gitcode.com/a/b');
+    expect(r.pushUrl).not.toContain('@');
+    expect(r.pushAuth).toEqual({ username: 'oauth2', password: 'tk' });
   });
   it('默认仓 push 不被用户凭据劫持（CH.00905403 修复）：未配自定义地址时 push 用内置共享令牌，pull 仍可带用户凭据', () => {
     // 场景：客户在设置页配了自己的数据之湖令牌、地址留默认 → 此前
     // embedCredentials 会剥掉内置凭据换成客户身份 push 共享仓 → atomgit
     // 报"not allowed to push code to this project"（身份合法、无写权限）
     const r = remote.resolveCannbay2Remote({ authMode: 'token', account: 'customer', token: 'their-token' });
-    expect(r.pushUrl).toBe(remote.CANNBAY2_PUSH_URL); // 内置共享令牌原样保留
-    expect(r.pushUrl).not.toContain('their-token');
+    // 内置共享令牌不进 push URL：拆为无凭据 URL + pushAuth（401 挑战-应答通道）
+    expect(r.pushUrl).toBe(remote.parseUrlCreds(remote.CANNBAY2_PUSH_URL).credless);
+    expect(r.pushUrl).not.toContain('@');
+    expect(r.pushAuth?.username).toBe(remote.parseUrlCreds(remote.CANNBAY2_PUSH_URL).auth?.username);
+    expect(r.pushAuth?.password).not.toBe('their-token');
     // pull 保持既有语义：http 地址带用户凭据（embedCredentials 单测已覆盖），
     // 本测试 env 的 pull 是本地路径（非 http 不嵌凭据），验证不被改写即可
     expect(r.pullUrl).toBe('/tmp/unit-env-remote.git');
@@ -184,6 +192,66 @@ describe('resolveCannbay2Remote：body > env > 硬编码默认', () => {
     } finally {
       delete process.env.CANNBAY2_CACHE_DIR;
     }
+  });
+});
+
+describe('parseUrlCreds：内嵌凭据拆分（push 走 helper 通道的前提）', () => {
+  it('https://user:pass@host → 无凭据 URL + auth 对', () => {
+    const a = remote.parseUrlCreds('https://duanbingzhe:tok@atomgit.com/duanbingzhe/cannbay3.git');
+    expect(a.credless).toBe('https://atomgit.com/duanbingzhe/cannbay3.git');
+    expect(a.auth).toEqual({ username: 'duanbingzhe', password: 'tok' });
+  });
+  it('URL 编码凭据解码（embedCredentials 写入侧 encodeURIComponent）', () => {
+    const b = remote.parseUrlCreds('https://oauth2:tok%40x%3A@host/repo.git');
+    expect(b.auth).toEqual({ username: 'oauth2', password: 'tok@x:' });
+    expect(b.credless).toBe('https://host/repo.git');
+  });
+  it('无凭据 https / 本地路径 / ssh 透传，auth=null', () => {
+    for (const u of ['https://atomgit.com/a/b.git', '/tmp/x.git', 'git@host:org/repo.git']) {
+      expect(remote.parseUrlCreds(u)).toEqual({ credless: u, auth: null });
+    }
+  });
+});
+
+describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
+  it('pushAuth 存在：一次性 helper 构造/清理 + push 成功（本地传输不咨询凭据，锁命令构造与生命周期）', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-pushmirror-it-'));
+    try {
+      const bare = path.join(tmp, 'bare.git');
+      execSync(`git init --bare -b main "${bare}"`, { stdio: 'pipe' });
+      const work = path.join(tmp, 'work');
+      fs.mkdirSync(work, { recursive: true });
+      const git = (cmd: string) => execSync(cmd, { cwd: work, stdio: 'pipe' });
+      git('git init -b main .');
+      fs.writeFileSync(path.join(work, 'f.txt'), 'x');
+      git('git -c user.name=t -c user.email=t@x add -A');
+      git('git -c user.name=t -c user.email=t@x commit -m m');
+      const before = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'));
+      const r = remote.resolveCannbay2Remote({ address: bare, branch: 'main' });
+      expect(r.pushAuth).toBeNull(); // 本地路径无凭据
+      const withAuth: remote.Cannbay2Remote = { ...r, pushAuth: { username: 'it-user', password: 'it-pass' } };
+      mirrorMod.pushMirror(work, withAuth);
+      expect(execSync('git rev-parse main', { cwd: bare, stdio: 'pipe' }).toString().trim())
+        .toBe(execSync('git rev-parse HEAD', { cwd: work, stdio: 'pipe' }).toString().trim());
+      const after = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'));
+      expect(after).toEqual(before); // helper 临时目录用后即删
+      // pushAuth=null 直推路径
+      fs.writeFileSync(path.join(work, 'g.txt'), 'y');
+      git('git -c user.name=t -c user.email=t@x add -A');
+      git('git -c user.name=t -c user.email=t@x commit -m m2');
+      mirrorMod.pushMirror(work, r);
+      expect(execSync('git rev-parse main', { cwd: bare, stdio: 'pipe' }).toString().trim())
+        .toBe(execSync('git rev-parse HEAD', { cwd: work, stdio: 'pipe' }).toString().trim());
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+  it('pushAuth 含换行：helper 协议非法，立即拒绝且不落临时目录', () => {
+    const r = remote.resolveCannbay2Remote({ address: '/tmp/x.git', branch: 'main' });
+    const bad: remote.Cannbay2Remote = { ...r, pushAuth: { username: 'u', password: 'p\nq' } };
+    const before = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'));
+    expect(() => mirrorMod.pushMirror('/tmp', bad)).toThrow('换行');
+    expect(fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'))).toEqual(before);
   });
 });
 

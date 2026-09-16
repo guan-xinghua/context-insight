@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// CANNBay retention policy: master holds at most the N newest session .db files;
+// Data repo retention policy: master holds at most the N newest session .db files;
 // older ones rotate off master onto a date-bucketed archive branch. Upload and
 // download only ever touch master, so capping it keeps clone/push bounded.
 

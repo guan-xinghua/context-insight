@@ -17,14 +17,43 @@ import type { CannbayRemoteInput } from '@/lib/cannbay-config';
 export const CANNBAY2_PULL_URL = process.env.CANNBAY2_REMOTE_URL
   ?? 'https://atomgit.com/duanbingzhe/cannbay3.git';
 // 密文常量（与 v1 upload-session/route.ts 同方式），解码 = https://<user>:<token>@atomgit.com/…
+// 它是 push 凭据源（auth 提取），不再内嵌进 push URL：atomgit 已拒"请求直带
+// 密码"式鉴权，凭据只经 credential helper 的 401 挑战-应答通道供给（见
+// mirror.ts pushMirror）。
 const CANNBAY2_PUSH_URL_ENCODED = 'aHR0cHM6Ly9kdWFuYmluZ3poZTpvU1I1aTF3WXZ5dlZpUmdMbXdna3NDeG5AYXRvbWdpdC5jb20vZHVhbmJpbmd6aGUvY2FubmJheTMuZ2l0';
 export const CANNBAY2_PUSH_URL = process.env.CANNBAY2_PUSH_URL
   ?? Buffer.from(CANNBAY2_PUSH_URL_ENCODED, 'base64').toString();
 export const CANNBAY2_BRANCH = process.env.CANNBAY2_BRANCH ?? 'main';
 
+// LFS 模式（惰性读）：.jsonl.gz 以 LFS 指针出仓，实体进 LFS 存储——数据量
+// 不再计入 git 仓配额。请求体 config.lfs > env CANNBAY2_LFS > 默认关。
+function envLfs(): boolean {
+  const v = process.env.CANNBAY2_LFS;
+  return v === '1' || v === 'true' || v === 'on';
+}
+
+export interface PushAuth {
+  username: string;
+  password: string;
+}
+
+/** https URL 内嵌凭据拆分：`scheme://user:pass@rest` → 无凭据 URL + auth 对；
+ * 无凭据（本地路径 / 匿名 URL）原样返回、auth=null。 */
+export function parseUrlCreds(url: string): { credless: string; auth: PushAuth | null } {
+  const m = url.match(/^(https?:\/\/)([^/@:\s]+):([^@\s]+)@/i);
+  if (!m) return { credless: url, auth: null };
+  return {
+    credless: url.slice(0, m[1].length) + url.slice(m[0].length),
+    auth: { username: decodeURIComponent(m[2]), password: decodeURIComponent(m[3]) },
+  };
+}
+
 export interface Cannbay2Remote {
   pullUrl: string;
+  /** 无凭据 push 地址：凭据走 credential helper（pushAuth），绝不内嵌 URL */
   pushUrl: string;
+  /** push 凭据（内置共享令牌 / 自定义地址的表单凭据）；null = 匿名推 */
+  pushAuth: PushAuth | null;
   branch: string;
   rootDir: string;
   cacheDir: string;
@@ -34,6 +63,8 @@ export interface Cannbay2Remote {
    * 新增范式 = 在数据仓新建顶层目录，insight 零范式知识。
    */
   paradigmRoots: boolean;
+  /** LFS 模式：.jsonl.gz 走 LFS 指针（config.lfs > env CANNBAY2_LFS；缺省 = 既有免疫行为） */
+  lfs?: boolean;
 }
 
 const FORBIDDEN_ADDRESS_CHARS = /["'`$;&|\n\r]/;
@@ -151,15 +182,20 @@ export function resolveCannbay2Remote(input?: CannbayRemoteInput): Cannbay2Remot
   // 在设置页配置的数据之湖凭据只对自定义地址生效。否则 embedCredentials 会
   // 剥掉内置凭据换成用户身份 → atomgit CH.00905403 "not allowed to push"：
   // 客户令牌鉴权通过但对共享仓无写权限（拉取/列表仍带用户凭据，私有数据湖
-  // 场景不受影响）。
-  const pushUrl = hasAddress ? embedCredentials(credlessPull, input) : CANNBAY2_PUSH_URL;
+  // 场景不受影响）。凭据经 parseUrlCreds 提取走 credential helper，pushUrl
+  // 本体无凭据（atomgit 拒请求直带密码的内嵌 URL）。
+  const { credless: pushUrl, auth: pushAuth } = parseUrlCreds(
+    hasAddress ? embedCredentials(credlessPull, input) : CANNBAY2_PUSH_URL,
+  );
   return {
     pullUrl: embedCredentials(credlessPull, input),
     pushUrl,
+    pushAuth,
     branch,
     rootDir: normalizeDirectory(input?.directory),
     cacheDir,
     paradigmRoots: !hasAddress,
+    lfs: input?.lfs ?? envLfs(),
   };
 }
 

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import zlib from 'node:zlib';
-import { listSessions, materializeSession, uploadFolder, listParadigmDirs, type Cannbay2Remote, type Cannbay2SessionEntry, type UploadResult } from './mirror';
+import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, type Cannbay2Remote, type Cannbay2SessionEntry, type Cannbay2Overview, type UploadResult } from './mirror';
 import { readCcSessionMeta } from '../ingest/proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { defaultCannbay2Remote } from './remote';
@@ -22,11 +22,15 @@ import { exportSessionToClaudeJsonl, xCannbay } from './export';
 import { importSession } from '@/lib/ingest/data-service';
 import type { PrismaClient } from '@prisma/client';
 
-export type { Cannbay2SessionEntry };
+export type { Cannbay2SessionEntry, Cannbay2Overview };
 
 // atomgit 单文件上限兜底（按压缩后字节）。导出为可变引用（测试注入小阈值
-// 验证熔断路径；生产恒为 100MB）
-export const MAX_SESSION_BYTES = { value: 100 * 1024 * 1024 };
+// 验证熔断路径）；生产初值可经 env CANNBAY2_MAX_SESSION_MB 覆写（LFS 模式
+// 下平台限制在 LFS 对象侧，git blob 的 100MiB 钳制不再适用）
+export const MAX_SESSION_BYTES = { value: (() => {
+  const v = Number(process.env.CANNBAY2_MAX_SESSION_MB);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v * 1024 * 1024) : 100 * 1024 * 1024;
+})() };
 
 export class GovernanceError extends Error {
   constructor(message: string) {
@@ -39,6 +43,11 @@ type PrismaLike = PrismaClient;
 
 export function listCannbay2Sessions(remote?: Cannbay2Remote): Cannbay2SessionEntry[] {
   return listSessions(remote);
+}
+
+/** 列表 + 顶层目录合并读取（单轮 mirror fetch 服务导入对话框的范式下拉+会话表）。 */
+export function listCannbay2Overview(remote?: Cannbay2Remote): Cannbay2Overview {
+  return listOverview(remote);
 }
 
 // patch 后从 DB 回读准确的 framework/version（meta 缺失时管线推断的兜底值），
@@ -169,7 +178,7 @@ interface SessionRow {
 // 收集待传文件到 staging 的 sessions/<sid>/ 布局，返回 staging 根目录。
 // - sourcePath 是本机存在的 jsonl（proxy 捕获 / native claude）：原文件直传，
 //   subagents 在 <dirname>/<fileSid>/subagents/（proxy 落盘约定）
-// - 其余一律 DB 导出兜底：opencode（无捕获文件）、v1 CANNBay 下载的 .db 快照
+// - 其余一律 DB 导出兜底：opencode（无捕获文件）、v1 数据仓下载的 .db 快照
 //   会话（sourcePath 是 .db）、源文件已被删除/移动的会话。导出件不含
 //   Full Context（system/tools），管线数据齐全。
 async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promise<{ stagingDir: string; sid: string }> {
@@ -279,7 +288,7 @@ function governStagedSession(stagingDir: string, sid: string): void {
     let totalBytes = 0;
     for (const rel of jsonlFiles) totalBytes += fs.statSync(path.join(sessionDir, rel)).size;
     if (totalBytes > MAX_SESSION_BYTES.value) {
-      throw new GovernanceError(`Session "${sid}" exceeds single-file size limit (${(totalBytes / 1024 / 1024).toFixed(1)}MB > 100MB)`);
+      throw new GovernanceError(`Session "${sid}" exceeds single-file size limit (${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${(MAX_SESSION_BYTES.value / 1024 / 1024).toFixed(0)}MB)`);
     }
     return;
   }
@@ -311,7 +320,7 @@ function governStagedSession(stagingDir: string, sid: string): void {
     totalBytes += fs.statSync(gzFile).size;
   }
   if (totalBytes > MAX_SESSION_BYTES.value) {
-    throw new GovernanceError(`Session "${sid}" exceeds single-file size limit (${(totalBytes / 1024 / 1024).toFixed(1)}MB > 100MB，gzip 压缩后仍超限)`);
+    throw new GovernanceError(`Session "${sid}" exceeds single-file size limit (${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${(MAX_SESSION_BYTES.value / 1024 / 1024).toFixed(0)}MB，gzip 压缩后仍超限)`);
   }
 }
 

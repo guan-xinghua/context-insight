@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listCannbay2Sessions, importCannbay2Session, uploadCannbay2Session, GovernanceError } from '@/lib/cannbay2';
+import { listCannbay2Overview, importCannbay2Session, uploadCannbay2Session, GovernanceError } from '@/lib/cannbay2';
 import { resolveCannbay2Remote, testCannbay2Remote, listRemoteBranches, redactRemoteSecrets, normalizeDirPrefix } from '@/lib/cannbay2/remote';
 import { listRemoteDirs } from '@/lib/cannbay2/mirror';
 import type { CannbayRemoteInput } from '@/lib/cannbay-config';
@@ -58,8 +58,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'list') {
-      const sessions = listCannbay2Sessions(remote);
-      return NextResponse.json({ sessions });
+      // sessions + 顶层目录（dirs）一次返回：导入对话框的范式下拉 + 会话表
+      // 共享单轮 mirror fetch（原先 dirs/list 两路各 fetch 一次）。dirs 字段
+      // 与 action=dirs 同源（含 sessions/，调用方自行过滤）；自定义单根远端为 []
+      const { sessions, topDirs } = listCannbay2Overview(remote);
+      return NextResponse.json({ sessions, dirs: topDirs });
     }
 
     if (action === 'dirs') {

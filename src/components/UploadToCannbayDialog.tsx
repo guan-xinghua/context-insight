@@ -7,13 +7,15 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// CANNBay 上传弹窗（共享组件）：主页列表行与 会话页标题栏 两处入口共用同一
+// 数据仓上传弹窗（共享组件）：主页列表行与 会话页标题栏 两处入口共用同一
 // 弹窗（范式目录 / 提交人 / 内容描述 / 算子生成结果必选 / baseline）。受控
 // 组件——open/onOpenChange 由调用方管理，上传开始与结果经 onUploadStart /
 // onResult 回调交还调用方呈现（列表行状态图标 / 会话页 toast）。
+// 弹窗标题用 BAY_NAME（@/lib/branding）——context 双名发布时 Bay 显示名随品牌翻转。
 
 import { useEffect, useState } from 'react'
 import { loadCannbayConfig, cannbayRemoteInput, isDefaultCannbayRemote } from '@/lib/cannbay-config'
+import { BAY_NAME } from '@/lib/branding'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -83,7 +85,7 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
   const [uploadSubmitterTouched, setUploadSubmitterTouched] = useState(false)
   const [uploadCategory, setUploadCategory] = useState('')
   const [uploadBaseline, setUploadBaseline] = useState(false)
-  // 算子生成结果标注（随会话 meta 入仓，CANNBay 列表"算子生成"列展示）：
+  // 算子生成结果标注（随会话 meta 入仓，数据仓列表"算子生成"列展示）：
   // Web UI 必选（成功/失败，未选禁用上传）；'' 仅作初始未选态。数据层仍允许
   // 缺省（CLI 上传/历史数据 → 列表显示 —）
   const [uploadOpGen, setUploadOpGen] = useState<'' | 'success' | 'failure'>('')
@@ -165,7 +167,7 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
     <Dialog open={open} onOpenChange={(v) => { if (!v || !uploading) onOpenChange(v) }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>上传到 CANNBay</DialogTitle>
+          <DialogTitle>上传到 {BAY_NAME}</DialogTitle>
           <DialogDescription>会话经数据治理后上传至数据仓，可随时重新导入</DialogDescription>
         </DialogHeader>
         {defaultRemote && (

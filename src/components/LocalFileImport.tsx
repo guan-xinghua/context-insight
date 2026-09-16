@@ -8,7 +8,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { useState, useEffect, useCallback } from "react"
-import { BRAND_NAME, BRAND_SLUG, BRAND_SOURCE_TYPE } from '@/lib/branding'
+import { BRAND_NAME, BRAND_SLUG, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
 import { loadCannbayConfig, cannbayRemoteInput, isDefaultCannbayRemote, DEFAULT_CANNBAY_ADDRESS } from '@/lib/cannbay-config'
 import {
   Dialog,
@@ -342,7 +342,9 @@ export function LocalFileImport() {
 
   // 范式优先打开：默认仓拉取范式目录清单（注册表）+ 全量会话列表，进入范式
   // 选择阶段（选中后本地过滤，切换零延迟）。自定义数据湖远端不启用范式目录
-  // （后端单根模式，任意顶层目录不是范式注册表）——只拉列表，直接进会话表
+  // （后端单根模式，任意顶层目录不是范式注册表）——只拉列表，直接进会话表。
+  // list 一次请求同时返回 sessions + dirs（顶层目录）：后端单轮 mirror fetch
+  // 服务两份数据（原先 dirs/list 两路各 fetch 一次 ~1s×2）
   async function handleOpenCannbay() {
     setCannbayLoading(true)
     setError(null)
@@ -357,29 +359,21 @@ export function LocalFileImport() {
       ? `${addr} · 分支 ${cfg?.branch.trim() || "main"}`
       : `${addr} · 分支 ${cfg?.branch.trim() || "main"} · 目录 /${cfg?.directory.trim() || "sessions"}`)
     try {
-      let paradigms: string[] = []
-      if (paradigmEnabled) {
-        const dirsRes = await fetch("/api/ingest/cannbay2", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "dirs", ...cannbayRemoteInput(cfg) }),
-        })
-        const dirsData = await dirsRes.json()
-        if (!dirsRes.ok) throw new Error(dirsData.error ?? "Failed to list paradigm dirs")
-        paradigms = ((dirsData.dirs ?? []) as string[]).filter(d => d !== "sessions")
-        if (paradigms.length === 0) {
-          setError("数据仓暂无范式目录：请先在数据仓顶层新建范式目录")
-          return
-        }
-        setCannbayParadigms(paradigms)
-      }
       const listRes = await fetch("/api/ingest/cannbay2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "list", ...cannbayRemoteInput(cfg) }),
       })
       const listData = await listRes.json()
-      if (!listRes.ok) throw new Error(listData.error ?? "Failed to fetch CANNBay sessions")
+      if (!listRes.ok) throw new Error(listData.error ?? `Failed to fetch ${BAY_NAME} sessions`)
+      if (paradigmEnabled) {
+        const paradigms = ((listData.dirs ?? []) as string[]).filter(d => d !== "sessions")
+        if (paradigms.length === 0) {
+          setError("数据仓暂无范式目录：请先在数据仓顶层新建范式目录")
+          return
+        }
+        setCannbayParadigms(paradigms)
+      }
       setCannbaySessions(listData.sessions ?? [])
       // 自定义远端直接进会话表（未标注 = 单根全量）；默认仓停在范式选择阶段
       setCannbayParadigm(paradigmEnabled ? null : "__none__")
@@ -414,7 +408,11 @@ export function LocalFileImport() {
     setImportStatuses(sids.map(sid => ({ sessionId: sid, status: "pending" as const })))
 
     const importedPreviews: SessionPreview[] = []
-    for (const sid of sids) {
+
+    async function importOne(sid: string) {
+      setImportStatuses(prev =>
+        prev.map(s => s.sessionId === sid ? { ...s, status: "importing" as const } : s)
+      )
       try {
         const res = await fetch("/api/ingest/cannbay2", {
           method: "POST",
@@ -445,6 +443,16 @@ export function LocalFileImport() {
             : s))
       }
     }
+
+    // Concurrent pool（与本地导入同款）：物化网络下载并行，wall-time ÷N
+    const CONCURRENCY = 4
+    let nextIndex = 0
+    const workers = Array.from({ length: Math.min(CONCURRENCY, sids.length) }, async () => {
+      while (nextIndex < sids.length) {
+        await importOne(sids[nextIndex++])
+      }
+    })
+    await Promise.all(workers)
     setSessions(prev => [...prev, ...importedPreviews])
   }
 
@@ -466,7 +474,7 @@ export function LocalFileImport() {
     : sessions
 
   function toggleAll() {
-    // 全选作用于当前过滤视图（与 CANNBay 列表同款语义）
+    // 全选作用于当前过滤视图（与数据仓列表同款语义）
     if (filteredSessions.length > 0 && filteredSessions.every(s => selectedIds.has(s.id))) {
       setSelectedIds(prev => {
         const next = new Set(prev)
@@ -541,7 +549,7 @@ export function LocalFileImport() {
           : DEFAULT_CANNBAY_ADDRESS
         const branch = cfg?.branch.trim() || "main"
         const dir = cfg?.directory.trim() || "sessions"
-        return `CANNBay@${addr.replace(/^https?:\/\//, "")}@${branch}:${dir}/${sid}`
+        return `${BAY_NAME}@${addr.replace(/^https?:\/\//, "")}@${branch}:${dir}/${sid}`
       }
       const entries: ImportHistoryEntry[] = importStatuses.map(s => {
         const session = sessions.find(p => p.id === s.sessionId)
@@ -584,7 +592,7 @@ export function LocalFileImport() {
         <DialogHeader>
           <DialogTitle>Import Session</DialogTitle>
           <DialogDescription>
-            {step === "input" && "Import session data from local files or CANNBay"}
+            {step === "input" && `Import session data from local files or ${BAY_NAME}`}
             {step === "browse" && "Browse directories and select a file to import"}
             {step === "select" && "Select sessions to import"}
             {step === "cannbay" && (cannbayParadigm == null ? "选择范式目录（数据仓顶层目录）" : "选择该范式下的会话导入")}
@@ -617,7 +625,7 @@ export function LocalFileImport() {
                   onClick={() => { setSourceType("cannbay"); handleOpenCannbay() }}
                 >
                   <GlobeIcon className="size-3.5 mr-1" />
-                  CANNBay
+                  {BAY_NAME}
                 </Button>
               </div>
             </div>
@@ -690,14 +698,14 @@ export function LocalFileImport() {
             {sourceType === "cannbay" && !cannbayLoading && cannbayParadigms.length === 0 && !error && (
               <div className="text-sm text-muted-foreground py-4 text-center">
                 <GlobeIcon className="size-5 mx-auto mb-2 text-blue-500" />
-                <p>从 CANNBay 数据仓选择范式目录，导入该范式下的会话</p>
+                <p>从 {BAY_NAME} 数据仓选择范式目录，导入该范式下的会话</p>
                 <p className="text-xs mt-1">范式目录 = 数据仓顶层目录；其他用户上传的会话按范式归类</p>
               </div>
             )}
             {sourceType === "cannbay" && cannbayLoading && (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <LoaderIcon className="size-4 animate-spin" />
-                <span className="text-sm text-muted-foreground">Fetching sessions from CANNBay...</span>
+                <span className="text-sm text-muted-foreground">Fetching sessions from {BAY_NAME}...</span>
               </div>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -1088,7 +1096,7 @@ export function LocalFileImport() {
           )}
           {step === "input" && sourceType === "cannbay" && (
             <Button onClick={handleOpenCannbay} disabled={cannbayLoading}>
-              {cannbayLoading ? "Fetching..." : "Fetch from CANNBay"}
+              {cannbayLoading ? "Fetching..." : `Fetch from ${BAY_NAME}`}
             </Button>
           )}
           {step === "select" && (

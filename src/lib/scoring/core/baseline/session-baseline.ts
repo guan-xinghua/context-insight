@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 单会话基线：基线 = 一个样例会话（同类任务各设一个），不是语料分布。
-// 新会话与基线会话逐指标比比值——与 CANNBay「范式 baseline 会话」（位置即身份）
+// 新会话与基线会话逐指标比比值——与数据仓「范式 baseline 会话」（位置即身份）
 // 同构：一个标杆，不做统计。存 ~/.cannbot-insight/baselines/<taskType>.json。
 
 import { promises as fs } from 'node:fs';

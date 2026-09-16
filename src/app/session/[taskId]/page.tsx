@@ -19,7 +19,7 @@ import { ArrowLeftIcon, LayoutDashboardIcon, MessageSquareIcon, SearchIcon, Spar
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { VERSION_DISPLAY } from "@/lib/version"
-import { BRAND_NAME } from "@/lib/branding"
+import { BRAND_NAME, BAY_NAME } from "@/lib/branding"
 import type { TurnHighlight } from "@/lib/shared/highlight"
 import { TurnTimeline } from "@/components/observe/TurnTimeline"
 import { TurnDetail } from "@/components/observe/TurnDetail"
@@ -538,7 +538,7 @@ export default function SessionDetailPage({
   const [error, setError] = useState<string | null>(null)
   const [exportingMd, setExportingMd] = useState(false)
   const [exportingHtml, setExportingHtml] = useState(false)
-  // CANNBay 上传弹窗（共享组件，与主页面上传同款）：结果经 toast 呈现
+  // 数据仓上传弹窗（共享组件，与主页面上传同款）：结果经 toast 呈现
   const [cannbayUploadOpen, setCannbayUploadOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const refreshingRef = useRef(false)
@@ -1869,7 +1869,7 @@ export default function SessionDetailPage({
             size="sm"
             className="gap-1 text-muted-foreground"
             onClick={() => setCannbayUploadOpen(true)}
-            title="Upload to CANNBay"
+            title={`Upload to ${BAY_NAME}`}
           >
             <UploadIcon className="size-4" />
           </Button>
@@ -1928,7 +1928,7 @@ export default function SessionDetailPage({
           user: session.user,
         } : null}
         onResult={({ ok, message }) => {
-          if (ok) toast.success("已上传到 CANNBay")
+          if (ok) toast.success(`已上传到 ${BAY_NAME}`)
           else toast.error("上传失败", { description: message ?? "Unknown error" })
         }}
       />

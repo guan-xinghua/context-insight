@@ -30,7 +30,7 @@ const BASE_PORT = Number.parseInt(process.env.CANNBOT_INSIGHT_PORT || '21025', 1
 const CLI_COMMANDS = new Set([
   'tui', 'sessions', 'session', 'stats', 'compare', 'search', 'turn',
   'import', 'delete', 'config', 'analyze', 'export', 'export-md', 'upload',
-  'help', '--help', '-h', '--version', '-V',
+  'help', '--help', '-h', '--version', '-V', '-v',
 ])
 
 const args = process.argv.slice(2)

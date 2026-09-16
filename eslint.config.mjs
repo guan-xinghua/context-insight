@@ -30,6 +30,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // context 品牌变体打包工作区（scripts/pack-context.mjs 的 staging 复制树）
+    ".context-pack/**",
   ]),
 ]);
 

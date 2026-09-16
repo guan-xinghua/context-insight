@@ -18,6 +18,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 import { SessionList } from '@/components/SessionList'
 import { LocalFileImport } from '@/components/LocalFileImport'
+import { BAY_NAME } from '@/lib/branding'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, refresh: () => {} }),
@@ -37,7 +38,9 @@ beforeAll(() => {
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
       if (body.action === 'dirs') return json({ dirs: ['others'] })
       if (body.action === 'list') {
-        return json({ sessions: [
+        // list 响应带 dirs（顶层目录）：合并契约——后端单轮 mirror fetch
+        // 同时服务范式下拉与会话表
+        return json({ dirs: ['sessions', 'others'], sessions: [
           { sid: 'sid-ok', fileCount: 2, author: 'a', submitter: '测试者', description: '成功的会话', commitTime: '2026-09-02T03:00:00Z', framework: 'claude-code', producer: 'cpx', paradigm: 'others', opGen: 'success' },
           { sid: 'sid-fail', fileCount: 2, author: 'a', submitter: '测试者', description: '失败的会话', commitTime: '2026-09-02T02:00:00Z', framework: 'opencode', producer: 'cpx', paradigm: 'others', opGen: 'failure' },
           { sid: 'sid-plain', fileCount: 2, author: 'a', submitter: '测试者', description: '未标注的会话', commitTime: '2026-09-02T01:00:00Z', framework: 'opencode', producer: 'cpx', paradigm: 'others' },
@@ -89,8 +92,8 @@ describe('算子生成标注 UI', () => {
     await act(async () => { root!.render(createElement(SessionList, { items: [ITEM], total: 1, page: 1, pageSize: 16 })) })
     await flush()
 
-    // 打开上传弹窗（行内 Upload 按钮，title=Upload to CANNBay）
-    const uploadBtn = document.querySelector('button[title="Upload to CANNBay"]') as HTMLButtonElement
+    // 打开上传弹窗（行内 Upload 按钮，title 跟随 BAY_NAME 品牌）
+    const uploadBtn = document.querySelector(`button[title="Upload to ${BAY_NAME}"]`) as HTMLButtonElement
     expect(uploadBtn, '上传按钮未找到').toBeTruthy()
     await act(async () => { click(uploadBtn) })
     await flush()
@@ -136,7 +139,7 @@ describe('算子生成标注 UI', () => {
     await act(async () => { root!.render(createElement(SessionList, { items: [ITEM], total: 1, page: 1, pageSize: 16 })) })
     await flush()
 
-    await act(async () => { click(document.querySelector('button[title="Upload to CANNBay"]')!) })
+    await act(async () => { click(document.querySelector(`button[title="Upload to ${BAY_NAME}"]`)!) })
     await flush()
 
     const select = document.querySelector('select') as HTMLSelectElement
@@ -169,7 +172,7 @@ describe('算子生成标注 UI', () => {
 
     await act(async () => { click(findButtonByText('Import Session')!) })
     await flush()
-    await act(async () => { click(findButtonByText('CANNBay')!) })
+    await act(async () => { click(findButtonByText(BAY_NAME)!) })
     await flush()
     // 范式选择步 → 点 others
     await act(async () => { click(findButtonByText('others')!) })

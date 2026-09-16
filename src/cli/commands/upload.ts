@@ -11,6 +11,7 @@ import { InsightClient } from '../client';
 import { renderTable, TableColumn } from '../utils/table';
 import { formatDate } from '../utils/format';
 import { formatHeader, formatDivider, formatSuccess, formatWarning, theme } from '../utils/colors';
+import { BAY_NAME } from '@/lib/branding';
 import type { ApiImportableSession, ApiImportableSessionsResponse } from '../types';
 import readline from 'node:readline';
 import { execSync } from 'node:child_process';
@@ -176,7 +177,7 @@ async function selectPrompt(sessions: ApiImportableSession[]): Promise<ApiImport
 export function uploadCommand(): Command {
   const cmd = new Command('upload');
   cmd
-    .description('Upload session to CANNBay (auto-starts backend if needed)')
+    .description(`Upload session to ${BAY_NAME} (auto-starts backend if needed)`)
     .option('--session <taskId>', 'Upload from Insight DB by taskId')
     .option('--framework <framework>', 'Framework type (auto-detected from file)')
     .option('--source <type>', 'Source type — auto-detected from --file if omitted')
@@ -184,7 +185,7 @@ export function uploadCommand(): Command {
     .option('--list', 'List importable sessions from source file')
     .option('--session-id <id>', 'Upload specific session from source file by ID')
     .option('--description <text>', 'Description text (skip interactive prompt)')
-    .option('--paradigm <dir>', 'Paradigm directory in CANNBay (top-level dir, required for default remote)')
+    .option('--paradigm <dir>', `Paradigm directory in ${BAY_NAME} (top-level dir, required for default remote)`)
     .option('--baseline', 'Set this session as the paradigm baseline (<paradigm>/baseline/, replaces the current one)')
     .option('--interactive', 'Interactive prompt for description fields (default when no --description)')
     .option('--yes', 'Skip confirmation prompt')
@@ -256,7 +257,7 @@ export function uploadCommand(): Command {
             return;
           }
 
-          console.log(formatSuccess(`✓ Uploaded session ${taskId} → CANNBay`));
+          console.log(formatSuccess(`✓ Uploaded session ${taskId} → ${BAY_NAME}`));
           console.log(theme.muted(`  Folder: ${result.folder}${result.unchanged ? ' (unchanged)' : ''}`));
           return;
         }
@@ -349,8 +350,8 @@ export function uploadCommand(): Command {
           if (!opts.json) console.log(theme.muted('  Importing into Insight DB...'));
           const importResult = await client.importSession(source, filePath, target.id);
 
-          // Step 2: Upload to CANNBay (taskId lookup happens server-side)
-          if (!opts.json) console.log(theme.muted('  Uploading to CANNBay...'));
+          // Step 2: 上传到数据仓（taskId lookup happens server-side）
+          if (!opts.json) console.log(theme.muted(`  Uploading to ${BAY_NAME}...`));
           const uploadResult = paradigm && baseline
             ? await client.uploadSession(target.id, description, paradigm, true)
             : paradigm
@@ -362,7 +363,7 @@ export function uploadCommand(): Command {
             return;
           }
 
-          console.log(formatSuccess(`✓ Imported & uploaded session ${target.id} → CANNBay`));
+          console.log(formatSuccess(`✓ Imported & uploaded session ${target.id} → ${BAY_NAME}`));
           console.log(theme.muted(`  Insight taskId: ${importResult.sessionId}`));
           console.log(theme.muted(`  Folder: ${uploadResult.folder}${uploadResult.unchanged ? ' (unchanged)' : ''}`));
           return;

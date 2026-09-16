@@ -21,13 +21,16 @@ import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 import fs from 'node:fs'
 import path from 'node:path'
+import { BAY_NAME } from '@/lib/branding'
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams('framework=opencode'),
   useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, refresh: () => {} }),
 }))
 
-const DATA = path.resolve(__dirname, 'data', 'session-turn-accumulate')
+// fixture 随测试目录迁移落在 tests/ut/data/（上游变基适配时本文件移入
+// tests/e2e/ 而数据未跟迁，路径漏适配曾致 readJson ENOENT）
+const DATA = path.resolve(__dirname, '..', 'ut', 'data', 'session-turn-accumulate')
 const TASK_ID = 'ses_066d0d8aaffegJAFUjUGyxKm8z'
 
 function readJson(name: string): unknown {
@@ -113,9 +116,9 @@ describe('会话页 CANNBay 上传入口（共享弹窗）', () => {
     expect(document.body.textContent).toContain('Session:')
     expect(findButtonByText('Turns'), '页面加载失败').toBeTruthy()
 
-    // ① 标题栏按钮存在（Export HTML 之后）
+    // ① 标题栏按钮存在（Export HTML 之后）；title 跟随 BAY_NAME 品牌
     const htmlBtn = document.querySelector('button[title="Export HTML"]')
-    const uploadBtn = document.querySelector('button[title="Upload to CANNBay"]')
+    const uploadBtn = document.querySelector(`button[title="Upload to ${BAY_NAME}"]`)
     expect(htmlBtn, 'Export HTML 按钮未找到').toBeTruthy()
     expect(uploadBtn, '会话页上传按钮未找到').toBeTruthy()
     expect(uploadBtn!.compareDocumentPosition(htmlBtn!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
@@ -124,7 +127,7 @@ describe('会话页 CANNBay 上传入口（共享弹窗）', () => {
     // （[data-slot="dialog-content"]）——keep-mounted 隐藏 tab 里有同名元素
     await act(async () => { click(uploadBtn!) })
     await flush()
-    expect(document.body.textContent).toContain('上传到 CANNBay')
+    expect(document.body.textContent).toContain(`上传到 ${BAY_NAME}`)
     const dlg = document.querySelector('[data-slot="dialog-content"]') as HTMLElement
     expect(dlg, '上传弹窗未渲染').toBeTruthy()
     for (const label of ['范式目录', '提交人', '内容描述', '算子生成结果']) {

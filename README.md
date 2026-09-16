@@ -37,14 +37,16 @@ cannbot-insight            # first run: auto-build + migrate (~30s-2min), then s
 - Requires Node.js >= 20; mainland-China networks can add `--registry=https://registry.npmmirror.com`
 - Offline fallback: `npm install -g ./cannbot-insight-<version>.tgz`
 - Writable state lives in `~/.cannbot-insight/`; default port 21025 (auto-increments if occupied)
-- CLI subcommands pass through: `cannbot-insight upload --file … --list` / `sessions` / `--help`
+- CLI subcommands pass through: `cannbot-insight upload --file … --list` / `sessions`; short alias `cbi`
 - Python 3 optional (starts the smart-agent analysis backend when present)
+- Alternate brand: `npm install -g context-insight` — the same tool published under the Context-Insight name (commands `context-insight` / `ctxi`, data dir `~/.context-insight/`); session data is fully interchangeable with cannbot-insight (shared format identity)
 
 | Flag | Effect |
 |------|--------|
 | `-a`, `--advanced` | Show advanced tabs (wireRounds/replay) |
 | `-k`, `--kill` | Stop all insight/smart-agent instances of this repo, then start on 21025 (falls back to the next free port if occupied by others) |
 | `-f`, `--fresh` | Clear the build cache and rebuild |
+| `-h`, `--help` | Print the full CLI reference — all subcommands and flags (incl. `-v, --version`) |
 
 ### Option 1: Web UI from source
 
@@ -62,7 +64,7 @@ Log file locations:
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/` (directory auto-scan)
 
-The Web UI also supports: exporting sessions to standalone SQLite or Markdown; uploading to the CANNBay dataset repo (paradigm directory + operator-generation outcome annotation + optional baseline, with mandatory secret governance before push); on-demand import from the CANNBay list. The data-lake remote, auth, and branch are configurable in Settings (credentials stay in browser localStorage). The LLM provider panel embeds a known-provider Base URL quick reference.
+The Web UI also supports: exporting sessions to standalone SQLite or Markdown; uploading to the CANNBay dataset repo (paradigm directory + operator-generation outcome annotation + optional baseline, with mandatory secret governance before push); on-demand import from the CANNBay list. The data-lake remote, auth, and branch are configurable in Settings (credentials stay in browser localStorage). The LLM provider panel embeds a known-provider Base URL quick reference. When the data repo has LFS enabled on the platform, set env `CANNBAY2_LFS=1` (or request config `lfs`) to store `.jsonl.gz` sessions as LFS pointers — capacity escapes the git repo quota, and the import path handles it transparently (meta stays a plain blob; session payloads are fetched from LFS storage on demand).
 
 ### Option 2: CLI Upload + Web Analysis
 

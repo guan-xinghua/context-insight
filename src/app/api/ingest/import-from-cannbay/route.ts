@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { importSession } from '@/lib/ingest/data-service';
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding';
 import { prisma } from '@/lib/db';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       cloneDir = await ensureCannbayClone();
     } catch (cloneErr) {
       const msg = cloneErr instanceof Error ? cloneErr.message : 'Clone failed';
-      return NextResponse.json({ error: `Failed to clone CANNBay: ${msg}` }, { status: 500 });
+      return NextResponse.json({ error: `Failed to clone ${BAY_NAME}: ${msg}` }, { status: 500 });
     }
 
     try {
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
         for (const f of filenames) {
           const fullPath = path.join(cloneDir, f);
           if (!fs.existsSync(fullPath)) {
-            results.push({ filename: f, taskId: '', imported: false, query: null, error: 'File not found in CANNBay' });
+            results.push({ filename: f, taskId: '', imported: false, query: null, error: `File not found in ${BAY_NAME}` });
             continue;
           }
 

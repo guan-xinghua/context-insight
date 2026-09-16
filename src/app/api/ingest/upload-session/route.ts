@@ -15,6 +15,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { planArchive, MAX_MASTER_SESSIONS, type FileWithDate } from '@/lib/cannbay-archive';
+import { BAY_NAME } from '@/lib/branding';
 
 const CANNBAY_PULL_URL = 'https://gitcode.com/guanxinghua/CANNBay.git';
 const CANNBAY_PUSH_URL = Buffer.from('aHR0cHM6Ly9ndWFueGluZ2h1YTpwc3F5WXAyYnpFRkI0eDVQRlVTV0dMS3lAZ2l0Y29kZS5jb20vZ3VhbnhpbmdodWEvQ0FOTkJheS5naXQ=', 'base64').toString();
@@ -44,7 +45,7 @@ function listMasterSessions(cwd: string): FileWithDate[] {
     .map((f) => ({ filename: f, addedAtMs: fileAddedAtMs(f, cwd) }));
 }
 
-// Persistent local mirror of CANNBay: full-clone ONCE, then each upload only
+// Persistent local mirror of the data repo: full-clone ONCE, then each upload only
 // `git fetch`es the delta (one new commit + ~one .db blob). Re-cloning ~1.6GB
 // of history every upload was the real perf bottleneck — the 20-cap shrinks
 // the working tree, but archived files remain in history, so a fresh clone
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
       mirrorDir = await ensureUploadMirror();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Clone failed';
-      return NextResponse.json({ error: `Failed to clone CANNBay mirror: ${msg}` }, { status: 500 });
+      return NextResponse.json({ error: `Failed to clone ${BAY_NAME} mirror: ${msg}` }, { status: 500 });
     }
 
     try {

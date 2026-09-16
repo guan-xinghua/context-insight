@@ -95,8 +95,13 @@ if [ -f "$PROXY_INSTALL" ]; then
   echo "[setup] Setting up proxy (cpx)..."
   PROXY_INSTALL_ARGS=()
   if [ "$UPDATE" = true ]; then PROXY_INSTALL_ARGS+=("-u"); fi
-  if ! bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}"; then
-    echo "[setup] proxy install failed (non-fatal)"
+  mkdir -p "$SCRIPT_DIR/tmp"
+  PROXY_LOG="$SCRIPT_DIR/tmp/cpx-install.log"
+  if bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
+    echo "[setup] cpx ready ✓ (log: tmp/cpx-install.log)"
+  else
+    echo "[setup] proxy install failed (non-fatal):"
+    tail -n 20 "$PROXY_LOG"
   fi
 fi
 
@@ -303,11 +308,14 @@ echo "[start] Launching CANNBot-Insight on port $PORT..."
 # "某个 turn 首次点击数秒"的主因即此；生产模式启动时一次性构建，请求零编译。
 # 构建产物复用：源码（src/prisma/public/配置）没有比 .next/BUILD_ID 更新的
 # 文件即跳过重建——改代码后自动重建，无需记 -f；-f 仍可强制。
+# public/export-view.js 例外：它是 build:export-view 的产物（每次启动重写），
+# 且 public/ 由 next start 运行时直读、不进 next build 产物——不排除则每次
+# 启动都误判"源码已变"触发无谓全量重建。
 NEXT_CMD="dev"
 if [ "$PROD" = true ] && [ "$CLI" != true ]; then
   NEED_BUILD=true
   if [ "$FRESH" != true ] && [ -f ".next/BUILD_ID" ]; then
-    STALE=$(find src prisma public package.json next.config.ts tsconfig.json -newer .next/BUILD_ID -print -quit 2>/dev/null || true)
+    STALE=$(find src prisma public package.json next.config.ts tsconfig.json -newer .next/BUILD_ID ! -path "public/export-view.js" -print -quit 2>/dev/null || true)
     if [ -z "$STALE" ]; then
       NEED_BUILD=false
       echo "[start] Production build cached (.next/BUILD_ID up to date) — skip"
@@ -317,7 +325,15 @@ if [ "$PROD" = true ] && [ "$CLI" != true ]; then
   fi
   if [ "$NEED_BUILD" = true ]; then
     echo "[start] Production build (next build)..."
-    npm run build || { echo "[start] ERROR: build failed" >&2; exit 1; }
+    mkdir -p "$SCRIPT_DIR/tmp"
+    BUILD_LOG="$SCRIPT_DIR/tmp/next-build.log"
+    if ! npm run build > "$BUILD_LOG" 2>&1; then
+      echo "[start] ERROR: build failed — tail of $BUILD_LOG:" >&2
+      tail -n 40 "$BUILD_LOG" >&2
+      exit 1
+    fi
+    COMPILED=$(grep -o 'Compiled successfully in [0-9.]*m\?s' "$BUILD_LOG" | head -1)
+    echo "[start] Build OK${COMPILED:+ — $COMPILED} (full log: tmp/next-build.log)"
   fi
   NEXT_CMD="start"
 fi

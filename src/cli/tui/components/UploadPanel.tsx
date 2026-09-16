@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { TextInput } from './TextInput';
+import { BAY_NAME } from '@/lib/branding';
 import type { InsightClient } from '@/cli/client';
 
 interface UploadPanelProps {
@@ -20,7 +21,7 @@ interface UploadPanelProps {
 
 type Phase = 'paradigm' | 'submitter' | 'uploading';
 
-// CANNBay 上传面板：① 范式目录选择（数据仓顶层目录即注册表，↑↓ 移动 Enter
+// 数据仓上传面板：① 范式目录选择（数据仓顶层目录即注册表，↑↓ 移动 Enter
 // 确认）→ ② 提交人输入（网关强制非空）→ ③ 上传。Esc 任意阶段取消。
 // 修复旧版 ConfirmDialog 直传空 description 被提交人网关拒绝的缺陷。
 export function UploadPanel({ client, taskId, onDone, onCancel }: UploadPanelProps) {
@@ -62,7 +63,7 @@ export function UploadPanel({ client, taskId, onDone, onCancel }: UploadPanelPro
         paradigm,
         baseline || undefined,
       );
-      onDone(`Uploaded ${taskId} → CANNBay ${result.folder}${result.unchanged ? ' (unchanged)' : ''}`);
+      onDone(`Uploaded ${taskId} → ${BAY_NAME} ${result.folder}${result.unchanged ? ' (unchanged)' : ''}`);
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : String(e));
       setPhase('submitter');
@@ -81,7 +82,7 @@ export function UploadPanel({ client, taskId, onDone, onCancel }: UploadPanelPro
 
   return (
     <Box flexDirection="column" borderStyle="round" padding={1}>
-      <Text bold>Upload session &quot;{taskId}&quot; to CANNBay</Text>
+      <Text bold>Upload session &quot;{taskId}&quot; to {BAY_NAME}</Text>
       <Box height={1} />
       {phase === 'paradigm' && (
         loading ? (

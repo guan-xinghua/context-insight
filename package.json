@@ -1,6 +1,6 @@
 {
   "name": "cannbot-insight",
-  "version": "0.2.28",
+  "version": "0.2.29",
   "description": "Session-level observability tool for LLM coding agents (opencode/Claude Code)",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

@@ -154,6 +154,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 ## Constraints & Gotchas
 
 - **cannbay2 镜像的 git 命令必须走 `runGit`**（mirror.ts）：其 per-command 配置中和 lfs filter（`filter.lfs.process= / smudge=cat / clean=cat / required=false`）+ `push --no-verify`。数据仓 `.gitattributes` 历史上带 `*.gz filter=lfs`，装 git-lfs 的客户机会在 checkout（孤儿指针 smudge 403）与 add（clean 指针化）两条路上炸；绕过 runGit 直拼 git 命令会重新暴露（IT：`tests/cannbay2-lfs-immunity.test.ts`）
+- **双名发布（context 品牌变体）**：`node scripts/pack-context.mjs` 产出 `context-insight` 同内容变体 tgz（staging 精确字面量替换 + 每规则 minHits 哨兵，源码仓零改动）。新增/改动品牌字面量（显示名 `CANNBot-Insight`、CLI 别名 `cbi`、bin 文件名、数据目录 `~/.cannbot-insight`）时必须同步 `scripts/pack-context.mjs` 规则表与 `tests/context-pack.test.ts` 泄漏哨兵；格式契约（`BRAND_SOURCE_TYPE` / `x_cannbay` / `CANNBAY2_*`·`CANNBOT_*` env 名 / `cannbot-smart-agent` 服务标识 / cannbay2 机器提交身份）**不得品牌化**——两品牌数据互通靠它们
 - **ESM strict** (`"type": "module"` in package.json) — no `require()`, use `import`
 - **Ink v7 has no lastFrame/frames/output** on native `render()` — use `ink-testing-library` for tests only
 - **No third-party Ink components** — ink-table/ink-select/ink-spinner incompatible with Ink v7; self-implement all components

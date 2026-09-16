@@ -37,14 +37,16 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 - 需 Node.js >= 20；国内网络可加 `--registry=https://registry.npmmirror.com`
 - 离线环境可用 tgz：`npm install -g ./cannbot-insight-<版本>.tgz`
 - 可写状态集中在 `~/.cannbot-insight/`；默认端口 21025（占用自动顺延）
-- CLI 子命令直接透传：`cannbot-insight upload --file … --list` / `sessions` / `--help`
+- CLI 子命令直接透传：`cannbot-insight upload --file … --list` / `sessions`；短别名 `cbi`
 - Python 3 可选（存在则启动 smart-agent 分析后端，缺失静默降级）
+- 别名品牌：`npm install -g context-insight` —— 同一工具以 Context-Insight 品牌名发布（命令 `context-insight` / `ctxi`，数据目录 `~/.context-insight/`）；会话数据与 cannbot-insight 完全互通（共享同一格式标识）
 
 | 标志 | 作用 |
 |------|------|
 | `-a`, `--advanced` | 显示高级 tab（wireRounds/replay） |
 | `-k`, `--kill` | 停掉本仓所有 insight/smart-agent 实例后从 21025 启动（被他方占用时顺延下一个空闲端口） |
 | `-f`, `--fresh` | 清空构建缓存重建 |
+| `-h`, `--help` | 打印完整 CLI 参考 —— 全部子命令与旗标（含 `-v, --version` 版本输出） |
 
 ### 方式一：源码运行 Web UI
 
@@ -62,7 +64,7 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/`（目录自动扫描）
 
-Web UI 还支持：导出 session 为独立 SQLite 或 Markdown；上传 CANNBay 数据集仓（范式目录 + 算子生成结果标注 + 可选 baseline，上传前强制密钥治理）；从 CANNBay 列表按需导入。数据湖远端、认证与分支可在设置页配置（凭据仅存浏览器 localStorage）。LLM 接入面板内置常见提供商 Base URL 速查。
+Web UI 还支持：导出 session 为独立 SQLite 或 Markdown；上传 CANNBay 数据集仓（范式目录 + 算子生成结果标注 + 可选 baseline，上传前强制密钥治理）；从 CANNBay 列表按需导入。数据湖远端、认证与分支可在设置页配置（凭据仅存浏览器 localStorage）。LLM 接入面板内置常见提供商 Base URL 速查。数据仓在平台侧启用 LFS 后可设 env `CANNBAY2_LFS=1`（或请求体 config `lfs`）切换 LFS 指针出仓——容量脱离 git 仓配额，导入链路透明支持（meta 仍是普通 blob，会话实体按需从 LFS 存储拉取）。
 
 ### 方式二：CLI 上传 + Web 分析
 

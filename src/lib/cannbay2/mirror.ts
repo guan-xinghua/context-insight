@@ -7,13 +7,16 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // cannbay2 git 镜像层：partial clone（--filter=blob:none）单镜像上传下载共用。
-// 列表 = ls-tree + 一次 git log walk（零 blob 下载）；导入 = 按会话 cat-file
-// 物化（重排成 proxy 布局）；上传 = narrow sparse-checkout + scoped add +
-// commit + push main。写操作进程内 mutex 串行。测试通过
+// 列表 = ls-tree + 一次 git log walk + meta 批量读（缺失 blob 先批量预取，
+// 一轮 fetch 协商拉齐；listOverview 让列表+顶层目录共享单轮 fetch）；导入 =
+// 缺失 blob 批量预取后 cat-file --batch 分批物化（重排成 proxy 布局）；
+// 上传 = narrow sparse-checkout + scoped add + commit + push main。
+// 写操作进程内 mutex 串行。测试通过
 // CANNBAY2_REMOTE_URL / CANNBAY2_PUSH_URL / CANNBAY2_CACHE_DIR 指向本地 bare 仓。
 import { execSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { defaultCannbay2Remote, escapeRegExp, normalizeDirPrefix, stripUrlCreds } from './remote';
 import type { Cannbay2Remote } from './remote';
@@ -35,8 +38,11 @@ export function cannbay2CacheDir(remote?: Cannbay2Remote): string {
 // required=false → 即便 filter 配置异常也放行不炸
 const LFS_NEUTRALIZE = '-c filter.lfs.process= -c filter.lfs.smudge=cat -c filter.lfs.clean=cat -c filter.lfs.required=false';
 
-export function runGit(cmd: string, cwd: string, timeoutMs = 120_000): Buffer {
-  const neutral = cmd.startsWith('git ')
+// raw = 跳过中和（LFS 模式的 add/push/物化专用：clean 出指针、pre-push 钩子
+// 上传 LFS 对象、smudge 按需拉实体）；其余命令保持中和（checkout 的
+// smudge=cat 让既有 LFS 文件落指针文本——clean 对指针透传，re-add 不炸）
+export function runGit(cmd: string, cwd: string, timeoutMs = 120_000, opts?: { raw?: boolean }): Buffer {
+  const neutral = !opts?.raw && cmd.startsWith('git ')
     ? `git ${LFS_NEUTRALIZE} ${cmd.slice('git '.length)}`
     : cmd;
   return execSync(neutral, { cwd, stdio: 'pipe', timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024 });
@@ -44,6 +50,32 @@ export function runGit(cmd: string, cwd: string, timeoutMs = 120_000): Buffer {
 
 function runGitText(cmd: string, cwd: string): string {
   return runGit(cmd, cwd).toString();
+}
+
+// ── blob 批量预取 ────────────────────────────────────────────────────
+// partial clone（--filter=blob:none）下 blob 按需懒取：每个缺失对象一次独立
+// HTTPS 协商（atomgit 实测 ~1s/个）。批量预取 = 一轮 git fetch <oids> 协商拉齐
+// 全部缺失（实测 1601 个 meta 9.3s，懒取需 ~28min），与懒取走同一服务端能力
+// （uploadpack.allowAnySHA1InWant；atomgit 支持，本地 bare fixture 同配）。
+// 任何失败静默跳过 —— 后续逐对象 cat-file 懒取路径不变，行为不劣化。
+
+// 单次 fetch 的 OID 数（命令行长度安全：200 × 41B ≈ 8KB，Windows 限制内）
+const FETCH_OID_CHUNK = 200;
+
+/** 本地已落库对象清单（--batch-all-objects 只列本地，不触发懒取）。 */
+export function localObjectOids(dir: string): Set<string> {
+  const out = runGit("git cat-file --batch-all-objects --batch-check='%(objectname)'", dir);
+  return new Set(out.toString('utf8').split('\n').map(l => l.trim()).filter(Boolean));
+}
+
+/** 把缺失 blob 分块批量拉齐。oid 白名单校验（拼进 shell 命令）。 */
+export function prefetchBlobs(dir: string, oids: string[]): void {
+  const valid = oids.filter(o => /^[0-9a-f]{40,64}$/.test(o));
+  for (let i = 0; i < valid.length; i += FETCH_OID_CHUNK) {
+    try {
+      runGit(`git fetch --quiet origin ${valid.slice(i, i + FETCH_OID_CHUNK).join(' ')}`, dir, 300_000);
+    } catch { /* 服务端拒绝按 OID fetch 等 → 回退逐对象懒取 */ }
+  }
 }
 
 // ── 镜像生命周期 ───────────────────────────────────────────────────────
@@ -279,6 +311,12 @@ function readSessionMetas(dir: string, remote: Cannbay2Remote): Map<string, { fr
       if (pathMatch) wanted.push({ sid: pathMatch[1], oid: oidMatch[1] });
     }
     if (wanted.length === 0) return out;
+    // 缺失 meta blob 批量预取：一轮 fetch 协商拉齐（懒取是逐对象一次协商，
+    // 千级缺失时列表被 120s 超时截断、type 列残缺；实测 2370 缺失 ≈ 42min
+    // 懒取 vs ~10s 批量）。失败回退懒取。
+    const local = localObjectOids(dir);
+    const missing = wanted.filter(w => !local.has(w.oid)).map(w => w.oid);
+    if (missing.length > 0) prefetchBlobs(dir, missing);
     // spawnSync（非 execSync）：execSync 自定义 stdio 时不返回 stdout，且输入
     // 走 stdin 需要独立 pipe —— 这里要求拿回完整批量输出 buffer
     const batch = spawnSync('git', ['cat-file', '--batch'],
@@ -315,7 +353,10 @@ function readSessionMetas(dir: string, remote: Cannbay2Remote): Map<string, { fr
 
 /** ls-tree + 一次 git log walk + 一次批量 meta 读取 → 全部会话文件夹及提交元数据。 */
 export function listSessions(remote: Cannbay2Remote = defaultCannbay2Remote()): Cannbay2SessionEntry[] {
-  const dir = ensureMirror(remote);
+  return listSessionsIn(ensureMirror(remote), remote);
+}
+
+function listSessionsIn(dir: string, remote: Cannbay2Remote): Cannbay2SessionEntry[] {
   const mainRev = revParseMain(dir, remote);
   if (!mainRev) return [];
 
@@ -387,7 +428,10 @@ export function listSessions(remote: Cannbay2Remote = defaultCannbay2Remote()): 
 export function listRemoteDirs(remote: Cannbay2Remote = defaultCannbay2Remote(), prefix = ''): string[] {
   // 入口校验（与 uploadFolder 对 sid 同款双重防线）：prefix 拼进 shell 命令
   const p = normalizeDirPrefix(prefix);
-  const dir = ensureMirror(remote);
+  return listDirsIn(ensureMirror(remote), remote, p);
+}
+
+function listDirsIn(dir: string, remote: Cannbay2Remote, p: string): string[] {
   if (!revParseMain(dir, remote)) return [];
   const spec = p ? ` -- ${p}/` : '';
   const files = lsTreeFiles(dir, spec, remote);
@@ -398,6 +442,23 @@ export function listRemoteDirs(remote: Cannbay2Remote = defaultCannbay2Remote(),
     if (slash > 0) dirs.add((p ? `${p}/` : '') + rel.slice(0, slash));
   }
   return [...dirs].sort();
+}
+
+export interface Cannbay2Overview {
+  sessions: Cannbay2SessionEntry[];
+  /** 顶层目录清单（与 listRemoteDirs('') 同源，含存量区 sessions；自定义单根远端恒 []）。
+   *  导入对话框的范式下拉与会话列表一次请求共享一轮 mirror fetch（原来 dirs+list
+   *  两路各 fetch 一次 ~1s×2）。 */
+  topDirs: string[];
+}
+
+/** 会话列表 + 顶层目录合并读取：单轮 ensureMirror fetch 服务两份数据。 */
+export function listOverview(remote: Cannbay2Remote = defaultCannbay2Remote()): Cannbay2Overview {
+  const dir = ensureMirror(remote);
+  return {
+    sessions: listSessionsIn(dir, remote),
+    topDirs: remote.paradigmRoots ? listDirsIn(dir, remote, '') : [],
+  };
 }
 
 // ── 范式目录注册表（目录即范式，insight 零范式知识）──────────────────────
@@ -449,6 +510,60 @@ function locateBaselineSids(dir: string, remote: Cannbay2Remote, paradigm: strin
 
 // ── 导入物化（cat-file，按需下载 blob） ─────────────────────────────────
 
+// 非 LFS 批量物化：单进程 --batch-check 取各 blob 尺寸（仅头部输出）→ 按
+// 累计体积分批（≤64MB/批，有界内存）→ 每批单进程 --batch 流式写盘。预取
+// 后全本地，省去逐文件 cat-file spawn（334 文件会话 3.8s → ~0.4s）。
+// batch 应答里 missing / 非 blob 的条目 → 逐文件 cat-file -p 兜底（懒取）。
+const MATERIALIZE_BATCH_BYTES = 64 * 1024 * 1024;
+const MATERIALIZE_BATCH_COUNT = 128;
+
+function materializeBlobsByBatch(dir: string, planned: Array<{ oid: string; target: string }>): void {
+  const sizeRes = spawnSync('git', ['cat-file', '--batch-check'],
+    { cwd: dir, input: planned.map(p => `${p.oid}\n`).join(''), maxBuffer: 16 * 1024 * 1024, timeout: 120_000 });
+  const sizes = new Map<string, number>();
+  for (const line of (sizeRes.stdout ?? Buffer.alloc(0)).toString('utf8').split('\n')) {
+    const m = line.match(/^([0-9a-f]+) \w+ (\d+)$/);
+    if (m) sizes.set(m[1], parseInt(m[2], 10));
+  }
+  const skipped: Array<{ oid: string; target: string }> = [];
+  let batch: Array<{ oid: string; target: string }> = [];
+  let batchBytes = 0;
+  const flush = (): void => {
+    if (batch.length === 0) return;
+    const res = spawnSync('git', ['cat-file', '--batch'],
+      { cwd: dir, input: batch.map(p => `${p.oid}\n`).join(''), maxBuffer: 512 * 1024 * 1024, timeout: 300_000 });
+    const buf = res.stdout ?? Buffer.alloc(0);
+    let offset = 0;
+    for (const p of batch) {
+      const headerEnd = buf.indexOf(0x0a, offset);
+      if (headerEnd < 0) break;
+      const header = buf.toString('utf8', offset, headerEnd);
+      const m = header.match(/^[0-9a-f]+ blob (\d+)$/);
+      if (!m) {
+        skipped.push(p);
+        offset = headerEnd + 1;
+        continue;
+      }
+      const size = parseInt(m[1], 10);
+      // Buffer.subarray 二进制安全（gzip blob 原样落盘）
+      fs.writeFileSync(p.target, buf.subarray(headerEnd + 1, headerEnd + 1 + size));
+      offset = headerEnd + 1 + size + 1;
+    }
+    batch = [];
+    batchBytes = 0;
+  };
+  for (const p of planned) {
+    const sz = sizes.get(p.oid) ?? 0;
+    if (batch.length >= MATERIALIZE_BATCH_COUNT || (batchBytes + sz > MATERIALIZE_BATCH_BYTES && batch.length > 0)) flush();
+    batch.push(p);
+    batchBytes += sz;
+  }
+  flush();
+  for (const p of skipped) {
+    fs.writeFileSync(p.target, runGit(`git cat-file -p ${p.oid}`, dir));
+  }
+}
+
 /**
  * 把 <root>[/baseline]/<sid>/ 物化到 <cache>/materialized/，重排成 proxy 布局
  * （<sid>.jsonl 与 <sid>/subagents/ 并列 —— claude-jsonl adapter 的约定）。
@@ -458,6 +573,26 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
   const dir = ensureMirror(remote);
   if (!revParseMain(dir, remote)) throw new Error('cannbay2 mirror has no main branch');
   if (!/^[\w.-]+$/.test(sid)) throw new Error(`Invalid session id: "${sid}"`);
+
+  // LFS 模式：.jsonl.gz 仓内是指针 blob，cat-file 须带 --filters 让 smudge
+  // 按需拉取 LFS 实体（本地 .git/lfs/objects 缓存，重复导入零下载）。
+  // --filters 的属性解析读工作树 .gitattributes——读路径镜像默认无 checkout，
+  // 需从 origin/main 物化一份（上传路径的 sparse 流程本就含 /.gitattributes）。
+  // 判定对齐 ensureLfsGitattributes（缺 *.gz filter=lfs 声明即刷新，不是仅看
+  // 文件存在）：同一镜像默认模式上传会把剔除过 lfs 行的 .gitattributes 写回
+  // 工作树（LFS 免疫操作），此后远端切回 LFS 模式时过期副本会让 --filters
+  // 不做 smudge——指针文本被当作 gzip 内容落盘，导入在解压环节报费解错误
+  if (remote.lfs) {
+    ensureLfsReady(dir);
+    const gaPath = path.join(dir, '.gitattributes');
+    let gaCur = '';
+    try { gaCur = fs.readFileSync(gaPath, 'utf8'); } catch { /* 无文件 */ }
+    if (!/^\*\.gz\s+filter=lfs/m.test(gaCur)) {
+      try {
+        fs.writeFileSync(gaPath, runGit(`git show origin/${remote.branch}:.gitattributes`, dir));
+      } catch { /* 仓内无 .gitattributes → 无 lfs 声明，不可能存在指针件 */ }
+    }
+  }
 
   const locs = locateSessionLocations(dir, remote, sid);
   if (locs.length === 0) throw new Error(`Session folder not found in cannbay2: "${sid}"`);
@@ -479,21 +614,45 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
   const matDir = path.join(dir, 'materialized', sid);
   fs.rmSync(matDir, { recursive: true, force: true });
   let mainJsonl: string | null = null;
-  // 注：cat-file 触发逐对象懒取（每次一次 HTTPS 协商）。实测批量 fetch 无收益
-  // （1MB 会话 1.6-1.7s vs 逐取 1.1-1.5s，成本均在协商固定开销），保持简单。
-  for (const e of entries) {
-    const rel = e.repoPath.slice(prefix.length);
-    // sessions/<sid>/<sid>.jsonl[.gz]|<sid>.meta.json → materialized/<sid>.jsonl[.gz]|.meta.json
-    // sessions/<sid>/subagents/* → materialized/<sid>/subagents/*
-    // .jsonl.gz 是压缩出仓形态（治理后 gzip，proxy/COMPRESSION-DESIGN.md）；
-    // 旧明文仓件照旧物化为 .jsonl —— 双形态并存，parseJsonlLines 透明解压。
-    const targetRel = rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz` || rel === `${sid}.meta.json`
-      ? rel
-      : `${sid}/${rel}`;
-    const target = path.join(dir, 'materialized', targetRel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, runGit(`git cat-file -p ${e.oid}`, dir));
-    if (targetRel === `${sid}.jsonl` || targetRel === `${sid}.jsonl.gz`) mainJsonl = target;
+  // sessions/<sid>/<sid>.jsonl[.gz]|<sid>.meta.json → materialized/<sid>.jsonl[.gz]|.meta.json
+  // sessions/<sid>/subagents/* → materialized/<sid>/subagents/*
+  // .jsonl.gz 是压缩出仓形态（治理后 gzip，proxy/COMPRESSION-DESIGN.md）；
+  // 旧明文仓件照旧物化为 .jsonl —— 双形态并存，parseJsonlLines 透明解压。
+  const targetRelOf = (rel: string): string =>
+    rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz` || rel === `${sid}.meta.json` ? rel : `${sid}/${rel}`;
+
+  if (remote.lfs) {
+    // LFS：指针 blob 实体在 LFS 存储，--filters smudge 逐文件拉取（不能批量）。
+    // repoPath 来自 ls-tree -z 原始输出（除 NUL 外任意字节都可能出现），必须走
+    // spawnSync argv 形式——内插进 shell 字符串会被恶意文件名（如 `sub"; cmd;
+    // ".jsonl.gz`）注入任意命令；oid 是十六进制无此风险
+    for (const e of entries) {
+      const rel = targetRelOf(e.repoPath.slice(prefix.length));
+      const target = path.join(dir, 'materialized', rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const cat = spawnSync('git', ['cat-file', '--filters', `--path=${e.repoPath}`, e.oid],
+        { cwd: dir, stdio: 'pipe', timeout: 300_000, maxBuffer: 256 * 1024 * 1024 });
+      if (cat.error || cat.status !== 0) {
+        throw new Error(`git cat-file --filters failed for "${e.repoPath}" (${e.oid}): ${cat.error?.message ?? cat.stderr?.toString()}`);
+      }
+      fs.writeFileSync(target, cat.stdout);
+      if (rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz`) mainJsonl = target;
+    }
+  } else {
+    // 批量物化：缺失 blob 先批量预取（一轮协商拉齐，替代逐文件懒取——实测
+    // 167 缺失 ~80-95s 懒取 vs 7.2s 批量），再单进程分批写盘
+    const local = localObjectOids(dir);
+    const missing = entries.filter(e => !local.has(e.oid)).map(e => e.oid);
+    if (missing.length > 0) prefetchBlobs(dir, missing);
+    const planned: Array<{ oid: string; target: string }> = [];
+    for (const e of entries) {
+      const rel = targetRelOf(e.repoPath.slice(prefix.length));
+      const target = path.join(dir, 'materialized', rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      planned.push({ oid: e.oid, target });
+      if (rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz`) mainJsonl = target;
+    }
+    materializeBlobsByBatch(dir, planned);
   }
   if (!mainJsonl) throw new Error(`Main jsonl missing for session "${sid}"`);
   return mainJsonl;
@@ -518,6 +677,52 @@ export interface UploadResult {
   folder: string;
   unchanged: boolean;
   gitattributesFixed: boolean;
+}
+
+// ── LFS 模式（opt-in：remote.lfs，config.lfs > env CANNBAY2_LFS）─────────
+
+export function hasGitLfs(): boolean {
+  try {
+    const r = spawnSync('git', ['lfs', 'version'], { stdio: 'pipe', timeout: 10_000 });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+// git-lfs pre-push 钩子（与 `git lfs install` 写入的同款）：push 时上传
+// LFS 对象。手工写入而非调 `git lfs install`——后者会顺带改全局 gitconfig，
+// 库代码不该碰用户全局配置。
+const LFS_PRE_PUSH_HOOK = '#!/bin/sh\ncommand -v git-lfs >/dev/null 2>&1 || { echo "git-lfs not installed"; exit 2; }\ngit lfs pre-push "$@"\n';
+
+/** 镜像内 LFS 就绪：fail-fast git-lfs 在机检查 + 仓级 filter 配置 + pre-push
+ *  钩子。幂等；不触碰全局配置（仓级配置优先级高于全局，双保险）。 */
+export function ensureLfsReady(dir: string): void {
+  if (!hasGitLfs()) {
+    throw new Error('LFS 模式需要 git-lfs（`git lfs version` 不可用）：请安装 git-lfs 并确保其在 PATH 中（https://git-lfs.github.com），或在设置中关闭 LFS 走普通 git 存储');
+  }
+  runGit('git config filter.lfs.process "git-lfs filter-process"', dir, 10_000, { raw: true });
+  runGit('git config filter.lfs.smudge "git-lfs smudge -- %f"', dir, 10_000, { raw: true });
+  runGit('git config filter.lfs.clean "git-lfs clean -- %f"', dir, 10_000, { raw: true });
+  runGit('git config filter.lfs.required true', dir, 10_000, { raw: true });
+  const hook = path.join(dir, '.git', 'hooks', 'pre-push');
+  if (!fs.existsSync(hook)) {
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.writeFileSync(hook, LFS_PRE_PUSH_HOOK, { mode: 0o755 });
+  }
+}
+
+// LFS 模式下确保 .gitattributes 声明 *.gz 走 LFS（缺行补一行，与默认模式
+// 的"剔除 lfs 行"互为镜像操作；模板仓自带该行则零改动）
+function ensureLfsGitattributes(dir: string): void {
+  const gaPath = path.join(dir, '.gitattributes');
+  const want = '*.gz filter=lfs diff=lfs merge=lfs -text';
+  let cur = '';
+  try { cur = fs.readFileSync(gaPath, 'utf8'); } catch { /* 无文件 */ }
+  if (!/^\*\.gz\s+filter=lfs/m.test(cur)) {
+    fs.writeFileSync(gaPath, cur ? cur.replace(/\n*$/, '\n') + want + '\n' : `${want}\n`);
+    runGit('git add .gitattributes', dir);
+  }
 }
 
 /**
@@ -547,6 +752,8 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     const targetRoot = category ?? remote.rootDir;
     const dir = ensureMirror(remote);
     if (!revParseMain(dir, remote)) throw new Error('cannbay2 mirror has no main branch');
+    // LFS 模式：镜像内就绪（git-lfs 检查 + filter 配置 + pre-push 钩子）
+    if (remote.lfs) ensureLfsReady(dir);
 
     // 本会话既有位置（除目标外全删：换范式 / 普通↔baseline 迁移）
     const staleLocs = locateSessionLocations(dir, remote, sid)
@@ -587,7 +794,10 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
 
     let gitattributesFixed = false;
     const gaPath = path.join(dir, '.gitattributes');
-    if (fs.existsSync(gaPath)) {
+    if (remote.lfs) {
+      // LFS 模式：反向操作——确保 *.gz 声明走 LFS（缺则补），绝不剔除
+      ensureLfsGitattributes(dir);
+    } else if (fs.existsSync(gaPath)) {
       const ga = fs.readFileSync(gaPath, 'utf8');
       const fixed = ga.split('\n').filter(l => !l.includes('filter=lfs')).join('\n');
       if (fixed !== ga) {
@@ -598,7 +808,9 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     }
 
     const addPaths = [targetRel, ...staleLocs.map(l => locationPath(l, sid)), ...swapPaths, ...(baseline ? [`${targetRoot}/baseline`] : [])];
-    runGit(`git add ${addPaths.join(' ')}`, dir);
+    // LFS 模式 add 不中和：clean 过滤器要把 .gz 转成 LFS 指针（对指针文本
+    // 透传，baseline 搬移的 re-add 不重传）
+    runGit(`git add ${addPaths.join(' ')}`, dir, 120_000, remote.lfs ? { raw: true } : undefined);
     const msgFile = path.join(dir, '_commit_msg.txt');
     fs.writeFileSync(msgFile, commitMessage);
     let unchanged = false;
@@ -617,9 +829,7 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     try { fs.unlinkSync(msgFile); } catch { /* ignore */ }
 
     if (!unchanged) {
-      // --no-verify：镜像克隆可能带 lfs pre-push 钩子（git lfs install 写入），
-      // 会因孤儿指针/远端 LFS 未启用而拒绝 push——与 runGit 的 filter 中和配套
-      const push = () => { runGit(`git push --no-verify "${remote.pushUrl}" ${remote.branch}`, dir, 300_000); };
+      const push = () => { pushMirror(dir, remote); };
       try {
         push();
       } catch {
@@ -630,4 +840,45 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     }
     return { folder: `${targetRel}/`, unchanged, gitattributesFixed };
   });
+}
+
+/**
+ * 401 挑战-应答式 push：pushUrl 一律无凭据，凭据经一次性 credential helper
+ * 供给——atomgit 网关已拒"请求直带密码"的内嵌 URL（proactive Basic 直接
+ * CH.00905401 拒绝；同凭据经 401 挑战后重试可通过，2026-09-14 实测）。
+ * helper 脚本只落 0700 临时目录、用后即删，凭据不进命令行（execSync 失败
+ * 消息不含凭据）。`-c credential.helper=` 先清空继承链（全局 store 等），
+ * 保证显式凭据确定性生效。pushAuth=null（本地 bare / 匿名推）直推。
+ * LFS 模式：不用 --no-verify（pre-push 钩子 = LFS 对象上传通道，跳过即
+ * 产生孤儿指针）；helper 的 -c 配置经 GIT_CONFIG_PARAMETERS 传给钩子，
+ * git-lfs 的 batch API 鉴权与 git push 同源。
+ */
+export function pushMirror(dir: string, remote: Cannbay2Remote): void {
+  const verify = remote.lfs ? '' : ' --no-verify';
+  const raw = remote.lfs ? { raw: true as const } : undefined;
+  if (!remote.pushAuth) {
+    runGit(`git push${verify} "${remote.pushUrl}" ${remote.branch}`, dir, 300_000, raw);
+    return;
+  }
+  const { username, password } = remote.pushAuth;
+  if (/[\r\n]/.test(username) || /[\r\n]/.test(password)) {
+    throw new Error('push 凭据含换行符（credential helper 协议非法）');
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-cannbay2-auth-'));
+  try {
+    const helper = path.join(tmp, 'helper.sh');
+    fs.writeFileSync(
+      helper,
+      `#!/bin/sh\ncat <<'INSIGHTEOF'\nusername=${username}\npassword=${password}\nINSIGHTEOF\n`,
+      { mode: 0o700 },
+    );
+    runGit(
+      `git -c credential.helper= -c credential.helper="${helper}" push${verify} "${remote.pushUrl}" ${remote.branch}`,
+      dir,
+      300_000,
+      raw,
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }

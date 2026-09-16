@@ -57,7 +57,10 @@ fs.writeFileSync(path.join(SEED, 'others', POISON_SID, `${POISON_SID}.jsonl.gz`)
 fs.writeFileSync(path.join(SEED, 'others', POISON_SID, 'subagents', 'sub-poison.jsonl.gz'), POINTER_BLOB);
 git('git add .', SEED);
 git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
-git('git push -q origin main', SEED);
+// --no-verify：装了 git-lfs 的机器上新克隆自带 lfs pre-push 钩子，seed 推
+// 的是故意放的孤儿指针（LFS 对象 1111… 本就不存在），钩子必拒——跳过钩子
+// 保证 seed 与机器 git-lfs 状态无关（生产代码的免疫另有三层防线，不靠这里）
+git('git push --no-verify -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
 process.env.CANNBAY2_PUSH_URL = BARE;

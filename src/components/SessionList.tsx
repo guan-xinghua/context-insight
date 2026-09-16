@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { BRAND_NAME, BRAND_SOURCE_TYPE } from '@/lib/branding'
+import { BRAND_NAME, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
 import { isProxyVersion } from '@/lib/shared/session-format'
 import { useRouter } from 'next/navigation';
 import {
@@ -551,7 +551,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                         className="size-6"
                         onClick={() => openUploadDialog(item)}
                         disabled={uStatus === 'uploading'}
-                        title="Upload to CANNBay"
+                        title={`Upload to ${BAY_NAME}`}
                       >
                         {uStatus === 'idle' && <UploadIcon className="size-3.5" />}
                         {uStatus === 'uploading' && <LoaderIcon className="size-3.5 animate-spin" />}

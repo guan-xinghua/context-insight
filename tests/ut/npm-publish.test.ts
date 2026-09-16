@@ -24,6 +24,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { VERSION } from "../../src/lib/version"
+import { BRAND_NAME } from "../../src/lib/branding"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PKG_DIR = path.resolve(__dirname, "../..")
@@ -117,6 +118,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     expect(build.status, `build-cli.mjs 失败:\n${build.stderr}`).toBe(0)
     const r = spawnSync(process.execPath, ["dist/cli.mjs", "--version"], { cwd: PKG_DIR, encoding: "utf8", timeout: 60_000 })
     expect(r.status, `dist/cli.mjs --version 失败:\n${r.stderr}`).toBe(0)
-    expect(r.stdout.trim()).toBe(VERSION)
+    // 品牌前缀格式（`CANNBot-Insight v0.2.x`，与 cpx 风格对齐），版本号单源在 VERSION
+    expect(r.stdout.trim()).toBe(`${BRAND_NAME} v${VERSION}`)
   }, 120_000)
 })

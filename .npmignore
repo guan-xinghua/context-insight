@@ -53,3 +53,6 @@ npm-debug.log*
 
 # smart-agent Python 缓存与测试（保留源码 server.py 等）
 smart-agent/tests/
+
+# context 品牌变体打包工作区（scripts/pack-context.mjs）
+.context-pack/

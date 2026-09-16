@@ -7,8 +7,10 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { Command } from 'commander';
-import { VERSION } from '@/lib/version';
-import { BRAND_SLUG, BRAND_CLI_ALIAS, BRAND_DESCRIPTION } from '@/lib/branding';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { VERSION, VERSION_DISPLAY } from '@/lib/version';
+import { BRAND_NAME, BRAND_SLUG, BRAND_CLI_ALIAS, BRAND_DESCRIPTION } from '@/lib/branding';
 import { DEFAULT_SERVER_URL, loadConfig } from './config';
 import { runTui } from './tui/App';
 import { sessionsCommand } from './commands/sessions';
@@ -32,7 +34,10 @@ export function createProgram(): Command {
     .name(BRAND_SLUG)
     .alias(BRAND_CLI_ALIAS)
     .description(BRAND_DESCRIPTION)
-    .version(VERSION)
+    // '-v, --version'：-v 是用户直觉输入（与 cpx 对齐）；-V 为 Commander
+    // 默认旗标不保留（多短旗 Commander 不支持），bin 透传名单仍放行 -V
+    // 走 Commander 的 unknown option 提示，绝不误入"无参数 → 启动 Web UI"
+    .version(`${BRAND_NAME} ${VERSION_DISPLAY}`, '-v, --version')
     .option('--server <url>', 'Backend server URL', DEFAULT_SERVER_URL)
     .option('--timeout <ms>', 'Request timeout in ms', '15000');
 
@@ -61,12 +66,26 @@ export function createProgram(): Command {
   return program;
 }
 
-const program = createProgram();
-program.parseAsync(process.argv).catch((err: Error) => {
-  if (err instanceof InsightError) {
-    console.error(`\n❌ ${err.message}`);
-  } else {
-    console.error(err);
+// 主流程仅"作为入口直跑"时执行（bin tsx 回退与 dist/cli.mjs 均以本文件
+// 为入口）：以 argv[1] 与 import.meta.url 一致判主模块。不能用 VITEST env
+// 守卫——npm-publish 测试 spawn 的 dist/cli.mjs 子进程会继承该 env，主流程
+// 被误跳过（--version 空输出）。
+const isCliEntry = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+  } catch {
+    return false;
   }
-  process.exit(1);
-});
+})();
+if (isCliEntry) {
+  const program = createProgram();
+  program.parseAsync(process.argv).catch((err: Error) => {
+    if (err instanceof InsightError) {
+      console.error(`\n❌ ${err.message}`);
+    } else {
+      console.error(err);
+    }
+    process.exit(1);
+  });
+}
