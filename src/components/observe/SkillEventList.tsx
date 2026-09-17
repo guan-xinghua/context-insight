@@ -85,10 +85,7 @@ export function SkillEventList({ skillEvents, skillToolCalls }: SkillEventListPr
 
         return (
           <div key={group.compositeId} className="border rounded-md">
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-accent/30 transition-colors"
-              onClick={() => toggleExpanded(group.compositeId)}
-            >
+            <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm">
               <span className="font-medium">{group.skillName}</span>
               {group.skillVersion != null && (
                 <span className="text-xs text-muted-foreground">v{group.skillVersion}</span>
@@ -121,10 +118,16 @@ export function SkillEventList({ skillEvents, skillToolCalls }: SkillEventListPr
                   <span className="text-xs text-muted-foreground tabular-nums">{formatTokenCount(overhead)}t</span>
                 ) : null
               })()}
-              <span className="text-xs text-muted-foreground ml-auto">
+              <span
+                role="button"
+                tabIndex={0}
+                className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                onClick={() => toggleExpanded(group.compositeId)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(group.compositeId) }}
+              >
                 {isExpanded ? "▼" : "▶"}
               </span>
-            </button>
+            </div>
 
             {isExpanded && (
               <div className="px-2 pb-2 space-y-2">

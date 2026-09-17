@@ -18,10 +18,20 @@ export function isProxyVersion(version: string | null | undefined): boolean {
 // proxy-classify.ts 写入）都是扩展 claude 格式的 jsonl。
 // 凡是"sourcePath 指向 claude 格式 jsonl"的判断（wire 轮次、full-context、
 // 增量刷新等）都应走本谓词，而不是单看 framework。
+// 方案一（同 sid 双会话）后 proxy 捕获行的 framework 为带 -proxy 后缀的变体
+// （claude-code-proxy 等），前缀匹配一并放行。
 export function isClaudeFormatSession(
   framework: string | null | undefined,
   version: string | null | undefined
 ): boolean {
-  if (framework === 'claude-code') return true;
+  if (framework?.startsWith('claude-code')) return true;
   return isProxyVersion(version);
+}
+
+/** 方案一（同 sid 双会话）：framework 剥离 -proxy 记录后缀 → agent 归属
+ * （claude-code-proxy → claude-code）。UI 图标/文案等按 agent 归属呈现时用，
+ * proxy 与否的徽标走 isProxyVersion(version)。非后缀值原样返回。 */
+export function agentFrameworkOf(framework: string | null | undefined): string | null {
+  if (framework == null) return null;
+  return framework.endsWith('-proxy') ? framework.slice(0, -'-proxy'.length) : framework;
 }

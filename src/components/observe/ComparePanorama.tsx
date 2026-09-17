@@ -559,13 +559,8 @@ export function ComparePanorama({ taskId, framework, onSelectTurnId }: Props) {
 
   return (
     <div className="rounded-lg border bg-card overflow-hidden">
-      <div
-        className="flex items-center justify-between flex-wrap gap-2 px-4 py-2.5 cursor-pointer hover:bg-muted/30 select-none"
-        onClick={() => setCollapsed(!collapsed)}
-      >
+      <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-2.5 select-none">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground inline-block transition-transform duration-150"
-                style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)" }}>▶</span>
           <h3 className="font-semibold text-sm flex items-center gap-2">
             <span className="text-base">⚖️</span> 设计 vs 实际 对比全景
           </h3>
@@ -577,6 +572,16 @@ export function ComparePanorama({ taskId, framework, onSelectTurnId }: Props) {
           {hasDesigned && sd.totalDesigned > 0 && (
             <span className="text-muted-foreground">· {sd.totalMatched}/{sd.totalDesigned} designed executed</span>
           )}
+          <span
+            role="button"
+            tabIndex={0}
+            className="ml-1 shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+            onClick={() => setCollapsed(!collapsed)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setCollapsed(!collapsed) }}
+          >
+            <span className="inline-block transition-transform duration-150"
+                  style={{ transform: collapsed ? "rotate(0deg)" : "rotate(90deg)" }}>▶</span>
+          </span>
         </div>
       </div>
 

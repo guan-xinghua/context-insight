@@ -17,10 +17,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoaderIcon } from 'lucide-react';
 
-export function OpBenchDialog({ open, onOpenChange, taskId, onSaved }: {
+export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   taskId: string;
+  framework?: string;
   onSaved?: () => void;
 }) {
   const [score, setScore] = useState('');
@@ -32,7 +33,7 @@ export function OpBenchDialog({ open, onOpenChange, taskId, onSaved }: {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/observe/session/scorecard/op-bench?taskId=${encodeURIComponent(taskId)}`);
+      const res = await fetch(`/api/observe/session/scorecard/op-bench?taskId=${encodeURIComponent(taskId)}${framework ? `&framework=${encodeURIComponent(framework)}` : ''}`);
       const data = await res.json() as { score?: number | null; note?: string | null; error?: string };
       if (!res.ok) { setError(data.error ?? `HTTP ${res.status}`); return; }
       setScore(data.score != null ? String(data.score) : '');
@@ -60,7 +61,7 @@ export function OpBenchDialog({ open, onOpenChange, taskId, onSaved }: {
       const res = await fetch('/api/observe/session/scorecard/op-bench', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, score: v, note: note.trim() || undefined }),
+        body: JSON.stringify({ taskId, framework, score: v, note: note.trim() || undefined }),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) { setError(data.error ?? `HTTP ${res.status}`); return; }

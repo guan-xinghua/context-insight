@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     }
 
     const session = await prisma.session.findFirst({
-      where: { taskId },
+      where: { taskId, ...(searchParams.get('framework') ? { framework: searchParams.get('framework')! } : {}) },
       select: {
         totalTokens: true,
         totalCost: true,

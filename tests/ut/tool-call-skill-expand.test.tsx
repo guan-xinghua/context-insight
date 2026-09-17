@@ -54,11 +54,13 @@ describe('ToolCallList skill 行展开', () => {
     expect(container.textContent).toContain('task')
     expect(container.textContent).not.toContain('执行需求分析任务')
 
-    // 点击行 → 展开，Args 与 Result 可见
-    const row = container.querySelector('[role="button"]') as HTMLElement
-    expect(row).toBeTruthy()
+    // 点击行尾三角 → 展开，Args 与 Result 可见（行空白处不触发；首个
+    // role=button 是 CopyButton，须按三角的 ▶/▼ 文本定位）
+    const tri = Array.from(container.querySelectorAll('[role="button"]'))
+      .find(el => el.textContent?.trim() === '▶' || el.textContent?.trim() === '▼') as HTMLElement
+    expect(tri).toBeTruthy()
     await act(async () => {
-      row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      tri.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(container.textContent).toContain('Args')
     expect(container.textContent).toContain('Result')

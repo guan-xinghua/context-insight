@@ -147,6 +147,8 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
         body: JSON.stringify({
           action: 'upload',
           taskId: target.taskId,
+          // 同 sid 双行（方案一）消歧：不带 framework 裸 taskId 会上传另一行
+          framework: target.framework ?? undefined,
           description: buildUploadDescription(target, uploadSubmitter, uploadContentDesc),
           ...(uploadCategory ? { category: uploadCategory, ...(uploadBaseline ? { baseline: true } : {}) } : {}),
           ...(uploadOpGen ? { opGen: uploadOpGen } : {}),

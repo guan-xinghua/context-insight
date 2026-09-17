@@ -173,13 +173,7 @@ export function LlmContextView({
 
   return (
     <div className="border rounded-lg">
-      <span
-        role="button"
-        tabIndex={0}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer"
-        onClick={() => setIsExpanded(!isExpanded)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsExpanded(!isExpanded) }}
-      >
+      <div className="w-full flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium">LLM Input</span>
           <span className="text-muted-foreground">
@@ -187,7 +181,7 @@ export function LlmContextView({
             {contextWindowPct != null && contextWindowPct > 0 && ` (${contextWindowPct.toFixed(1)}% context)`}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           {contextWindowPct != null && contextWindowPct > 0 && (
             <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
               <div
@@ -196,11 +190,17 @@ export function LlmContextView({
               />
             </div>
           )}
-          <span className="text-xs text-muted-foreground">
+          <span
+            role="button"
+            tabIndex={0}
+            className="shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+            onClick={() => setIsExpanded(!isExpanded)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsExpanded(!isExpanded) }}
+          >
             {isExpanded ? "▼" : "▶"}
           </span>
         </div>
-      </span>
+      </div>
 
       {isExpanded && (
         <div className="border-t px-3 py-2 space-y-1.5">
@@ -257,13 +257,7 @@ export function LlmContextView({
 
                   return (
                     <div key={msgIndex} className={cn("border rounded-md overflow-hidden", isContinuation && "border-l-3 border-l-purple-500 bg-purple-50/20 dark:bg-purple-500/10")}>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-accent/30 transition-colors text-sm cursor-pointer"
-                  onClick={() => toggleMessage(msgIndex)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMessage(msgIndex) }}
-                >
+                <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm">
                   <div className={cn("w-2 h-2 rounded-sm shrink-0", isContinuation ? "bg-purple-500" : (ROLE_DOT_COLOR[msg.role] ?? "bg-gray-400"))} />
                   <Badge variant={isContinuation ? "purple" : (ROLE_BADGE_VARIANTS_INLINE[msg.role] ?? "gray")} className="text-xs">
                     {isContinuation ? "continuation" : msg.role}
@@ -279,11 +273,19 @@ export function LlmContextView({
                   {msgTokens > 0 && (
                     <span className="text-xs text-muted-foreground">{formatTokenCount(msgTokens)}t</span>
                   )}
-                  <span className="text-xs text-muted-foreground">
-                    {isMsgExpanded ? "▼" : "▶"}
+                  <span className="ml-auto flex items-center gap-1 shrink-0">
+                    {msg.content && <CopyButton text={msg.content} className="size-4 text-muted-foreground hover:text-foreground" />}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                      onClick={() => toggleMessage(msgIndex)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMessage(msgIndex) }}
+                    >
+                      {isMsgExpanded ? "▼" : "▶"}
+                    </span>
                   </span>
-                  {msg.content && <CopyButton text={msg.content} className="ml-auto size-4 text-muted-foreground hover:text-foreground" />}
-                </span>
+                </div>
 
                 {isMsgExpanded && msg.content && (
                   (() => {
@@ -342,19 +344,21 @@ export function LlmContextView({
                           )}
                           {tc.result && (
                             <div className="border-t bg-muted/20">
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-accent/30 transition-colors cursor-pointer"
-                                onClick={() => toggleToolResult(resultKey)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleToolResult(resultKey) }}
-                              >
-                                <span className="font-medium text-muted-foreground">result</span>
-                                {resultTokens > 0 && (
-                                  <span className="text-muted-foreground">{formatTokenCount(resultTokens)}t</span>
-                                )}
-                                <span className="ml-auto text-muted-foreground">{isResultOpen ? "▼" : "▶"}</span>
-                              </span>
+                          <div className="w-full flex items-center gap-2 px-2 py-1 text-xs">
+                            <span className="font-medium text-muted-foreground">result</span>
+                            {resultTokens > 0 && (
+                              <span className="text-muted-foreground">{formatTokenCount(resultTokens)}t</span>
+                            )}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                              onClick={() => toggleToolResult(resultKey)}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleToolResult(resultKey) }}
+                            >
+                              {isResultOpen ? "▼" : "▶"}
+                            </span>
+                          </div>
                               {isResultOpen && (
                                 <div className="px-2 pb-1.5 text-xs whitespace-pre-wrap break-words max-h-[300px] overflow-y-auto">
                                   {tc.result}
@@ -394,18 +398,20 @@ function ContextSection({ title, text }: { title: string; text: string }) {
   const preview = text.length > 120 ? text.substring(0, 120) + "..." : text
   return (
     <div className={cn("border rounded-md overflow-hidden", style.border, style.bg)}>
-      <span
-        role="button"
-        tabIndex={0}
-        className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-accent/30 transition-colors text-sm cursor-pointer"
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsOpen(!isOpen) }}
-      >
+      <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm">
         <div className={cn("w-2 h-2 rounded-sm shrink-0", style.dot)} />
         <Badge variant={style.badge} className="text-xs">{title}</Badge>
         <span className="text-xs text-muted-foreground">{formatTokenCount(tokenCount)}t · {text.length.toLocaleString()} chars</span>
-        <span className="ml-auto text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</span>
-      </span>
+        <span
+          role="button"
+          tabIndex={0}
+          className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+          onClick={() => setIsOpen(!isOpen)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsOpen(!isOpen) }}
+        >
+          {isOpen ? "▼" : "▶"}
+        </span>
+      </div>
       {isOpen && (
         <div className={cn("border-t", style.border)}>
           <div className={cn("flex items-center justify-between px-2 py-1", style.headerBg)}>
@@ -425,18 +431,20 @@ function ToolsPanel({ tools }: { tools: Array<{ name: string; description: strin
   const [isOpen, setIsOpen] = useState(false)
   return (
     <div className="border rounded-md overflow-hidden bg-orange-50/30 dark:bg-orange-500/5 border-orange-200 dark:border-orange-500/20">
-      <span
-        role="button"
-        tabIndex={0}
-        className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-accent/30 transition-colors text-sm cursor-pointer"
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsOpen(!isOpen) }}
-      >
+      <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm">
         <div className="w-2 h-2 rounded-sm bg-orange-400 shrink-0" />
         <Badge variant="orange" className="text-xs">System tools</Badge>
         <span className="text-xs text-muted-foreground">{tools.length} tools</span>
-        <span className="ml-auto text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</span>
-      </span>
+        <span
+          role="button"
+          tabIndex={0}
+          className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+          onClick={() => setIsOpen(!isOpen)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsOpen(!isOpen) }}
+        >
+          {isOpen ? "▼" : "▶"}
+        </span>
+      </div>
       {isOpen && (
         <div className="border-t border-orange-200 dark:border-orange-500/20 space-y-1 p-1.5 max-h-[400px] overflow-y-auto">
           {tools.map((t, i) => (

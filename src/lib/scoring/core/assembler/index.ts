@@ -18,8 +18,8 @@ import { classifyTask } from './task-classifier';
 
 export type { CollectedData };
 
-export async function assembleInput(taskId: string, prisma: PrismaClient): Promise<{ input: AssembledInput; raw: CollectedData } | null> {
-  const raw = await collectForScoring(taskId, prisma);
+export async function assembleInput(taskId: string, prisma: PrismaClient, framework?: string): Promise<{ input: AssembledInput; raw: CollectedData } | null> {
+  const raw = await collectForScoring(taskId, prisma, framework);
   if (!raw) return null;
 
   const { trajectoryDigest, userMessages } = buildDigest(raw.turns, raw.toolCalls, raw.bridges);

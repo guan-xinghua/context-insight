@@ -20,13 +20,15 @@ export const maxDuration = 300;
 // on `settled && changed` before triggering a delta refresh — identical semantics
 // to the opencode 5s poll, but event-driven (sub-second) instead of timer-driven.
 export async function GET(request: NextRequest | Request) {
-  const taskId = new URL(request.url).searchParams.get('taskId');
+  const url = new URL(request.url);
+  const taskId = url.searchParams.get('taskId');
+  const framework = url.searchParams.get('framework');
   if (!taskId) {
     return new Response('Missing taskId', { status: 400 });
   }
 
   const session = await prisma.session.findFirst({
-    where: { taskId },
+    where: { taskId, ...(framework ? { framework } : {}) },
     select: { id: true, taskId: true, sourcePath: true, framework: true, version: true },
   });
   if (!session || !isClaudeFormatSession(session.framework, session.version) || !session.sourcePath) {

@@ -9,6 +9,7 @@
 
 import { useState, useCallback } from "react"
 import { CopyIcon, CheckIcon } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 export function CopyButton({ text, className }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false)
@@ -24,7 +25,13 @@ export function CopyButton({ text, className }: { text: string; className?: stri
     <span
       role="button"
       tabIndex={0}
-      className={className ?? "size-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"}
+      // inline-flex 居中是修复的一部分：固定尺寸盒子里的内联 SVG 按基线排版、
+      // 被继承行高顶出盒子（垂直错位的根源），flex 容器让图标始终在盒内居中，
+      // 与行尾三角（文本字形）对齐。基类始终生效，caller className 叠加其上。
+      className={cn(
+        "inline-flex items-center justify-center cursor-pointer shrink-0",
+        className ?? "size-4 text-muted-foreground hover:text-foreground transition-colors"
+      )}
       onClick={handleCopy}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCopy() }}
       title="Copy"

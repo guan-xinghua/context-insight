@@ -175,13 +175,7 @@ export function LlmOutputView({
 
   return (
     <div ref={rootRef} className="border rounded-lg">
-      <span
-        role="button"
-        tabIndex={0}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer"
-        onClick={() => setIsExpanded(!isExpanded)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsExpanded(!isExpanded) }}
-      >
+      <div className="w-full flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium">{headerLabel}</span>
           {abnormal ? (
@@ -201,10 +195,16 @@ export function LlmOutputView({
             </Badge>
           )}
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span
+          role="button"
+          tabIndex={0}
+          className="shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+          onClick={() => setIsExpanded(!isExpanded)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsExpanded(!isExpanded) }}
+        >
           {isExpanded ? "▼" : "▶"}
         </span>
-      </span>
+      </div>
 
       {isExpanded && abnormalEmpty && abnormal && (
         <div className="border-t px-3 py-3 text-sm text-red-600 dark:text-red-400">
@@ -220,22 +220,22 @@ export function LlmOutputView({
             if (section.type === "thinking") {
               return (
                 <div key={index} className="border rounded-md">
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-accent/30 transition-colors"
-                    onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsThinkingExpanded(!isThinkingExpanded) }}
-                  >
+                  <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm">
                     <Badge variant="purple">thinking</Badge>
                     {(reasoningTokens ?? 0) > 0 && (
                       <span className="text-muted-foreground text-xs">{formatTokenCount(reasoningTokens ?? 0)}t</span>
                     )}
-                    <span className="text-muted-foreground text-xs">
-                      {isThinkingExpanded ? "▼ hide" : "▶ show"}
-                    </span>
                     <CopyButton text={section.content} className="ml-auto size-4 text-muted-foreground hover:text-foreground" />
-                  </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                      onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsThinkingExpanded(!isThinkingExpanded) }}
+                    >
+                      {isThinkingExpanded ? "▼" : "▶"}
+                    </span>
+                  </div>
                   {isThinkingExpanded && (
                     <div className="px-2 pb-2 text-sm whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto bg-purple-50/30 dark:bg-purple-500/5">
                       {highlightKeyword(section.content, highlight?.keyword)}

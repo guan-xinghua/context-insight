@@ -546,9 +546,17 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
                 const kinds = auditKindsForEvents(sa.events)
                 const hasAgentMd = kinds.includes("agent")
                 const rows = [
-                  <TableRow key={sa.skillName} className="cursor-pointer hover:bg-accent/30" onClick={() => toggleExpanded(sa.skillName)}>
-                    <TableCell className="text-xs select-none w-6">
-                      {isExpanded ? "▼" : "▶"}
+                  <TableRow key={sa.skillName}>
+                    <TableCell className="text-xs w-6">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="inline-flex items-center justify-center px-1 py-1 -ml-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                        onClick={() => toggleExpanded(sa.skillName)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(sa.skillName) }}
+                      >
+                        {isExpanded ? "▼" : "▶"}
+                      </span>
                     </TableCell>
                     <TableCell className="text-xs font-medium truncate max-w-[20ch]">
                       {sa.skillName}

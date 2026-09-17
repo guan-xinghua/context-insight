@@ -52,6 +52,21 @@ const MARKER_FRAMEWORK_MAP: Record<string, Exclude<ProxyAgentFramework, null>> =
   'cannbot-proxy': 'cannbot',
 };
 
+/** 方案一（同 sid 双会话共存）：proxy 捕获行的 framework 值 = agent 框架 + '-proxy'
+ * 后缀（claude-code-proxy / opencode-proxy / codex-proxy / cannbot-proxy），与同
+ * sid 的原生会话（claude-code / opencode / …）在 (taskId, framework) 唯一索引下
+ * 各占一行。本谓词从 Session.version 的 marker 后缀推导该记录类值（映射与
+ * MARKER_FRAMEWORK_MAP 同源），供导入匹配与存量行归类。 */
+export function proxyRecordingFrameworkFromVersion(version: string | null | undefined): string | null {
+  if (!version) return null;
+  for (const marker of ['claude-proxy', 'opencode-proxy', 'codex-proxy', 'cannbot-proxy']) {
+    if (version === marker || version.endsWith(`-${marker}`)) {
+      return `${MARKER_FRAMEWORK_MAP[marker] ?? 'claude-code'}-proxy`;
+    }
+  }
+  return null;
+}
+
 /** meta.json cc-session-meta 声明的内容（producer=cpx 时 framework/ccVersion 有效）。
  *  全部 meta.json 消费方（分类器 / 导入 ccVersion / cannbay2 重导入 patch）共用，
  *  不再各自内联 JSON 解析。governed：cpx 压缩时打的"字节流已经落盘咽喉

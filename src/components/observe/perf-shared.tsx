@@ -305,14 +305,17 @@ export function PerfTopTable({ subagents, onJumpToTurn }: {
           const pct = totalVal > 0 ? (getVal(s, sortKey) / totalVal) * 100 : 0
           return (
             <div key={s.sessionId} className="border-b last:border-0">
-              <div
-                className="grid grid-cols-[1fr_52px_80px_80px_80px_56px] px-3 py-2 cursor-pointer hover:bg-muted/20 text-xs tabular-nums transition-colors items-center"
-                onClick={() => setExpanded(isOpen ? null : s.sessionId)}
-              >
+              <div className="grid grid-cols-[1fr_52px_80px_80px_80px_56px] px-3 py-2 text-xs tabular-nums items-center">
                 <span className="flex flex-col gap-1 pr-2">
                   <span className="flex items-center gap-1.5 truncate">
-                    <span className="text-[10px] text-muted-foreground inline-block transition-transform duration-200"
-                          style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="shrink-0 -ml-1 px-1 py-1 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none inline-block transition-transform duration-200"
+                      style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
+                      onClick={() => setExpanded(isOpen ? null : s.sessionId)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setExpanded(isOpen ? null : s.sessionId) }}
+                    >▶</span>
                     <span className="truncate">{s.name}</span>
                   </span>
                   {s.taskDescription && (

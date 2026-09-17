@@ -13,7 +13,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { getAdapter } from './adapters/index';
 import { listSubagentSessionsWithDb, readSessionWithDb, readSessionMeta } from './adapters/opencode-db';
 import { listSubagentSessions as listClaudeSubagentSessions, collectSubagentToolUseMappings as collectClaudeToolUseMappings, extractVersion as extractClaudeVersion } from './adapters/claude-jsonl';
-import { classifyProxyCapture, readCcSessionMeta } from './proxy-classify';
+import { classifyProxyCapture, readCcSessionMeta, proxyRecordingFrameworkFromVersion } from './proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { normalize } from './normalize';
 import { splitIntoTurns, resetIdCounter } from './turn-split';
@@ -29,12 +29,54 @@ function toDate(v: string | null): Date | null {
   return v ? new Date(v) : null;
 }
 
+/** 行的记录类（framework 身份，方案一：同 sid 原生/proxy 各一行）：
+ * - proxy 行（version 带 marker）按 version 推导——映射与分类器同源，
+ *   framework 误标史不参与判定；insight 导出行（cannbot-insight，可能带
+ *   -proxy version——导出自捕获会话）保持导出身份，不参与双类拆分
+ * - 非 proxy 行原样 framework */
+function recordingClassOfSessionRow(row: { framework: string; version: string | null }): string {
+  if (isProxyVersion(row.version)) {
+    if (row.framework === BRAND_SOURCE_TYPE) return row.framework;
+    return proxyRecordingFrameworkFromVersion(row.version) ?? row.framework;
+  }
+  return row.framework;
+}
+
 // user turn 现保留 <system-reminder> 全文（wire 保真）；label/query 预览
 // 剥掉 reminder 前缀块 —— 显示真实提示而非注入上下文。
 function previewText(text: string | null | undefined): string | null {
   if (!text) return null;
   const stripped = text.replace(/^<system-reminder>[\s\S]*?<\/system-reminder>\s*/, '').trim();
   return (stripped || text).substring(0, 200);
+}
+
+// 首真人查询（会话 label/query 来源）。注入分类后（adapter 侧
+// classifyAgentInjection 把 handback 回放/背景事件等重分类为 system），
+// user turn 即真人输入。两个补充护栏：
+// - 只看主会话行（子代理的任务提示/文档注入不作会话标题）
+// - 跳过整篇文档形态的 user 消息（claude-code 把 handoff 交付件/范式文档
+//   整篇注入为 user 行，无 wire 自声明可辨——只影响取标题，不动 turn 本身）
+// 中途接入的捕获可能全程无 user turn（cpx 只覆盖会话尾部）——回落到首条
+// 有实质内容的 assistant 文本（剥 thinking、跳过纯 <block> 安全审查应答），
+// 再无则 null。
+export function firstHumanQueryText(
+  rows: Array<{ role: string; content: string | null; subagent_session_id?: string | null; subagentSessionId?: string | null }>,
+): string | null {
+  const isMain = (r: { subagent_session_id?: string | null; subagentSessionId?: string | null }) =>
+    (r.subagent_session_id ?? r.subagentSessionId) == null;
+  const isDocInjection = (text: string) =>
+    (text.startsWith('# ') && text.includes('\n> ')) || text.startsWith('"""');
+  const user = rows.find(r => r.role === 'user' && isMain(r) && r.content && !isDocInjection(r.content));
+  if (user) return previewText(user.content);
+  for (const r of rows) {
+    if (r.role !== 'assistant' || !r.content || !isMain(r)) continue;
+    const stripped = r.content
+      .replace(/^<thinking>[\s\S]*?<\/thinking>\s*/, '')
+      .replace(/^<system-reminder>[\s\S]*?<\/system-reminder>\s*/, '')
+      .trim();
+    if (stripped && !stripped.startsWith('<block>')) return previewText(stripped);
+  }
+  return null;
 }
 
 async function batchCreateMany(
@@ -351,14 +393,22 @@ export async function importSession(
     // proxy 来源标记单独留存：merge 路径的 version 回填只用它（原生文件
     // merge 行为保持不变 —— 不回填 version），新 session 路径仍用完整 version
     let proxyVersionMarker: string | null = null;
-    let metaFrameworkOverride: string | null = null;
     // 统一分类器结果（meta > 行级 source > wire 指纹，见 proxy-classify.ts）：
     // framework 是 agent 归属（opencode / claude-code / codex），marker 进 version。
     let proxyClass: ReturnType<typeof classifyProxyCapture> | null = null;
+    // insight-export meta 的 framework 声明（DB 导出件）：导出的是既有会话的
+    // 再记录，记录类用声明值——重导入并回原生行（如 opencode），而不是按
+    // claude-jsonl 缺省新建 claude-code 重复行（(taskId, framework) 唯一索引
+    // 下还会让 patchXCannbayColumns 的 meta 恢复撞唯一键）
+    let exportDeclaredFramework: string | null = null;
     if (srcType === 'opencode-db' && sharedDb) {
       sessionMeta = readSessionMeta(sharedDb, sessionId);
     } else if (srcType === 'claude-jsonl') {
-      const metaCcVersion = readCcSessionMeta(dbPath)?.ccVersion ?? null;
+      const ccMeta = readCcSessionMeta(dbPath);
+      const metaCcVersion = ccMeta?.ccVersion ?? null;
+      if (ccMeta?.producer === 'insight-export' && ccMeta.framework) {
+        exportDeclaredFramework = ccMeta.framework;
+      }
       proxyClass = classifyProxyCapture(dbPath);
       proxyVersionMarker = proxyClass.marker;
       // meta.ccVersion 可能已带 -proxy 后缀（cannbay2 合成 meta 从 DB version
@@ -369,12 +419,22 @@ export async function importSession(
           ? (agentVersion.endsWith(`-${proxyVersionMarker}`) ? agentVersion : `${agentVersion}-${proxyVersionMarker}`)
           : proxyVersionMarker)
         : agentVersion;
-      metaFrameworkOverride = proxyClass.isProxy ? proxyClass.framework : null;
     }
     // framework 是 agent 归属：分类器判定（meta/行级/指纹三级信号）优先；
     // 非 proxy 的 claude-jsonl 是 native claude-code。
-    const frameworkForCapture = metaFrameworkOverride
-      ?? (srcType === 'claude-jsonl' ? 'claude-code' : srcType);
+    // 方案一（同 sid 双会话共存）：proxy 捕获的 framework 带 -proxy 记录后缀
+    // （claude-code-proxy / opencode-proxy / codex-proxy / cannbot-proxy）——
+    // (taskId, framework) 唯一索引下与同 sid 的原生会话各占一行，互不合并。
+    const frameworkForCapture = proxyClass?.isProxy && proxyClass.framework
+      ? `${proxyClass.framework}-proxy`
+      : (exportDeclaredFramework ?? (srcType === 'claude-jsonl' ? 'claude-code' : srcType));
+    // 记录类（方案一：同 sid 原生/proxy 捕获各一行）——空文件占位路径与
+    // 正常导入路径共用的匹配身份
+    const incomingRecordingClass = srcType === 'claude-jsonl'
+      ? (proxyClass?.isProxy && proxyClass.framework
+        ? `${proxyClass.framework}-proxy`
+        : (exportDeclaredFramework ?? 'claude-code'))
+      : (srcType === 'opencode-db' ? 'opencode' : srcType);
 
     if (rawInteractions.length === 0) {
       if (sharedDb) sharedDb.close();
@@ -383,11 +443,15 @@ export async function importSession(
       // input) reads zero records. Create a PLACEHOLDER session so it's
       // visible in the list; the merge path (refresh-session / re-import)
       // fills in turns as the file grows.
-      // .jsonl.gz 压缩态（gzip at rest）也算已存在占位
+      // .jsonl.gz 压缩态（gzip at rest）也算已存在占位；同 sid 双会话（方案一）
+      // 按记录类匹配，避免占位判定打到另一行上
       if (srcType === 'claude-jsonl' && (fs.existsSync(dbPath) || fs.existsSync(`${dbPath}.gz`))) {
-        const existing = await client.session.findFirst({ where: { taskId: sessionId }, select: { id: true, query: true } });
-        if (existing) return { sessionId, imported: false, query: existing.query ?? null };
-        await client.session.create({
+        const placeholderRows = await client.session.findMany({ where: { taskId: sessionId } });
+        const existing = placeholderRows.find(r => recordingClassOfSessionRow(r) === incomingRecordingClass);
+        if (existing) return { sessionId: existing.id, imported: false, query: existing.query ?? null };
+        // 返回行 id（非 taskId 形参）：import-file route 以 findUnique({ id })
+        // 取回，返回 taskId 会查不到 → 响应 framework/version 落 null（丢徽标）
+        const created = await client.session.create({
           data: {
             taskId: sessionId,
             label: '（捕获中，暂无内容）',
@@ -396,7 +460,7 @@ export async function importSession(
             sourcePath,
           },
         });
-        return { sessionId, imported: true, query: null };
+        return { sessionId: created.id, imported: true, query: null };
       }
       return { sessionId, imported: false, query: null };
     }
@@ -448,17 +512,13 @@ export async function importSession(
     console.log(`[import] normalize+split: ${Date.now() - t3}ms, ${turns.length} turns, ${toolCalls.length} toolCalls, ${skillEvents.length} skillEvents`);
 
     const t4 = Date.now();
-    // claude-jsonl（含两种 proxy 捕获）按 taskId 找已存 session，不按
-    // framework 过滤 —— 同一捕获文件的 framework 归属曾从 claude-code 修正
-    // 为 opencode，按 framework 过滤会让老数据 miss 掉去新建重复行。
-    const existingSession = await client.session.findFirst({
-      where: {
-        taskId: sessionId,
-        ...(srcType === 'claude-jsonl' ? {} : {
-          framework: srcType === 'opencode-db' ? 'opencode' : srcType,
-        }),
-      },
-    });
+    // ── 同 sid 已存会话匹配：按「记录类」对齐（方案一：原生与 proxy 捕获各一行）──
+    // 记录类 = framework 身份：claude-code / claude-code-proxy / opencode /
+    // opencode-proxy / …。同 sid 同类 → merge（既有行为）；同 sid 异类 → 各建
+    // 一行共存。旧数据兼容：早期捕获行 framework 无 -proxy 后缀——按 version
+    // 标记推导记录类，framework 误标史（claude-code→opencode 修正）不参与判定。
+    const sessionRowsForTask = await client.session.findMany({ where: { taskId: sessionId } });
+    const existingSession = sessionRowsForTask.find(r => recordingClassOfSessionRow(r) === incomingRecordingClass) ?? null;
 
     const dedupResult = dedupSession(existingSession?.id ?? null, sessionId);
     console.log(`[import] dedup check: ${Date.now() - t4}ms, shouldImport=${dedupResult.shouldImport}`);
@@ -599,7 +659,7 @@ export async function importSession(
         allSkillEventsAfterMerge as unknown as SkillEventRow[],
       );
 
-      const query = previewText(allTurnsAfterMerge.find(t => t.role === 'user')?.content);
+      const query = firstHumanQueryText(allTurnsAfterMerge);
       const safeNum = (n: number) => (typeof n === 'number' && !isNaN(n)) ? n : 0;
       const safeDate = (d: Date | null) => d instanceof Date && !isNaN(d.getTime()) ? d : null;
       const updateData = {
@@ -651,9 +711,9 @@ export async function importSession(
       const sessionRow = await tx.session.create({
         data: {
           taskId: sessionId,
-          label: previewText(rawInteractions.find(i => i.role === 'user')?.content)?.substring(0, 100)
+          label: firstHumanQueryText(rawInteractions)?.substring(0, 100)
             ?? rawInteractions[0]?.content?.substring(0, 100) ?? null,
-          query: previewText(rawInteractions.find(i => i.role === 'user')?.content),
+          query: firstHumanQueryText(rawInteractions),
           framework: srcType === 'claude-jsonl' ? frameworkForCapture : srcType === BRAND_SOURCE_TYPE ? srcType : 'opencode',
           model: aggregates.model,
           startTime: aggregates.startTime,
@@ -711,7 +771,7 @@ export async function importSession(
     }, { maxWait: 30000, timeout: 60000 });
 
     console.log(`[import] new path total: ${Date.now() - t6}ms, overall: ${Date.now() - t0}ms`);
-    return { sessionId: createdSessionId, imported: true, query: previewText(rawInteractions.find(i => i.role === 'user')?.content) };
+    return { sessionId: createdSessionId, imported: true, query: firstHumanQueryText(rawInteractions) };
   } finally {
     if (sharedDb) sharedDb.close();
     if (!prisma) await client.$disconnect();
@@ -753,7 +813,7 @@ async function recomputeAndApplySessionAggregates(
 
   const safeNum = (n: number) => (typeof n === 'number' && !isNaN(n)) ? n : 0;
   const safeDate = (d: Date | null) => d instanceof Date && !isNaN(d.getTime()) ? d : null;
-  const query = previewText(allTurns.find(t => t.role === 'user')?.content);
+  const query = firstHumanQueryText(allTurns);
 
   // 同 merge 路径的历史脏数据矫正：proxy 捕获（含无 source 标记的早期产物，
   // 靠 wire 指纹兜底识别）重刷新时回填 framework/version，修复错显归属。
@@ -766,7 +826,7 @@ async function recomputeAndApplySessionAggregates(
       const agentVersion = extractClaudeVersion(session.sourcePath);
       const marker = cls.marker!;
       refreshProxyFix = {
-        framework: cls.framework!,
+        framework: `${cls.framework}-proxy`,
         version: agentVersion ? `${agentVersion}-${marker}` : marker,
       };
     } else if (isProxyVersion(session.version)) {
@@ -803,8 +863,12 @@ async function recomputeAndApplySessionAggregates(
 export async function deltaRefreshSession(
   sessionId: string,
   prisma: PrismaClient,
+  // 消歧（方案一：同 sid 双行）——调用方已解析出目标行时直传行对象，
+  // 避免裸 taskId 二次查找打到另一行（refresh-session route 已按 framework
+  // 解析出手头的正确行）；未传时按 taskId 回落单行解析（测试/审计场景）
+  resolvedSession?: { id: string; taskId: string; framework: string; version: string | null; sourcePath: string | null },
 ): Promise<{ addedTurns: number; updatedTurns: number; addedToolCalls: number; updatedToolCalls: number; addedSkillEvents: number; fullRebuild?: boolean; rebuiltTurns?: number }> {
-  const session = await prisma.session.findFirst({ where: { taskId: sessionId } });
+  const session = resolvedSession ?? await prisma.session.findFirst({ where: { taskId: sessionId } });
   if (!session || !session.sourcePath) {
     throw new Error(`Session not found or no sourcePath: "${sessionId}"`);
   }
@@ -813,6 +877,8 @@ export async function deltaRefreshSession(
   // （claude / opencode / codex，version 带 -proxy 后缀）都是 claude 格式
   // jsonl 变体 → claude-jsonl adapter。native opencode 走 opencode-db。
   const sourceType = isProxyVersion(session.version)
+    ? 'claude-jsonl'
+    : session.framework?.endsWith('-proxy')
     ? 'claude-jsonl'
     : session.framework === 'opencode' ? 'opencode-db'
     : session.framework === 'claude-code' ? 'claude-jsonl'

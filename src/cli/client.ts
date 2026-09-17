@@ -236,6 +236,9 @@ export class InsightClient {
   }
 
   async uploadSession(taskId: string, description: string, category?: string, baseline?: boolean): Promise<ApiUploadResponse> {
+    // TODO(方案一双行消歧): route 已支持 framework 参数——CLI 侧从所选会话
+    // 列表项（ApiImportableSession.framework）穿参补齐，避免同 sid 双行下
+    // 裸 taskId 上传另一行
     return this.request<ApiUploadResponse>('POST', '/api/ingest/cannbay2', undefined, {
       action: 'upload',
       taskId,

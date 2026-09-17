@@ -91,14 +91,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'upload') {
-      const { taskId, description, category, baseline, opGen } = body as { taskId: string; description?: string; category?: string; baseline?: boolean; opGen?: string };
+      const { taskId, description, category, baseline, opGen, framework } = body as { taskId: string; description?: string; category?: string; baseline?: boolean; opGen?: string; framework?: string };
       if (!taskId) {
         return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
       }
       // opGen（算子生成结果标注）：只认 success/failure，其余值视为未标注
       const opGenValue = opGen === 'success' || opGen === 'failure' ? opGen : undefined;
       try {
-        const result = await uploadCannbay2Session(prisma, taskId, description, remote, typeof category === 'string' ? category : undefined, baseline === true, opGenValue);
+        // framework：同 sid 双行（方案一）消歧——从捕获行页面上传必须带
+        const result = await uploadCannbay2Session(prisma, taskId, description, remote, typeof category === 'string' ? category : undefined, baseline === true, opGenValue, typeof framework === 'string' ? framework : undefined);
         return NextResponse.json(result);
       } catch (err) {
         if (err instanceof GovernanceError) {

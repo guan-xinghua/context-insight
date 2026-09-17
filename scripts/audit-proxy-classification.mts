@@ -22,20 +22,22 @@ async function main() {
   const fix = process.argv.includes('--fix');
   const proxyDirRows = await prisma.session.findMany({
     where: { sourcePath: { contains: '/proxy/' } },
-    select: { taskId: true, framework: true, version: true, sourcePath: true },
+    select: { id: true, taskId: true, framework: true, version: true, sourcePath: true },
   });
   const proxyVersionRows = await prisma.session.findMany({
     where: { version: { endsWith: '-proxy' } },
-    select: { taskId: true, framework: true, version: true, sourcePath: true },
+    select: { id: true, taskId: true, framework: true, version: true, sourcePath: true },
   });
-  const byTask = new Map<string, { taskId: string; framework: string; version: string | null; sourcePath: string | null }>();
+  const byTask = new Map<string, { id: string; taskId: string; framework: string; version: string | null; sourcePath: string | null }>();
   for (const s of [...proxyDirRows, ...proxyVersionRows]) byTask.set(s.taskId, s);
   const sessions = Array.from(byTask.values());
   const bad: string[] = [];
   for (const s of sessions) {
     const cls = fs.existsSync(s.sourcePath) ? classifyProxyCapture(s.sourcePath) : null;
     const marker = cls?.isProxy ? cls.marker : null;
-    const expectFw = cls?.isProxy ? cls.framework : null;
+    // 方案一（同 sid 双会话）：proxy 行的 framework 带 -proxy 记录后缀
+    // （claude-code-proxy / opencode-proxy / …），期望值与导入侧同构
+    const expectFw = cls?.isProxy && cls.framework ? `${cls.framework}-proxy` : null;
     const ok = expectFw
       ? s.framework === expectFw && (s.version ?? '').endsWith('-proxy')
       : s.version == null || !s.version.endsWith('-proxy');
@@ -48,7 +50,7 @@ async function main() {
   if (fix) {
     for (const id of bad) {
       try {
-        await deltaRefreshSession(id, prisma);
+        await deltaRefreshSession(id, prisma, byTask.get(id));
         const s = await prisma.session.findFirst({ where: { taskId: id }, select: { framework: true, version: true } });
         console.log(`FIXED ${id} -> fw=${s?.framework} v=${s?.version}`);
       } catch (e) {

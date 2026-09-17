@@ -149,15 +149,20 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
       "border rounded-lg min-w-0",
       isError ? "border-red-300 bg-red-50/30 dark:bg-red-500/5" : "border-orange-200 bg-orange-50/20 dark:bg-orange-500/5"
     )}>
-      <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left cursor-pointer hover:bg-accent/30 transition-colors"
-        onClick={() => ctx.onToggleBridge(lane.bridgeId)}
-      >
-        <span className="text-xs select-none shrink-0">{isExpanded ? "▼" : "▶"}</span>
+      <div className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left">
         <Badge variant="orange" className="text-xs max-w-[60%] truncate">{lane.name}</Badge>
         {lane.summary && <span className="text-xs text-foreground/80 truncate">{lane.summary}</span>}
         {isError && <Badge variant="red" className="text-xs shrink-0">error</Badge>}
-      </button>
+        <span
+          role="button"
+          tabIndex={0}
+          className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+          onClick={() => ctx.onToggleBridge(lane.bridgeId)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') ctx.onToggleBridge(lane.bridgeId) }}
+        >
+          {isExpanded ? "▼" : "▶"}
+        </span>
+      </div>
       <div className="flex flex-wrap items-center gap-x-2 px-2 pb-1 text-xs text-muted-foreground">
         <span>{lane.turnCount} turns</span>
         {lane.totalTokens > 0 && <span>{formatTokenCount(lane.totalTokens)} tok</span>}

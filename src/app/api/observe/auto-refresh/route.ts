@@ -14,13 +14,14 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
+    const framework = searchParams.get('framework');
 
     if (!taskId) {
       return NextResponse.json({ changed: false }, { status: 400 });
     }
 
     const session = await prisma.session.findFirst({
-      where: { taskId },
+      where: { taskId, ...(framework ? { framework } : {}) },
       select: { id: true, taskId: true, sourcePath: true, framework: true, version: true },
     });
 

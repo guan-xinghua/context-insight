@@ -239,9 +239,9 @@ function detectRedactionEvents(sourcePath: string | null): RedactionEvent[] {
   return events;
 }
 
-export async function collectForScoring(taskId: string, prisma: PrismaClient): Promise<CollectedData | null> {
+export async function collectForScoring(taskId: string, prisma: PrismaClient, framework?: string): Promise<CollectedData | null> {
   const session = await prisma.session.findFirst({
-    where: { taskId },
+    where: { taskId, ...(framework ? { framework } : {}) },
     select: {
       id: true, taskId: true, framework: true, version: true, model: true,
       startTime: true, endTime: true, totalTokens: true, totalCost: true, totalLatencyMs: true, sourcePath: true,

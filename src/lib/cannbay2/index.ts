@@ -52,9 +52,11 @@ export function listCannbay2Overview(remote?: Cannbay2Remote): Cannbay2Overview 
 
 // patch 后从 DB 回读准确的 framework/version（meta 缺失时管线推断的兜底值），
 // 供导入完成态显示类型徽标 —— 与本地导入路径的响应形状对齐。
-async function readSessionType(prisma: PrismaLike, taskId: string): Promise<{ framework: string | null; version: string | null }> {
+// 按行 id 取行（importSession 返回的 sessionId 即行 id）：同 sid 双行
+// （方案一）下裸 taskId findFirst 会读到另一行的 framework/version。
+async function readSessionType(prisma: PrismaLike, rowId: string): Promise<{ framework: string | null; version: string | null }> {
   try {
-    const s = await prisma.session.findFirst({ where: { taskId }, select: { framework: true, version: true } });
+    const s = await prisma.session.findUnique({ where: { id: rowId }, select: { framework: true, version: true } });
     return { framework: s?.framework ?? null, version: s?.version ?? null };
   } catch {
     return { framework: null, version: null };
@@ -67,9 +69,10 @@ export async function importCannbay2Session(sid: string, prisma: PrismaLike, rem
   // x_cannbay 补列（docs/cannbay-schema-spec.md）：核心管线无通道、只存在于
   // 声明里的列（Turn.ttftMs/temperature/maxTokens/modelId/providerId、
   // ToolCall.errorType/errorMessage/durationMs/startedAt、Session.framework/
-  // version）在 cannbay2 编排层恢复 —— 核心红线不动。
-  await patchXCannbayColumns(mainJsonl, sid, prisma).catch(() => { /* 补列失败不阻塞导入 */ });
-  return { ...result, ...(await readSessionType(prisma, sid)) };
+  // version）在 cannbay2 编排层恢复 —— 核心红线不动。补列/回读都按
+  // result.sessionId（行 id）定位，同 sid 双行不串行
+  await patchXCannbayColumns(mainJsonl, result.sessionId, prisma).catch(() => { /* 补列失败不阻塞导入 */ });
+  return { ...result, ...(await readSessionType(prisma, result.sessionId)) };
 }
 
 interface DbTurnPayload {
@@ -85,7 +88,9 @@ interface DbTurnPayload {
 // subagents/<subId>.jsonl 声明 ↔ 对应 subagent 轮。安全性规则：单文件
 // assistant 轮数 ≠ 声明数 → 该文件放弃（形状不符时不猜，宁缺勿错）；
 // 单条 toolUseId 匹配不到 → 跳过该条。
-async function patchXCannbayColumns(mainJsonl: string, taskId: string, prisma: PrismaLike): Promise<void> {
+// sessionRowId：目标行 id（importSession 返回值）——同 sid 双行下裸
+// taskId findFirst 会补到另一行上。
+async function patchXCannbayColumns(mainJsonl: string, sessionRowId: string, prisma: PrismaLike): Promise<void> {
   const sid = path.basename(mainJsonl, '.jsonl');
   const fileGroups: Array<{ subId: string | null; payloads: DbTurnPayload[] }> = [];
   const collect = (file: string, subId: string | null): void => {
@@ -114,7 +119,7 @@ async function patchXCannbayColumns(mainJsonl: string, taskId: string, prisma: P
     }
   }
 
-  const session = await prisma.session.findFirst({ where: { taskId } });
+  const session = await prisma.session.findUnique({ where: { id: sessionRowId } });
   if (!session) return;
 
   for (const { subId, payloads } of fileGroups) {
@@ -382,6 +387,10 @@ export async function uploadCannbay2Session(
   category?: string,
   baseline?: boolean,
   opGen?: 'success' | 'failure',
+  // 同 sid 双行（方案一）消歧：从捕获行页面上传必须带 framework 定行，
+  // 否则裸 taskId findFirst 可能命中另一行（原生会话）——把错误数据传到
+  // 共享数据仓；缺省回落单行解析（CLI/测试等单行场景）
+  framework?: string | null,
 ): Promise<UploadResult & { sid: string }> {
   if (!/^[\w.-]+$/.test(taskId)) throw new Error(`Invalid session id: "${taskId}"`);
   const { error: submitterError } = extractSubmitter(description);
@@ -394,7 +403,9 @@ export async function uploadCannbay2Session(
     throw new Error('baseline 上传仅在默认仓且选中范式目录时可用');
   }
   const categoryValue = validateCategory(rem, category);
-  const session = await prisma.session.findFirst({ where: { taskId } }) as SessionRow | null;
+  const session = await prisma.session.findFirst({
+    where: framework ? { taskId, framework } : { taskId },
+  }) as SessionRow | null;
   if (!session) throw new Error(`Session not found: "${taskId}"`);
 
   const { stagingDir, sid } = await stageSessionFiles(session, prisma);

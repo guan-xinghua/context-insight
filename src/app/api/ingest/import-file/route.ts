@@ -64,9 +64,10 @@ export async function POST(request: NextRequest) {
     // 导入后的会话归属（framework/version）以 DB 为准 —— proxy 捕获按文件内
     // source 标记归属（opencode-proxy → opencode），路径/文件名猜不出。
     // Recent Imports 历史条目据此显示正确的类型徽标。
-    const sessionRow = await prisma.session.findFirst({
-      where: { taskId: sessionId },
-      orderBy: { createdAt: 'desc' },
+    // 方案一（同 sid 双会话）：按本次写入/合并的行 id 精确取回——taskId 下
+    // 可能有两行（原生 + 捕获），findFirst 会取错。
+    const sessionRow = await prisma.session.findUnique({
+      where: { id: result.sessionId },
       select: { framework: true, version: true },
     });
 

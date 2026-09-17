@@ -18,11 +18,12 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
+    const framework = searchParams.get('framework');
     if (!taskId) {
       return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
     }
 
-    const session = await prisma.session.findFirst({ where: { taskId }, select: { id: true } });
+    const session = await prisma.session.findFirst({ where: { taskId, ...(framework ? { framework } : {}) }, select: { id: true } });
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
     if (cached) return NextResponse.json(cached);
 
     // 首次打开：现算确定性层（零 LLM）并写盘
-    const card = await runScorecard(taskId, prisma);
+    const card = await runScorecard(taskId, prisma, framework ? { framework } : {});
     if (!card) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
@@ -45,11 +46,11 @@ export async function GET(request: NextRequest) {
 // 强制重算确定性层（旧卡自动归档 archive/，历史保留）
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { taskId?: string };
+    const body = await request.json() as { taskId?: string; framework?: string };
     if (!body.taskId) {
       return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
     }
-    const card = await runScorecard(body.taskId, prisma);
+    const card = await runScorecard(body.taskId, prisma, body.framework ? { framework: body.framework } : {});
     if (!card) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }

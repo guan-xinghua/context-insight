@@ -62,7 +62,7 @@ describe('opencode-proxy framework 矫正', () => {
     const file = opencodeCapture(sid);
     await POST(req(sid, file));
     const s = await prisma.session.findFirst({ where: { taskId: sid } });
-    expect(s?.framework).toBe('opencode');
+    expect(s?.framework).toBe('opencode-proxy');
     expect(s?.version).toBe('opencode-proxy');
     createdSids.push(sid);
   });
@@ -84,7 +84,7 @@ describe('opencode-proxy framework 矫正', () => {
     const body = await res.json();
     expect(body.reason).toBe('already-exists');
     const s = await prisma.session.findFirst({ where: { taskId: sid } });
-    expect(s?.framework).toBe('opencode');
+    expect(s?.framework).toBe('opencode-proxy');
     expect(s?.version).toBe('opencode-proxy');
   });
 

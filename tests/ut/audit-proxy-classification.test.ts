@@ -69,12 +69,12 @@ describe('audit-proxy-classification：期望 framework 取自统一分类器（
     await importSession(codexFile, SID_CODEX, prisma, codexFile, 'claude-jsonl');
     await importSession(cannbotFile, SID_CANNBOT, prisma, cannbotFile, 'claude-jsonl');
 
-    // 前置：导入管线自身分类正确（framework + -proxy 版本后缀）
+    // 前置：导入管线自身分类正确（framework 带方案一 -proxy 记录后缀 + 版本后缀）
     const codex = await prisma.session.findFirst({ where: { taskId: SID_CODEX } });
-    expect(codex?.framework).toBe('codex');
+    expect(codex?.framework).toBe('codex-proxy');
     expect(codex?.version?.endsWith('-proxy')).toBe(true);
     const cannbot = await prisma.session.findFirst({ where: { taskId: SID_CANNBOT } });
-    expect(cannbot?.framework).toBe('cannbot');
+    expect(cannbot?.framework).toBe('cannbot-proxy');
     expect(cannbot?.version?.endsWith('-proxy')).toBe(true);
 
     // 审计：两类会话都不出现在 BAD 列表（历史缺陷：codex 恒 BAD）
@@ -95,6 +95,6 @@ describe('audit-proxy-classification：期望 framework 取自统一分类器（
     // cannbot 未被污染，仍不误报
     expect(out).not.toContain(`BAD ${SID_CANNBOT}`);
     // 收尾还原（复用导入分类），避免污染后续用例
-    await prisma.session.update({ where: { id: s!.id }, data: { framework: 'codex' } });
+    await prisma.session.update({ where: { id: s!.id }, data: { framework: 'codex-proxy' } });
   });
 });

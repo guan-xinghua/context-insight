@@ -31,6 +31,8 @@ export interface RunScorecardOptions {
   llmClient?: import('./assembler/types').LlmClient;
   store?: ScorecardStore;
   registry?: Registry;
+  /** 同 sid 双会话（方案一）消歧：限定记录类（framework 值），缺省取最新一行 */
+  framework?: string;
   /** 并行评审路数（子项互不依赖），默认 3 */
   llmConcurrency?: number;
   /** 进度回调（语义层逐子项推送；总数只含 LLM 子项，不必精确到秒） */
@@ -46,7 +48,7 @@ export async function runScorecard(
   const registry = options.registry ?? await loadRegistry();
   const store = options.store ?? scorecardStore();
 
-  const assembled = await assembleInput(taskId, prisma);
+  const assembled = await assembleInput(taskId, prisma, options.framework);
   if (!assembled) return null;
   const { input } = assembled;
 

@@ -812,7 +812,7 @@ export default function SessionDetailPage({
     const poll = async () => {
       if (!active || refreshingRef.current) return
       try {
-        const res = await fetch(`/api/observe/auto-refresh?taskId=${encodeURIComponent(taskId)}`)
+        const res = await fetch(`/api/observe/auto-refresh?taskId=${encodeURIComponent(taskId)}${framework ? `&framework=${encodeURIComponent(framework)}` : ''}`)
         if (!res.ok || !active) return
         const data = await res.json()
         if (!pollInitializedRef.current) {
@@ -871,7 +871,7 @@ export default function SessionDetailPage({
     let active = true
     let es: EventSource | null = null
     try {
-      es = new EventSource(`/api/observe/auto-refresh-stream?taskId=${encodeURIComponent(taskId)}`)
+      es = new EventSource(`/api/observe/auto-refresh-stream?taskId=${encodeURIComponent(taskId)}${framework ? `&framework=${encodeURIComponent(framework)}` : ''}`)
     } catch {
       return
     }
@@ -1775,7 +1775,7 @@ export default function SessionDetailPage({
   const TAB_RENDERERS: Record<TabKey, () => React.ReactNode> = {
     overview: renderOverview,
     turns: renderTurns,
-    wireRounds: () => <WireRounds taskId={taskId ?? ""} />,
+    wireRounds: () => <WireRounds taskId={taskId ?? ""} framework={framework ?? undefined} />,
     trace: renderTrace,
     skills: renderSkills,
     workflowAnalyse: renderWorkflowAnalyse,
@@ -1784,6 +1784,7 @@ export default function SessionDetailPage({
     scoring: () => (
       <TrajectoryScoring
         taskId={taskId ?? ""}
+        framework={framework ?? undefined}
         embedded
         onJumpToTurn={(turn) => {
           // 评分证据 §N → DB turnIndex（1-based）；优先主 agent 轮，避免 subagent 同号遮蔽

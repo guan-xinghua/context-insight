@@ -75,7 +75,7 @@ describe('cannbot proxy 捕获（Gen6）framework 归属闭环', () => {
     const row = await prisma.session.findFirst({ where: { taskId: sid }, select: { id: true, framework: true, version: true } });
     expect(row).not.toBeNull();
     createdSessionIds.push(row!.id);
-    expect(row!.framework).toBe('cannbot');
+    expect(row!.framework).toBe('cannbot-proxy');
     expect(row!.version).toBe('1.1.2-cannbot-proxy');
     // 徽标/格式谓词：proxy 徽标成立、claude 格式门禁（wire/full-context/刷新）通过
     expect(isProxyVersion(row!.version)).toBe(true);
@@ -91,7 +91,7 @@ describe('cannbot proxy 捕获（Gen6）framework 归属闭环', () => {
     const row = await prisma.session.findFirst({ where: { taskId: sid }, select: { id: true, framework: true, version: true } });
     expect(row).not.toBeNull();
     createdSessionIds.push(row!.id);
-    expect(row!.framework).toBe('cannbot');
+    expect(row!.framework).toBe('cannbot-proxy');
     // assistant 行顶层 version:1.1.2（legacy 通道）与 marker 组合 → 版本保留
     expect(row!.version).toBe('1.1.2-cannbot-proxy');
   });
@@ -122,7 +122,7 @@ describe('cannbot proxy 捕获（Gen6）framework 归属闭环', () => {
     await POST(req({ source: 'claude-jsonl', sessionId: sid, filePath: file }));
     const rows = await prisma.session.findMany({ where: { taskId: sid }, select: { id: true, framework: true } });
     expect(rows.length).toBe(1);
-    expect(rows[0].framework).toBe('cannbot');
+    expect(rows[0].framework).toBe('cannbot-proxy');
     createdSessionIds.push(rows[0].id);
   });
 });

@@ -50,7 +50,7 @@ const ROLE_VARIANT: Record<string, "blue" | "green" | "purple" | "gray"> = {
   system: "purple",
 };
 
-export function WireRounds({ taskId }: { taskId: string }) {
+export function WireRounds({ taskId, framework }: { taskId: string; framework?: string }) {
   const [state, setState] = useState<{ taskId: string; data: WireRoundsData | null; error: string | null } | null>(null);
 
   const [open, setOpen] = useState<Set<number>>(new Set());
@@ -60,7 +60,7 @@ export function WireRounds({ taskId }: { taskId: string }) {
     let alive = true;
     void (async () => {
       try {
-        const res = await fetch(`/api/observe/session/wire-rounds?taskId=${encodeURIComponent(taskId)}&delta=1`);
+        const res = await fetch(`/api/observe/session/wire-rounds?taskId=${encodeURIComponent(taskId)}&delta=1${framework ? `&framework=${encodeURIComponent(framework)}` : ''}`);
         const j = await res.json() as WireRoundsData;
         if (!alive) return;
         if (j.error) setState({ taskId, data: null, error: j.error });
@@ -127,21 +127,24 @@ export function WireRounds({ taskId }: { taskId: string }) {
         const newCount = r.requestMessages.length - r.newFrom;
         return (
           <div key={`${i}-${r.index}`} className="border rounded-md overflow-hidden">
-            <span
-              role="button"
-              tabIndex={0}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-accent/40 cursor-pointer text-sm"
-              onClick={() => toggle(i)}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggle(i); }}
-            >
+            <div className="w-full flex items-center gap-2 px-3 py-2 text-sm">
               <Badge variant="secondary" className="text-xs">Round {r.index}</Badge>
               <span className="text-xs text-muted-foreground">{(r.timestamp ?? '').slice(11, 19)}</span>
               <Badge variant="blue" className="text-xs">输入 {r.requestMessages.length} 条（新增 {newCount}）</Badge>
               <Badge variant="green" className="text-xs">输出 {r.response.blocks.join(",")}</Badge>
               {r.usage?.output != null && <span className="text-xs text-muted-foreground">{r.usage.output}t</span>}
               {r.model && <Badge variant="outline" className="text-xs">{r.model}</Badge>}
-              <span className="ml-auto text-xs text-muted-foreground">{totalChars.toLocaleString()} chars · {isOpen ? "▼" : "▶"}</span>
-            </span>
+              <span className="ml-auto text-xs text-muted-foreground">{totalChars.toLocaleString()} chars</span>
+              <span
+                role="button"
+                tabIndex={0}
+                className="shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                onClick={() => toggle(i)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggle(i); }}
+              >
+                {isOpen ? "▼" : "▶"}
+              </span>
+            </div>
             {isOpen && (
               <div className="border-t max-h-[70vh] overflow-y-auto">
                 {/* ── 本轮输入：请求的完整 messages（含此前累积） ── */}
@@ -157,19 +160,21 @@ export function WireRounds({ taskId }: { taskId: string }) {
                       const msgOpen = openMsgs.has(key);
                       return (
                         <div key={key} className={`border rounded bg-muted/20 overflow-hidden ${isNew ? "border-blue-300 dark:border-blue-500/40" : "opacity-70"}`}>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            className="w-full flex items-center gap-2 px-2 py-1 hover:bg-accent/30 cursor-pointer"
-                            onClick={() => toggleMsg(key)}
-                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggleMsg(key); }}
-                          >
-                            <span className="text-[10px] text-muted-foreground">{msgOpen ? "▼" : "▶"}</span>
+                          <div className="w-full flex items-center gap-2 px-2 py-1">
                             <Badge variant={ROLE_VARIANT[m.role] ?? "gray"} className="text-xs">{m.role}</Badge>
                             {isNew && <Badge variant="blue" className="text-[10px]">新增</Badge>}
-                            <span className="text-[10px] text-muted-foreground">{m.content.chars.toLocaleString()} chars{msgOpen ? "" : " · 点击展开全文"}</span>
+                            <span className="text-[10px] text-muted-foreground">{m.content.chars.toLocaleString()} chars</span>
                             <span className="text-[10px] text-muted-foreground">{(m.timestamp ?? '').slice(11, 19)}</span>
-                          </span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                              onClick={() => toggleMsg(key)}
+                              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggleMsg(key); }}
+                            >
+                              {msgOpen ? "▼" : "▶"}
+                            </span>
+                          </div>
                           <pre className={`px-2 pb-1.5 text-[11px] whitespace-pre-wrap break-all font-mono text-foreground/75 ${msgOpen ? "max-h-[480px] overflow-y-auto" : "max-h-[54px] overflow-hidden"}`}>{m.content.json}</pre>
                         </div>
                       );

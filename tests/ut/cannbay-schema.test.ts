@@ -241,7 +241,9 @@ describe('cannbay schema：列清单对账 round-trip（数据全不能少）', 
   it('③ 逐列对账：0 丢失 0 损造', async () => {
     const s = await prisma.session.findFirst({ where: { taskId: SID } });
     expect(s).toBeTruthy();
-    // Session 直载列：framework/version 由 cc-session-meta 恢复（不再错变 claude-code）
+    // Session 直载列：framework/version 由 cc-session-meta 恢复（不再错变 claude-code）。
+    // 本用例是 insight-export 回环（version 无 -proxy 后缀）——framework 保持导出
+    // 身份 'opencode'，不套方案一的 -proxy 记录后缀（那是 proxy 捕获行的专属值）
     expect(s!.framework).toBe('opencode');
     expect(s!.version).toBe('test-cc-2.1.100');
 
@@ -361,7 +363,7 @@ describe('cannbay schema：⑥ opencode-producer 形状 + version 门禁', () =>
 
     await importSession(mainFile, SID, prisma, mainFile, 'claude-jsonl');
     const s = await prisma.session.findFirst({ where: { taskId: SID } });
-    expect(s?.framework).toBe('opencode');   // cc-session-meta 权威源生效
+    expect(s?.framework).toBe('opencode-proxy');   // cc-session-meta 权威源生效（方案一记录后缀）
     expect(s?.version).toBe('opencode-proxy');
     const turns = await prisma.turn.findMany({ where: { sessionId: s!.id, role: 'assistant' }, orderBy: { turnIndex: 'asc' } });
     expect(turns.length).toBe(1);

@@ -45,7 +45,7 @@ afterEach(async () => {
 });
 
 describe('proxy 捕获的 framework 归属', () => {
-  it("opencode-proxy 捕获 → framework='opencode'，version 带 marker", async () => {
+  it("opencode-proxy 捕获 → framework='opencode-proxy'（方案一记录后缀），version 带 marker", async () => {
     const file = captureFile('oc-proxy.jsonl', 'opencode-proxy');
     const sid = 'oc-proxy-fw-it-1';
     const res = await POST(req({ source: 'claude-jsonl', sessionId: sid, filePath: file }));
@@ -53,11 +53,11 @@ describe('proxy 捕获的 framework 归属', () => {
     const row = await prisma.session.findFirst({ where: { taskId: sid }, select: { id: true, framework: true, version: true } });
     expect(row).not.toBeNull();
     createdSessionIds.push(row!.id);
-    expect(row!.framework).toBe('opencode');
+    expect(row!.framework).toBe('opencode-proxy');
     expect(row!.version).toBe('opencode-proxy');
   });
 
-  it("claude-proxy 捕获 → framework 保持 'claude-code'", async () => {
+  it("claude-proxy 捕获 → framework 'claude-code-proxy'（方案一记录后缀）", async () => {
     const file = captureFile('cc-proxy.jsonl', 'claude-proxy');
     const sid = 'cc-proxy-fw-it-1';
     const res = await POST(req({ source: 'claude-jsonl', sessionId: sid, filePath: file }));
@@ -65,7 +65,7 @@ describe('proxy 捕获的 framework 归属', () => {
     const row = await prisma.session.findFirst({ where: { taskId: sid }, select: { id: true, framework: true, version: true } });
     expect(row).not.toBeNull();
     createdSessionIds.push(row!.id);
-    expect(row!.framework).toBe('claude-code');
+    expect(row!.framework).toBe('claude-code-proxy');
     expect(row!.version).toBe('claude-proxy');
   });
 
@@ -82,7 +82,7 @@ describe('proxy 捕获的 framework 归属', () => {
     const row = await prisma.session.findFirst({ where: { taskId: sid }, select: { id: true, framework: true, version: true } });
     expect(row).not.toBeNull();
     createdSessionIds.push(row!.id);
-    expect(row!.framework).toBe('opencode');
+    expect(row!.framework).toBe('opencode-proxy');
     expect(row!.version).toBe('1.17.9-opencode-proxy');
   });
 
@@ -93,7 +93,7 @@ describe('proxy 捕获的 framework 归属', () => {
     await POST(req({ source: 'claude-jsonl', sessionId: sid, filePath: file }));
     const rows = await prisma.session.findMany({ where: { taskId: sid }, select: { id: true, framework: true } });
     expect(rows.length).toBe(1);
-    expect(rows[0].framework).toBe('opencode');
+    expect(rows[0].framework).toBe('opencode-proxy');
     createdSessionIds.push(rows[0].id);
   });
 });

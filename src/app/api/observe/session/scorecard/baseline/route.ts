@@ -20,10 +20,10 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
-    const { taskId } = (await request.json()) as { taskId?: string };
+    const { taskId, framework } = (await request.json()) as { taskId?: string; framework?: string };
     if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
 
-    const assembled = await assembleInput(taskId, prisma);
+    const assembled = await assembleInput(taskId, prisma, framework || undefined);
     if (!assembled) return NextResponse.json({ error: `session not found: ${taskId}` }, { status: 404 });
     const { input, raw } = assembled;
     if (input.taskType === 'unknown') {

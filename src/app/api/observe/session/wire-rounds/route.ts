@@ -30,12 +30,13 @@ export async function GET(request: NextRequest) {
     const taskId = searchParams.get('taskId');
     const full = searchParams.get('full') === '1';
     const delta = searchParams.get('delta') === '1';
+    const framework = searchParams.get('framework');
     if (!taskId) {
       return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
     }
 
     const session = await prisma.session.findFirst({
-      where: { taskId },
+      where: { taskId, ...(framework ? { framework } : {}) },
       select: { id: true, sourcePath: true, framework: true, version: true },
       orderBy: { startTime: 'desc' },
     });

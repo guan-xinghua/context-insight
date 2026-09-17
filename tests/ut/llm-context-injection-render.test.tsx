@@ -65,12 +65,16 @@ function wireProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('LlmContextView wire-fidelity display', () => {
-  // 消息体默认折叠（点击标题行展开）—— 内容断言前先展开目标消息
+  // 消息体默认折叠，仅行尾三角按钮可展开（行空白处不触发）——按行文本定位行，再点行内三角。
+  // 注意区分 CopyButton（同为 role=button）：三角的文本内容恰为 ▶/▼。
+  const isTriangle = (el: Element) => el.textContent?.trim() === '▶' || el.textContent?.trim() === '▼';
+
   function expandMessage(container: HTMLElement, tokenLabel: string) {
-    const header = Array.from(container.querySelectorAll('[role="button"]'))
-      .find(el => el.textContent?.includes(tokenLabel));
-    expect(header, `header with ${tokenLabel} should exist`).toBeDefined();
-    act(() => { header!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const tri = Array.from(container.querySelectorAll('[role="button"]'))
+      .filter(isTriangle)
+      .find(el => el.closest('div')?.textContent?.includes(tokenLabel));
+    expect(tri, `triangle toggle in row with ${tokenLabel} should exist`).toBeDefined();
+    act(() => { tri!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   }
 
   it('user message renders the reminder as a separate sub-block above the prompt', () => {
@@ -115,10 +119,11 @@ describe('LlmContextView wire-fidelity display', () => {
 
   it('System prompt panel (wire top-level field) still renders, without duplicating messages', () => {
     const { container } = renderCollect(wireProps());
-    const sysPanel = Array.from(container.querySelectorAll('[role="button"]'))
-      .find(el => el.textContent === 'System6t · 20 chars▶' || (el.textContent?.includes('System') && el.textContent?.includes('20 chars')));
-    expect(sysPanel).toBeDefined();
-    act(() => { sysPanel!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const sysTri = Array.from(container.querySelectorAll('[role="button"]'))
+      .filter(el => el.textContent?.trim() === '▶' || el.textContent?.trim() === '▼')
+      .find(el => el.closest('div')?.textContent?.includes('20 chars'));
+    expect(sysTri, 'System section triangle should exist').toBeDefined();
+    act(() => { sysTri!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     // both occurrences are panel-internal (120-char preview line + <pre> body)
     expect(container.innerHTML.split('You are Claude Code.').length - 1).toBe(2);
   });
@@ -133,13 +138,11 @@ describe('LlmContextView wire-fidelity display', () => {
 
   it('messages start collapsed; expanding reveals verbatim content, collapsing hides it', () => {
     const { container } = renderCollect(wireProps());
-    const sysHeader = Array.from(container.querySelectorAll('[role="button"]'))
-      .find(el => el.textContent?.includes('2.0kt'));
     // 默认折叠：内容不可见
     expect(container.innerHTML.split('The following skills are available').length - 1).toBe(0);
-    act(() => { sysHeader!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expandMessage(container, '2.0kt');
     expect(container.innerHTML.split('The following skills are available').length - 1).toBe(1);
-    act(() => { sysHeader!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expandMessage(container, '2.0kt');
     expect(container.innerHTML.split('The following skills are available').length - 1).toBe(0);
   });
 });

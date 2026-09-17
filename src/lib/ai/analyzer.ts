@@ -214,6 +214,8 @@ export async function analyzeWorkflow(
   provider: AIProviderConfig,
   prisma: import("@prisma/client").PrismaClient,
 ): Promise<WorkflowTree> {
+  // TODO(方案一双行消歧): 裸 taskId findFirst 在同 sid 双行（原生+捕获）下可能
+  // 取到另一行——AI 分析 API 需补 framework 参数穿到这里（AGENTS.md 消歧规则）
   const session = await prisma.session.findFirst({ where: { taskId } });
   if (!session) throw new Error(`Session not found: ${taskId}`);
 

@@ -34,7 +34,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No sourcePath stored for this session — cannot refresh' }, { status: 400 });
     }
 
-    const result = await deltaRefreshSession(taskId, prisma);
+    // 直传已按 framework 消歧解析出的行——同 sid 双行下裸 taskId 会在
+    // deltaRefreshSession 内二次查找时打到另一行（刷新错行）
+    const result = await deltaRefreshSession(taskId, prisma, session);
 
     // 漂移全量重建单独提示：addedTurns 是相对替换前的净增，总轮数在
     // rebuiltTurns——不能把整个会话的轮数报成「新增 N 轮」

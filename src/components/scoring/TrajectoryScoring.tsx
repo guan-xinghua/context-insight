@@ -245,7 +245,7 @@ function DimensionCard({ taskId, dim, onJumpToTurn }: { taskId: string; dim: Dim
   );
 }
 
-export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { taskId: string; embedded?: boolean; onJumpToTurn?: (turnIndex: number) => void }) {
+export function TrajectoryScoring({ taskId, framework, embedded = false, onJumpToTurn }: { taskId: string; framework?: string; embedded?: boolean; onJumpToTurn?: (turnIndex: number) => void }) {
   const [card, setCard] = useState<Scorecard | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | '404' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -265,9 +265,9 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
         ? await fetch(`/api/observe/session/scorecard`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId }),
+            body: JSON.stringify({ taskId, framework }),
           })
-        : await fetch(`/api/observe/session/scorecard?taskId=${encodeURIComponent(taskId)}`);
+        : await fetch(`/api/observe/session/scorecard?taskId=${encodeURIComponent(taskId)}${framework ? `&framework=${encodeURIComponent(framework)}` : ''}`);
       if (res.status === 404) { setState('404'); return; }
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? `HTTP ${res.status}`); setState('error'); return; }
@@ -280,7 +280,7 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
     } finally {
       setBusy('none');
     }
-  }, [taskId]);
+  }, [taskId, framework]);
 
   // setState 放微任务：避免 effect 体内同步 setState（仓库既有模式）
   useEffect(() => {
@@ -307,6 +307,7 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               taskId,
+              framework,
               provider: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model },
             }),
           });
@@ -353,7 +354,7 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
         }
       })();
     });
-  }, [taskId]);
+  }, [taskId, framework]);
 
   const onUserDefsChanged = useCallback(() => { void fetchCard(); }, [fetchCard]);
 
@@ -518,7 +519,7 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
 
       <UserDimensionManager open={showUserDefs} onOpenChange={setShowUserDefs} onChanged={onUserDefsChanged} taskId={taskId} />
       <ProfileManager open={showProfile} onOpenChange={setShowProfile} onChanged={() => { void fetchCard(true); }} onOpenD7={() => setShowUserDefs(true)} />
-      <OpBenchDialog open={showOpBench} onOpenChange={setShowOpBench} taskId={taskId} onSaved={() => { void fetchCard(true); }} />
+      <OpBenchDialog open={showOpBench} onOpenChange={setShowOpBench} taskId={taskId} framework={framework} onSaved={() => { void fetchCard(true); }} />
       <ScoringCriteria />
     </>
   );
@@ -530,7 +531,7 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
       const res = await fetch('/api/observe/session/scorecard/baseline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId }),
+        body: JSON.stringify({ taskId, framework }),
       });
       const data = await res.json();
       if (!res.ok) { setNotice(data.error ?? `HTTP ${res.status}`); return; }
@@ -540,7 +541,7 @@ export function TrajectoryScoring({ taskId, embedded = false, onJumpToTurn }: { 
     } finally {
       setBusy('none');
     }
-  }, [taskId]);
+  }, [taskId, framework]);
 
   const actions = (
     <div className="flex items-center gap-1.5">

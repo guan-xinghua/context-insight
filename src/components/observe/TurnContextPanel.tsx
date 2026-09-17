@@ -398,32 +398,41 @@ function ContextSection({ info, prevPct }: { info: ContextInfo; prevPct: number 
         </div>
 
         {messages.length > 0 && (
-          <button
-            className="mt-1 text-xs text-primary cursor-pointer hover:underline"
-            onClick={() => setIsExpanded(!isExpanded)}
-          >
-            {isExpanded ? "▼ Hide full context" : "▶ Show full context"}
-          </button>
+          <div className="mt-1 flex items-center gap-2 text-xs">
+            <span className="text-primary">{isExpanded ? "Hide full context" : "Show full context"}</span>
+            <span
+              role="button"
+              tabIndex={0}
+              className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+              onClick={() => setIsExpanded(!isExpanded)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsExpanded(!isExpanded) }}
+            >
+              {isExpanded ? "▼" : "▶"}
+            </span>
+          </div>
         )}
       </div>
 
       {/* Full context expansion */}
       {isExpanded && categories.map((cat, i) => (
         <div key={`cat-${i}`} className="border-t">
-          <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent/30 transition-colors cursor-pointer"
-            onClick={() => toggleCategory(cat.role)}
-          >
+          <div className="w-full flex items-center gap-2 px-3 py-1.5">
             <div className={cn("w-2 h-2 rounded-sm", cat.color)} />
             <span className={cn("font-medium text-sm", cat.textColor)}>{cat.icon} {cat.label}</span>
             <span className="text-xs text-muted-foreground">{cat.messages.length} msg · {formatTokenCount(cat.totalTokens)}t</span>
             {cat.skillHeaders.length > 0 && (
               <Badge variant="yellow" className="text-xs">⚡ {cat.skillHeaders.length}</Badge>
             )}
-            <span className="text-xs text-muted-foreground ml-auto">
+            <span
+              role="button"
+              tabIndex={0}
+              className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+              onClick={() => toggleCategory(cat.role)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleCategory(cat.role) }}
+            >
               {expandedCategories.has(cat.role) ? "▼" : "▶"}
             </span>
-          </button>
+          </div>
 
           {expandedCategories.has(cat.role) && (
             <div className="px-3 pb-2 space-y-1 max-h-[300px] overflow-y-auto">
@@ -438,10 +447,7 @@ function ContextSection({ info, prevPct }: { info: ContextInfo; prevPct: number 
 
                 return (
                   <div key={key} className={cn("border rounded-md overflow-hidden", isSkill && "border-l-3 border-l-yellow-400 bg-yellow-50/10 dark:bg-yellow-500/5", isContinuationMsg && "border-l-3 border-l-purple-500 bg-purple-50/20 dark:bg-purple-500/10")}>
-                    <button
-                      className="w-full flex items-center gap-1.5 px-2 py-1 hover:bg-accent/30 transition-colors text-xs cursor-pointer"
-                      onClick={() => toggleMsg(key)}
-                    >
+                    <div className="w-full flex items-center gap-1.5 px-2 py-1 text-xs">
                       <Badge variant={isContinuationMsg ? CONTINUATION_BADGE : (ROLE_BADGE_VARIANTS[msg.role] ?? "gray")} className="text-xs">
                         {isContinuationMsg ? "⚡ continuation" : msg.role}
                       </Badge>
@@ -453,10 +459,18 @@ function ContextSection({ info, prevPct }: { info: ContextInfo; prevPct: number 
                       {msg.tokenCount != null && msg.tokenCount > 0 && (
                         <span className="text-muted-foreground">{formatTokenCount(msg.tokenCount)}t</span>
                       )}
-                      {msg.content && msg.content.length > 80 && (
-                        <span className="text-muted-foreground">{isMsgExpanded ? "▼" : "▶"}</span>
+                      {((msg.content && msg.content.length > 80) || (msg.tool_calls && msg.tool_calls.length > 0)) && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="ml-auto shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                          onClick={() => toggleMsg(key)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMsg(key) }}
+                        >
+                          {isMsgExpanded ? "▼" : "▶"}
+                        </span>
                       )}
-                    </button>
+                    </div>
 
                     {showFull && (
                       <div className="px-2 pb-1.5 text-xs whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto bg-muted/30">

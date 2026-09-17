@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BRAND_NAME, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
-import { isProxyVersion } from '@/lib/shared/session-format'
+import { isProxyVersion, agentFrameworkOf } from '@/lib/shared/session-format'
 import { useRouter } from 'next/navigation';
 import {
   Table,
@@ -253,7 +253,8 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
       const res = await fetch('/api/ingest/export-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: item.taskId }),
+        // framework：同 sid 双行（方案一）消歧——不带会导出另一行
+        body: JSON.stringify({ taskId: item.taskId, framework: item.framework ?? undefined }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -498,20 +499,25 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                     </Link>
                   </TableCell>
                   <TableCell className="text-xs">
-                    {item.framework === 'opencode' || item.framework === 'claude-code' || item.framework === 'cannbot' ? (
-                      <span className="inline-flex items-center gap-1">
-                        {item.framework === 'opencode'
-                          ? <Badge variant="blue">OpenCode</Badge>
-                          : item.framework === 'cannbot'
-                            ? <Badge variant="green">CANNBot</Badge>
-                            : <Badge variant="orange">Claude</Badge>}
-                        {isProxyVersion(item.version) && (
-                          <Badge variant="yellow">proxy</Badge>
-                        )}
-                      </span>
-                    ) : item.framework === BRAND_SOURCE_TYPE ? (
-                      <Badge variant="purple">{BRAND_NAME}</Badge>
-                    ) : '—'}
+                    {/* 方案一（同 sid 双会话）：framework 可能带 -proxy 记录后缀，
+                        图标按 agent 归属归一呈现，proxy 与否走 version 徽标 */}
+                    {(() => {
+                      const agent = agentFrameworkOf(item.framework) ?? '';
+                      return agent === 'opencode' || agent === 'claude-code' || agent === 'cannbot' ? (
+                        <span className="inline-flex items-center gap-1">
+                          {agent === 'opencode'
+                            ? <Badge variant="blue">OpenCode</Badge>
+                            : agent === 'cannbot'
+                              ? <Badge variant="green">CANNBot</Badge>
+                              : <Badge variant="orange">Claude</Badge>}
+                          {isProxyVersion(item.version) && (
+                            <Badge variant="yellow">proxy</Badge>
+                          )}
+                        </span>
+                      ) : item.framework === BRAND_SOURCE_TYPE ? (
+                        <Badge variant="purple">{BRAND_NAME}</Badge>
+                      ) : '—';
+                    })()}
                   </TableCell>
                   <TableCell className="text-xs whitespace-nowrap">
                     {formatTime(item.startTime)} → {formatTime(item.endTime)}

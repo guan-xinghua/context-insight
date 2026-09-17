@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as {
       taskId?: string;
+      framework?: string;
       provider?: { baseUrl?: string; apiKey?: string; model?: string };
     };
     if (!body.taskId || !body.provider?.baseUrl || !body.provider?.model) {
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     if (!apiKey) {
       return NextResponse.json({ error: 'Missing provider apiKey（在设置页配置 LLM）' }, { status: 400 });
     }
-    const { taskId, provider } = body;
+    const { taskId, provider, framework } = body;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
         try {
           const card = await runScorecard(taskId, prisma, {
             withSemantic: true,
+            framework: framework || undefined,
             provider: { baseUrl: provider.baseUrl!, apiKey, model: provider.model! },
             onProgress: p => send({ type: 'progress', done: p.done, total: p.total, current: p.current }),
           });

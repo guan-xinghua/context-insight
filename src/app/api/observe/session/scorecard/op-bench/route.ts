@@ -15,16 +15,17 @@ import { loadSessionOpBench, writeSessionOpBench, type SessionOpBenchFile } from
 
 export const maxDuration = 60;
 
-async function resolveSessionId(taskId: string): Promise<string | null> {
-  const session = await prisma.session.findFirst({ where: { taskId }, select: { id: true } });
+async function resolveSessionId(taskId: string, framework?: string | null): Promise<string | null> {
+  const session = await prisma.session.findFirst({ where: { taskId, ...(framework ? { framework } : {}) }, select: { id: true } });
   return session?.id ?? null;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const taskId = request.nextUrl.searchParams.get('taskId');
+    const framework = request.nextUrl.searchParams.get('framework');
     if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
-    const sessionId = await resolveSessionId(taskId);
+    const sessionId = await resolveSessionId(taskId, framework);
     if (!sessionId) return NextResponse.json({ error: `session not found: ${taskId}` }, { status: 404 });
     const bench = await loadSessionOpBench(sessionId);
     return NextResponse.json({ score: bench?.score ?? null, note: bench?.note ?? null, filledAt: bench?.filledAt ?? null });
@@ -35,12 +36,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { taskId, score, note } = (await request.json()) as { taskId?: string; score?: unknown; note?: unknown };
+    const { taskId, framework, score, note } = (await request.json()) as { taskId?: string; framework?: string; score?: unknown; note?: unknown };
     if (!taskId) return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
     if (typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 100) {
       return NextResponse.json({ error: 'score 必须是 0-100 的数字（CANN-Bench 百分制总分）' }, { status: 400 });
     }
-    const sessionId = await resolveSessionId(taskId);
+    const sessionId = await resolveSessionId(taskId, framework);
     if (!sessionId) return NextResponse.json({ error: `session not found: ${taskId}` }, { status: 404 });
 
     const file: SessionOpBenchFile = {

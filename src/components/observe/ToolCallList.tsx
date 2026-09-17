@@ -138,13 +138,7 @@ export function ToolCallList({ toolCalls, highlight }: ToolCallListProps) {
             {/* 此前是死行：无点击、无 Args/Result——task 派发类 skill 调用
                 （Args=prompt、Result=subagent 报告）整段不可见（现场 #8：
                 1022t Args + 3595t Result 只剩一行"⚡ task completed"） */}
-            <span
-              role="button"
-              tabIndex={0}
-              className="w-full flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer hover:bg-accent/30 transition-colors"
-              onClick={() => toggleExpanded(tc.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(tc.id) }}
-            >
+            <div className="w-full flex items-center gap-2 px-2 py-1 rounded-md">
               <Badge variant="yellow" className="text-xs">⚡</Badge>
               {skillLabel ? (
                 <span className="font-medium text-foreground/80">{skillLabel}</span>
@@ -157,8 +151,16 @@ export function ToolCallList({ toolCalls, highlight }: ToolCallListProps) {
               )}
               {(tc.argsJson || tc.resultJson) && <CopyButton text={[tc.argsJson, tc.resultJson].filter(Boolean).join("\n\n---\n\n")} className="ml-auto size-4 text-muted-foreground hover:text-foreground" />}
               {!tc.argsJson && !tc.resultJson && <span className="ml-auto" />}
-              <span className="text-muted-foreground shrink-0">{isExpanded ? "▼" : "▶"}</span>
-            </span>
+              <span
+                role="button"
+                tabIndex={0}
+                className="shrink-0 px-2 py-1 -mr-2 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                onClick={() => toggleExpanded(tc.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(tc.id) }}
+              >
+                {isExpanded ? "▼" : "▶"}
+              </span>
+            </div>
 
             {isExpanded && (
               <div className="px-2 pb-2 space-y-2">
@@ -195,13 +197,7 @@ export function ToolCallList({ toolCalls, highlight }: ToolCallListProps) {
 
         return (
           <div key={tc.id} className="border rounded-md">
-            <span
-              role="button"
-              tabIndex={0}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-accent/30 transition-colors"
-              onClick={() => toggleExpanded(tc.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(tc.id) }}
-            >
+            <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm">
               <span className="font-medium">{tc.toolName}</span>
               <Badge variant={displayState.variant}>{displayState.label}</Badge>
               {tc.durationMs > 0 && (
@@ -212,10 +208,16 @@ export function ToolCallList({ toolCalls, highlight }: ToolCallListProps) {
               )}
               {(tc.argsJson || tc.resultJson) && <CopyButton text={[tc.argsJson, tc.resultJson].filter(Boolean).join("\n\n---\n\n")} className="ml-auto size-4 text-muted-foreground hover:text-foreground" />}
               {!tc.argsJson && !tc.resultJson && <span className="ml-auto" />}
-              <span className="text-xs text-muted-foreground shrink-0">
+              <span
+                role="button"
+                tabIndex={0}
+                className="shrink-0 px-2 py-1 -mr-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer select-none"
+                onClick={() => toggleExpanded(tc.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleExpanded(tc.id) }}
+              >
                 {isExpanded ? "▼" : "▶"}
               </span>
-            </span>
+            </div>
 
             {isExpanded && (
               <div className="px-2 pb-2 space-y-2">
