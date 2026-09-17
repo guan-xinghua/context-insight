@@ -126,7 +126,7 @@ describe("启动器端口编排（bin/ports.mjs）", () => {
       expect(await findFreePort(base + 1)).toBe(base + 1)
 
       // 修复后：smart-agent 分配带 skip=nextPort → 落到 BASE+2，永不与 next 撞
-      const agentPort = await findFreePort(base + 1, { skip: nextPort })
+      const agentPort = await findFreePort(base + 1, { skip: nextPort! })
       expect(agentPort).not.toBe(nextPort)
       expect(agentPort).toBe(base + 2)
       expect(await isTcpFree(agentPort!)).toBe(true)

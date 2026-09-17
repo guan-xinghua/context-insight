@@ -30,6 +30,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Build artifacts — linting generated bundles produces hundreds of
+    // meaningless rules-of-hooks/no-unused-expressions hits (编译产物非手写源码):
+    //   public/export-view.js ← npm run build:export-view
+    //   dist/**               ← npm run build-cli (prepack)
+    "public/export-view.js",
+    "dist/**",
     // context 品牌变体打包工作区（scripts/pack-context.mjs 的 staging 复制树）
     ".context-pack/**",
   ]),

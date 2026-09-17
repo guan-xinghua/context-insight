@@ -194,6 +194,27 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // 混模会话：subagent 的 null-model turn 回退该 subagent 首个 assistant 的
+    // model（与详情 route 的 resolveSubagentModel 同源；按 turnIndex asc 分组
+    // 一次查全、首见即定，避免逐 turn N+1），再回退会话级 model。仅在展示的
+    // turns 里确有 null-model 的 subagent turn 时才查
+    const subagentModels = new Map<string, string>();
+    if (turns.some(t => !t.model && t.subagentSessionId)) {
+      const subs = await prisma.turn.findMany({
+        where: { sessionId: session.id, subagentSessionId: { not: null }, role: 'assistant', model: { not: null } },
+        select: { subagentSessionId: true, model: true },
+        orderBy: [{ turnIndex: 'asc' }],
+      });
+      for (const r of subs) {
+        if (r.subagentSessionId == null || r.model == null) continue;
+        if (!subagentModels.has(r.subagentSessionId)) subagentModels.set(r.subagentSessionId, r.model);
+      }
+    }
+    const limitFor = (t: { model: string | null; subagentSessionId: string | null }) =>
+      getContextWindowLimit(
+        t.model || (t.subagentSessionId ? subagentModels.get(t.subagentSessionId) ?? null : null) || session.model
+      );
+
     // Reconstruct inputMessagesJson for assistant turns if not stored (import optimization)
     if (includeDetail) {
       const assistantTurnsNeedingReconstruction = turns.filter(
@@ -363,7 +384,7 @@ export async function GET(request: NextRequest) {
       createdAt: t.createdAt_ts?.toISOString() ?? t.createdAt.toISOString(),
       completedAt: t.completedAt?.toISOString() ?? null,
       model: t.model,
-      contextWindowLimit: getContextWindowLimit(t.model),
+      contextWindowLimit: limitFor(t),
       finishReason: t.finishReason,
       toolCalls: t.toolCalls.map(tc => {
         const detail: ToolCallDetail = tc;
@@ -448,7 +469,11 @@ export async function GET(request: NextRequest) {
             createdAt: item.createdAt,
             completedAt: null,
             model: null,
-            contextWindowLimit: 200000,
+            // 合成 continuation 是喂回主对话的 user turn，基数与主链路同源
+            //（subagent/会话 model），不取 compaction turn 自己的 model——
+            // opencode 落库的 compaction turn 带 model 且可与主链路不同
+            //（摘要常用小模型），取它会让列表与详情 -continuation 分支分叉
+            contextWindowLimit: limitFor({ model: null, subagentSessionId: item.subagentSessionId }),
             finishReason: null,
             toolCalls: [],
             skillEvents: [],

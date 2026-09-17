@@ -22,6 +22,7 @@ UI version tracked in `src/lib/version.ts` — `package.json` version stays in s
 | `npm run test:cli` | `vitest run tests/cli/` — CLI tests only |
 | `npx vitest run tests/cli/unit/commands/import.test.ts` | Run a single test file |
 | `npm run lint` | eslint (flat config, `eslint.config.mjs`) |
+| `npm run typecheck` | `tsc --noEmit` — 全仓类型检查（含 tests/；已挂 `pretest`，`npm run test` 前自动跑，类型错最快失败） |
 | `npm run build` | `next build` |
 
 ## Architecture

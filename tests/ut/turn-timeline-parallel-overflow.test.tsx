@@ -14,20 +14,28 @@
  * 演进：最初并行 lanes 用 grid 2/3 列并排展开——窄列被 turn 行（#N + role badge +
  * "1 tools" + token 数）的最小内容宽撑破（grid 子项默认 min-width:auto），横向
  * 溢出覆盖相邻内容；items-start 修掉框内拉伸后又暴露并排固有的短侧留白（grid
- * 行高取最高者，矮 lane 下方到行底必然空白）。最终形态：**并行组 = 紧凑 chip 行 +
- * 展开区全宽堆叠**（ParallelSubagentGroup）——chip 单行等高天然齐整，展开 lane
- * 独占全宽（不挤窄列，从根上消除溢出），多个 lane 可同时展开。
+ * 行高取最高者，矮 lane 下方到行底必然空白）。继而改为「紧凑 chip 行 + 展开区
+ * 全宽堆叠」，但又引入体验问题：所有展开 lane 统一渲染在整个 chip 行末尾，
+ * 点第一个 chip 详情跑到最后一个 chip 下方（用户现场：三路并行点 empty，
+ * 展开区出现在 base 下面）。最终形态：**并行组 = 紧凑 chip 行 + 就地展开**——
+ * 展开 lane 紧贴自己的 chip 下方全宽渲染（wrapper basis-full 独占一行），
+ * 多个 lane 可同时展开。
  *
  * 断言（happy-dom 无布局引擎，锁结构防回归）：
  *   ① 并行组渲染：⇄ 标识 + 汇总统计 + 两个 agent chip
  *   ② 不再使用多列 grid 并排（grid-cols-2/3 不应出现）
  *   ③ chip 行 flex-wrap、组根 min-w-0（窄容器不撑破）
- *   ④ 展开的 lane 全宽渲染在 chip 行下方，turn 行卫生（min-w-0/flex-wrap/shrink-0）
+ *   ④ 展开的 lane 全宽渲染，turn 行卫生（min-w-0/flex-wrap/shrink-0）
+ *   ⑤ 点击第一个 chip：lane 内容在 DOM 顺序上先于后续 chip（就地展开）
  */
 import { describe, it, expect } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 import { createElement } from "react"
+import { act } from "react"
+import { createRoot } from "react-dom/client"
 import { TurnTimeline, SubagentLaneView, ParallelSubagentGroup } from "@/components/observe/TurnTimeline"
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 function makeTurn(turnIndex: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -198,8 +206,70 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
         },
       })
     )
-    expect(html).toMatch(/#\d+[^]*shrink-0|shrink-0[^]*#\d+/s)
+    expect(html).toMatch(/#\d+[^]*shrink-0|shrink-0[^]*#\d+/)
     expect(html).toContain("#635")
     expect(html).toContain("1 tools")
+  })
+
+  it("点击第一个 chip：详情紧跟其下（DOM 顺序先于后续 chip），其他 lane 仍折叠", async () => {
+    // 现场场景三路并行（empty/group/base）：点第一个 chip，旧布局把展开区
+    // 统一渲染在整个 chip 行末尾，详情视觉上挂在最后一个 chip 下面
+    const mk = (idx: number, sid: string, mark: string) =>
+      makeTurn(idx, {
+        isSubagent: true,
+        subagentSessionId: sid,
+        subagentName: "worker",
+        contentSummary: mark,
+      })
+    const turns = [
+      makeTurn(100, {
+        toolCalls: [
+          { toolCallId: "tc-a", toolName: "task", state: "completed", durationMs: 5 },
+          { toolCallId: "tc-b", toolName: "task", state: "completed", durationMs: 5 },
+          { toolCallId: "tc-c", toolName: "task", state: "completed", durationMs: 5 },
+        ],
+      }),
+      mk(101, "ses_empty", "EMPTY-LANE-TURN"),
+      mk(102, "ses_group", "GROUP-LANE-TURN"),
+      mk(103, "ses_base", "BASE-LANE-TURN"),
+    ]
+    const bridges = [
+      makeBridge("br-empty", "t-100", "ses_empty", "agent-empty"),
+      makeBridge("br-group", "t-100", "ses_group", "agent-group"),
+      makeBridge("br-base", "t-100", "ses_base", "agent-base"),
+    ]
+
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(createElement(TurnTimeline, {
+        turns,
+        bridges,
+        selectedTurnId: null,
+        onSelectTurn: () => {},
+      }))
+    })
+
+    const chipByName = (name: string) =>
+      [...container.querySelectorAll("button")].find(b => b.textContent?.includes(name)) as HTMLElement
+    // 折叠态：三个 chip 都在，无任何 lane 内容
+    expect(chipByName("agent-empty")).toBeTruthy()
+    expect(container.textContent).not.toContain("EMPTY-LANE-TURN")
+
+    await act(async () => { chipByName("agent-empty").click() })
+
+    // lane 内容出现，且 DOM 顺序先于后续两个 chip —— 详情在所属 chip 下方，
+    // 而不是等在整个 chip 行末尾
+    const laneRow = [...container.querySelectorAll("button")].find(b => b.textContent?.includes("EMPTY-LANE-TURN")) as HTMLElement
+    expect(laneRow).toBeTruthy()
+    expect(chipByName("agent-group").compareDocumentPosition(laneRow) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    expect(chipByName("agent-base").compareDocumentPosition(laneRow) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    // 其他 lane 未连带展开
+    expect(container.textContent).not.toContain("GROUP-LANE-TURN")
+    expect(container.textContent).not.toContain("BASE-LANE-TURN")
+
+    root.unmount()
+    container.remove()
   })
 })

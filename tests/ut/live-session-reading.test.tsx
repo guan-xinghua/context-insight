@@ -19,8 +19,8 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { createElement } from 'react'
-import { createRoot, act, type Root } from 'react'
-import { createRoot as createClientRoot } from 'react-dom/client'
+import { act } from 'react'
+import { createRoot as createClientRoot, type Root } from 'react-dom/client'
 import { NextRequest } from 'next/server'
 import fs from 'node:fs'
 import os from 'node:os'

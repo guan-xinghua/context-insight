@@ -21,6 +21,8 @@ delete process.env.CANNBAY2_CACHE_DIR;
 delete process.env.CANNBAY2_PUSH_URL;
 
 const remote = await import('../../src/lib/cannbay2/remote');
+// await import 的命名空间不能用在类型位置（TS2503）——类型走 type-only import
+import type { Cannbay2Remote } from '../../src/lib/cannbay2/remote';
 const mirrorMod = await import('../../src/lib/cannbay2/mirror');
 const { migrateCannbayConfig, cannbayRemoteInput, DEFAULT_CANNBAY_ADDRESS } = await import('../../src/lib/cannbay-config');
 
@@ -229,7 +231,7 @@ describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
       const before = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'));
       const r = remote.resolveCannbay2Remote({ address: bare, branch: 'main' });
       expect(r.pushAuth).toBeNull(); // 本地路径无凭据
-      const withAuth: remote.Cannbay2Remote = { ...r, pushAuth: { username: 'it-user', password: 'it-pass' } };
+      const withAuth: Cannbay2Remote = { ...r, pushAuth: { username: 'it-user', password: 'it-pass' } };
       mirrorMod.pushMirror(work, withAuth);
       expect(execSync('git rev-parse main', { cwd: bare, stdio: 'pipe' }).toString().trim())
         .toBe(execSync('git rev-parse HEAD', { cwd: work, stdio: 'pipe' }).toString().trim());
@@ -248,7 +250,7 @@ describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
   });
   it('pushAuth 含换行：helper 协议非法，立即拒绝且不落临时目录', () => {
     const r = remote.resolveCannbay2Remote({ address: '/tmp/x.git', branch: 'main' });
-    const bad: remote.Cannbay2Remote = { ...r, pushAuth: { username: 'u', password: 'p\nq' } };
+    const bad: Cannbay2Remote = { ...r, pushAuth: { username: 'u', password: 'p\nq' } };
     const before = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'));
     expect(() => mirrorMod.pushMirror('/tmp', bad)).toThrow('换行');
     expect(fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-cannbay2-auth-'))).toEqual(before);

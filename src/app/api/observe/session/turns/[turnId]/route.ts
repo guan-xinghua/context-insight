@@ -19,34 +19,65 @@ import path from 'node:path';
 
 // 读侧热路径缓存：每次点击 turn 的重复确定性计算——
 //   systemOverhead：只依赖首个 assistant turn（落库后不可变），永久缓存
+//   subagentModel：subagent 首个带 model 的 assistant turn（同上不可变）
 //   inputMessages 重建：O(前序全量) DB 扫描，turns append-only 下历史 turn
 //     重建结果不变；TTL 兜底 live 会话重导入等极端情形
 const systemOverheadCache = new LruCache<string, number>(256);
+const subagentModelCache = new LruCache<string, string | null>(256);
 const reconstructionCache = new LruCache<string, string>(64, 60_000);
 
 /** 测试钩子：清空本模块缓存。 */
 export function __clearTurnDetailCaches(): void {
   systemOverheadCache.clear();
+  subagentModelCache.clear();
   reconstructionCache.clear();
+}
+
+/** subagent 首个带 model 的 assistant turn 的 model：混模会话里 subagent 的
+ *  窗口基数回退源（user turn 不带 model，回退 root 会话 model 会与该 subagent
+ *  assistant turn 自带的 model 基数各说各话）。 */
+async function resolveSubagentModel(sessionId: string, subagentSessionId: string | null): Promise<string | null> {
+  if (!subagentSessionId) return null;
+  const cacheKey = `${sessionId}:${subagentSessionId}`;
+  const hit = subagentModelCache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const first = await prisma.turn.findFirst({
+    where: { sessionId, subagentSessionId, role: 'assistant', model: { not: null } },
+    orderBy: [{ turnIndex: 'asc' }],
+    select: { model: true },
+  });
+  const value = first?.model ?? null;
+  subagentModelCache.set(cacheKey, value);
+  return value;
 }
 
 // Read the verbatim captured context (system prompt, tools, memory files, skills)
 // from the session's capture file via Session.sourcePath. The proxy writes
 // extended claude-format, so this applies to claude-code framework sessions.
-// Returns null for other sources — those have no verbatim capture.
+// Returns null fc for other sources — those have no verbatim capture.
 //
 // For a SUBAGENT turn, read the subagent's OWN jsonl (subagents/<subId>.jsonl)
 // — subagents have a different system prompt (cc_is_subagent=true) and a
 // restricted toolset. Reading the main session's file would mislabel the
 // main agent's context as the subagent's. Falls back to null (honest empty)
 // if the subagent file is missing.
-async function readSessionFullContext(sessionId: string, subagentSessionId: string | null = null): Promise<FullContext | null> {
+//
+// 同时带出 session 行（model/sourcePath）：turn 详情是点击热路径，本函数
+// 内部本就 findUnique 了 session——调用方的窗口基数回退与 reqParams 读取
+// sourcePath 复用这一次查询，不再各自多跑一趟。
+async function readSessionFullContext(
+  sessionId: string,
+  subagentSessionId: string | null = null,
+): Promise<{
+  fc: FullContext | null;
+  session: { model: string | null; sourcePath: string | null } | null;
+}> {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
-    select: { taskId: true, framework: true, version: true, sourcePath: true },
+    select: { taskId: true, framework: true, version: true, sourcePath: true, model: true },
   });
-  if (!session || !session.sourcePath) return null;
-  if (!isClaudeFormatSession(session.framework, session.version)) return null;
+  if (!session || !session.sourcePath) return { fc: null, session };
+  if (!isClaudeFormatSession(session.framework, session.version)) return { fc: null, session };
   if (subagentSessionId) {
     try {
       // Subagent dirs are keyed by the session id (Session.taskId), NOT the
@@ -56,11 +87,11 @@ async function readSessionFullContext(sessionId: string, subagentSessionId: stri
       const fileSid = session.taskId || path.basename(session.sourcePath, '.jsonl');
       const sub = listSubagentSessions(session.sourcePath, fileSid)
         .find(s => s.id === subagentSessionId);
-      if (sub) return readFullContext(sub.filePath);
+      if (sub) return { fc: readFullContext(sub.filePath), session };
     } catch { /* fall through to null */ }
-    return null;
+    return { fc: null, session };
   }
-  return readFullContext(session.sourcePath);
+  return { fc: readFullContext(session.sourcePath), session };
 }
 
 // Compute stable system overhead from the first assistant turn
@@ -123,7 +154,12 @@ export async function GET(
         );
       }
       const systemOverheadTokens = await computeSystemOverhead(compaction.sessionId, compaction.subagentSessionId);
-      const fc = await readSessionFullContext(compaction.sessionId, compaction.subagentSessionId);
+      const { fc, session: contSess } = await readSessionFullContext(compaction.sessionId, compaction.subagentSessionId);
+      // 合成 continuation turn 无自身 model，窗口基数回退链与主分支同款：
+      // subagent 首个 assistant 的 model → 会话级 model
+      const contLimit = getContextWindowLimit(
+        (await resolveSubagentModel(compaction.sessionId, compaction.subagentSessionId)) || contSess?.model || null
+      );
       return NextResponse.json({
         turnId,
         sessionId: compaction.sessionId,
@@ -156,7 +192,7 @@ export async function GET(
         model: null,
         modelId: null,
         providerId: null,
-        contextWindowLimit: 200000,
+        contextWindowLimit: contLimit,
         finishReason: null,
         toolCalls: [],
         skillEvents: [],
@@ -301,14 +337,22 @@ export async function GET(
 
     // Compute stable system overhead (fixed for entire session)
     const systemOverheadTokens = await computeSystemOverhead(turn.sessionId, turn.subagentSessionId);
-    const fc = await readSessionFullContext(turn.sessionId, turn.subagentSessionId);
+    const { fc, session: sess } = await readSessionFullContext(turn.sessionId, turn.subagentSessionId);
+    // 窗口基数回退链：turn.model →（subagent turn）该 subagent 首个 assistant
+    // 的 model → 会话级 model。此前 null 一律落 200k 全局默认，同会话 root 卡
+    // 1M / subagent 卡 200k 各说各话（现场：glm-5.3 会话的 subagent user turn
+    // 34.1k 被算成 17%）；混模会话里 subagent 也不能回退 root 的 model——它的
+    // assistant turn 带的是自己 jsonl 的 model，基数须同源。用 || 不用 ??：
+    // '' 与 null 同样视为缺失，与列表 route 的真值判断同口径
+    const contextWindowLimit = getContextWindowLimit(
+      turn.model || (await resolveSubagentModel(turn.sessionId, turn.subagentSessionId)) || sess?.model || null
+    );
     // post-patch（spec §4.1 导入归宿）：proxy 捕获的 temperature/maxTokens/
     // 请求 model 只存在 jsonl 的 x_cannbay.data，DB 无对应列 → API 层按需叠加。
     // root assistant turn 才对齐 roundIndex（subagent turn 的全局 turnIndex 与
     // jsonl 行序不对应，跳过 —— 其请求参数由子代理自己的 jsonl 提供，另议）。
     let reqParams: { temperature: number | null; maxTokens: number | null; model: string | null } | null = null;
     if (turn.role === 'assistant' && !turn.subagentSessionId && fc !== null) {
-      const sess = await prisma.session.findUnique({ where: { id: turn.sessionId }, select: { sourcePath: true } });
       if (sess?.sourcePath) reqParams = readTurnRequestParams(sess.sourcePath, turn.turnIndex);
     }
 
@@ -346,7 +390,7 @@ export async function GET(
       model: turn.model,
       modelId: turn.modelId,
       providerId: turn.providerId,
-      contextWindowLimit: getContextWindowLimit(turn.model),
+      contextWindowLimit,
       finishReason: turn.finishReason,
       toolCalls: turn.toolCalls.map(tc => ({
         id: tc.id,

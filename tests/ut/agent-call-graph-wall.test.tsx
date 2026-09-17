@@ -50,6 +50,7 @@ function mkAgent(over: {
     model: 'glm-5.3',
     createdAt: over.createdAt,
     latencyMs: over.latencyMs,
+    firstPrompt: null,
   }
 }
 

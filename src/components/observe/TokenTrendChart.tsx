@@ -36,6 +36,9 @@ const ROLE_COLORS: Record<string, { bar: string; label: string }> = {
 }
 
 export function TokenTrendChart({ turns, defaultShow = 10 }: TokenTrendChartProps) {
+  // hooks 必须先于 early return：turns 从空（Loading）到非空时 hooks 数量
+  // 变化会触发 React hook 顺序崩溃（rules-of-hooks 报的真 bug）
+  const [showCount, setShowCount] = useState(defaultShow)
   const turnsWithTokens = turns.filter(t => t.totalTokens > 0)
   if (turnsWithTokens.length === 0) {
     return (
@@ -46,7 +49,6 @@ export function TokenTrendChart({ turns, defaultShow = 10 }: TokenTrendChartProp
   }
 
   const maxTokens = Math.max(...turnsWithTokens.map(t => t.totalTokens))
-  const [showCount, setShowCount] = useState(defaultShow)
   const visibleTurns = turnsWithTokens.slice(0, showCount)
   const hasMore = showCount < turnsWithTokens.length
 

@@ -74,7 +74,7 @@ function browseRowNames(): string[] {
 
 /** Modified 表头排序控件（span role=button） */
 function modifiedHeader(): HTMLElement | null {
-  return [...document.querySelectorAll('table thead th span[role="button"]')].find(s => s.textContent?.includes('Modified')) ?? null
+  return ([...document.querySelectorAll('table thead th span[role="button"]')] as HTMLElement[]).find(s => s.textContent?.includes('Modified')) ?? null
 }
 
 async function renderAndGoBrowse() {

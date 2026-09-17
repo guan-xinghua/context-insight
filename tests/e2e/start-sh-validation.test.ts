@@ -10,7 +10,8 @@ import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+// tests/e2e → 包根需退两层（分层重构挪目录时少改了一层，bash 退 127）
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const START_SH = path.join(PROJECT_ROOT, 'start.sh');
 
 const ALLOWED_COMMANDS = ['tui', 'sessions', 'session', 'turn', 'search', 'compare', 'stats', 'import', 'delete', 'config'];

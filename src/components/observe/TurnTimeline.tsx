@@ -126,7 +126,8 @@ interface LaneCtx {
   onToggleBridge: (bridgeId: string) => void
   selectedTurnId: string | null
   onSelectTurn: (turnId: string) => void
-  selectedSubRef: RefObject<HTMLButtonElement | null>
+  // 可空：静态渲染/单 lane 直渲的调用方无滚动定位需求，传 null 即可
+  selectedSubRef: RefObject<HTMLButtonElement | null> | null
 }
 
 // Recursive subagent lane: renders a lane's turns AND, nested, any sub-lanes
@@ -203,13 +204,14 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
 
 // 并行派发组（同一 turn 派发 N>1 个 subagent）：不再用多列 grid 并排展开——
 // lane 长度不齐时短侧下方必然留白（grid 行高取最高者），窄列还会被行内容撑破。
-// 改为「紧凑 chip 行 + 展开区全宽堆叠」：
-//   - 折叠态：每个 subagent 一个单行 chip（名/turns/时延/错误态），等高天然齐整；
-//   - 点击 chip：该 lane 在 chip 行下方全宽展开（独占整行宽，turn 行不挤窄列），
-//     可多个同时展开（保持跨 tab 导航祖先链的多桥展开语义）；
+// 改为「紧凑 chip 行 + 就地展开」：
+//   - 折叠态：每个 subagent 一个单行 chip（名/turns/时延/错误态），短名同行换行排布；
+//   - 点击 chip：该 lane 紧贴自己的 chip 下方全宽展开（wrapper basis-full 独占
+//     一行，turn 行不挤窄列）——展开区跟在所属 chip 后而非整个 chip 行末尾，
+//     点第一个 chip 时详情不会跑到最后一个 chip 下面；可多个同时展开（保持
+//     跨 tab 导航祖先链的多桥展开语义）；
 //   - 组头 ⇄ 标识 + 汇总统计，并行关系与规模一目了然。
 export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; ctx: LaneCtx }) {
-  const expandedLanes = lanes.filter(l => ctx.expandedSubagents.has(l.bridgeId))
   const totalTurns = lanes.reduce((s, l) => s + l.turnCount, 0)
   const totalTokens = lanes.reduce((s, l) => s + l.totalTokens, 0)
   return (
@@ -220,39 +222,34 @@ export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; c
           {totalTurns} turns{totalTokens > 0 ? ` · ${formatTokenCount(totalTokens)} tok` : ""}
         </span>
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 items-start">
         {lanes.map(lane => {
           const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
           const isError = lane.status === "error"
           return (
-            <button
-              key={lane.bridgeId}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs min-w-0 max-w-full transition-colors cursor-pointer",
-                isExpanded
-                  ? "border-orange-400 bg-orange-100/60 dark:bg-orange-500/15"
-                  : isError
-                    ? "border-red-300 bg-red-50/40 dark:bg-red-500/10 hover:bg-red-50/70 dark:hover:bg-red-500/20"
-                    : "border-orange-200 bg-background hover:bg-accent/40"
-              )}
-              onClick={() => ctx.onToggleBridge(lane.bridgeId)}
-            >
-              <span className="select-none shrink-0">{isExpanded ? "▼" : "▶"}</span>
-              <Badge variant="orange" className="max-w-[180px] truncate">{lane.name}</Badge>
-              {isError && <Badge variant="red" className="shrink-0">error</Badge>}
-              <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
-              {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
-            </button>
+            <div key={lane.bridgeId} className={cn("min-w-0 flex flex-col gap-1.5", isExpanded && "basis-full")}>
+              <button
+                className={cn(
+                  "inline-flex self-start items-center gap-1.5 px-2 py-1 rounded-md border text-xs min-w-0 max-w-full transition-colors cursor-pointer",
+                  isExpanded
+                    ? "border-orange-400 bg-orange-100/60 dark:bg-orange-500/15"
+                    : isError
+                      ? "border-red-300 bg-red-50/40 dark:bg-red-500/10 hover:bg-red-50/70 dark:hover:bg-red-500/20"
+                      : "border-orange-200 bg-background hover:bg-accent/40"
+                )}
+                onClick={() => ctx.onToggleBridge(lane.bridgeId)}
+              >
+                <span className="select-none shrink-0">{isExpanded ? "▼" : "▶"}</span>
+                <Badge variant="orange" className="max-w-[180px] truncate">{lane.name}</Badge>
+                {isError && <Badge variant="red" className="shrink-0">error</Badge>}
+                <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
+                {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
+              </button>
+              {isExpanded && <SubagentLaneView lane={lane} ctx={ctx} />}
+            </div>
           )
         })}
       </div>
-      {expandedLanes.length > 0 && (
-        <div className="space-y-1.5">
-          {expandedLanes.map(lane => (
-            <SubagentLaneView key={lane.bridgeId} lane={lane} ctx={ctx} />
-          ))}
-        </div>
-      )}
     </div>
   )
 }

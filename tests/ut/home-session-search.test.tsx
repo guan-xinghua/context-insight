@@ -15,8 +15,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { createRoot, act, type Root } from 'react'
-import { createRoot as createClientRoot } from 'react-dom/client'
+import { act } from 'react'
+import { createRoot as createClientRoot, type Root } from 'react-dom/client'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -91,7 +91,7 @@ function makeItem(taskId: string, query: string) {
 
 describe('主页 Sessions 客户端取数（搜索无刷新 + 数字翻页）', () => {
   const fetchCalls: string[] = []
-  let payloads: Record<string, { items: Array<{ taskId: string; query: string }>; total: number; totalCount?: number }> = {}
+  let payloads: Record<string, { items: Array<ReturnType<typeof makeItem>>; total: number; totalCount?: number }> = {}
 
   beforeAll(() => {
     ;(globalThis as { fetch: typeof fetch }).fetch = ((input: RequestInfo | URL) => {

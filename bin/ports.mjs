@@ -65,6 +65,8 @@ export async function isSmartAgent(port, timeoutMs = 1500) {
  * 从 start 起找首个空闲端口。
  * skip：必须避让的端口（如 next 实际选中的端口）——smart-agent 分配时传入，
  * 保证辅助服务永不与主服务撞端口。
+ * @param {number} start
+ * @param {{ limit?: number, skip?: number }} [opts]
  */
 export async function findFreePort(start, { limit = 128, skip } = {}) {
   for (let p = start; p < start + limit; p++) {
