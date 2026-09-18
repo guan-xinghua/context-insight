@@ -22,6 +22,7 @@ Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; p
 - **Trajectory Scoring** — Six-dimension scorecard (completion veto / trust / quality / efficiency / redundancy / autonomy + custom dims), baseline comparison and scoring profiles
 - **Audit** — Workflow audit (flow chart + per-node findings + priorities) and Skill audit (real execution vs SKILL.md / agent definitions / workflow declarations)
 - **Key Redaction** (proxy captures) — API keys never touch disk: masked (`abcd…wxyz`) at the single write chokepoint
+- **CANNBay Viewer** — homepage entry: paradigm sidebar over the data lake (partial clone, on-demand fetch), run list (description / author / tool / operator-generation annotation, metrics and score vs baseline), operator-generation duration chart (configurable baseline/expected reference lines), one-click import into the session detail page, and per-session experiment notes / scorecard snapshots written back to the data lake (team-shared)
 
 The homepage Sessions list supports keyword / session-ID search; the import dialog offers one-click default paths.
 

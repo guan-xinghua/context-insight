@@ -48,6 +48,7 @@ const EXCLUDE = new Set(['scripts/pack-context.mjs'])
 const GLOBAL_RULES = [
   { find: 'CANNBot-Insight', replace: 'Context-Insight', minHits: 1 },
   { find: '"CANNbay"', replace: '"contextBay"', minHits: 1 },
+  { find: '"CANNBay Viewer"', replace: '"contextBay Viewer"', minHits: 1 },
   { find: "'.cannbot-insight'", replace: "'.context-insight'", minHits: 2 },
   { find: '~/.cannbot-insight', replace: '~/.context-insight', minHits: 2 },
   { find: '[cbi]', replace: '[ctxi]', minHits: 2 },

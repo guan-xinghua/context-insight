@@ -18,4 +18,8 @@ const BRAND_SOURCE_TYPE = "cannbot-insight"
 // 数据之湖显示名：CANNBot 品牌用 "CANNbay"，其他品牌用 "contextBay"
 const BAY_NAME = BRAND_SLUG === "cannbot-insight" ? "CANNbay" : "contextBay"
 
-export { BRAND_NAME, BRAND_SLUG, BRAND_DESCRIPTION, BRAND_CONFIG_DIR_SUFFIX, BRAND_CLI_ALIAS, BRAND_SOURCE_TYPE, BAY_NAME }
+// viewer 页显示名（首页入口按钮 + viewer 标题）：CANNBot 品牌用 "CANNBay Viewer"，
+// 其他品牌用 "contextBay Viewer"（打包规则表配对翻转，哨兵测试锁零泄漏）
+const BAY_VIEWER_NAME = BRAND_SLUG === "cannbot-insight" ? "CANNBay Viewer" : "contextBay Viewer"
+
+export { BRAND_NAME, BRAND_SLUG, BRAND_DESCRIPTION, BRAND_CONFIG_DIR_SUFFIX, BRAND_CLI_ALIAS, BRAND_SOURCE_TYPE, BAY_NAME, BAY_VIEWER_NAME }

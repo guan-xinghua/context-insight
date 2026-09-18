@@ -178,6 +178,11 @@ interface SessionRow {
   framework: string;
   version: string | null;
   sourcePath: string | null;
+  // 会话指标快照源（annotateSessionMeta 写入 meta，viewer 免导入展示）
+  startTime: Date;
+  endTime: Date | null;
+  totalTokens: number;
+  model: string | null;
 }
 
 // 收集待传文件到 staging 的 sessions/<sid>/ 布局，返回 staging 根目录。
@@ -361,21 +366,33 @@ function validateCategory(remote: Cannbay2Remote, category?: string): string | u
   return value;
 }
 
-// 算子生成结果标注（cc-session-meta 可选字段 opGen，spec §4.4"加可选字段
-// 不升版本"）：上传时人工勾选，写进 staging 的 <sid>.meta.json 随仓上传，
-// 列表"算子生成"列消费。三条 staging 路径（cpx 伴生 meta 拷贝 / 合成
-// insight-upload / DB 导出 insight-export）都落同一 meta 文件——此处一个
-// 补丁点全覆盖。缺省不写 = 未标注。
-function annotateOpGen(stagingDir: string, sid: string, opGen?: 'success' | 'failure'): void {
-  if (opGen !== 'success' && opGen !== 'failure') return;
+// 上传时补丁 meta（cc-session-meta 可选字段，spec §4.4"加可选字段不升版本"）：
+// ① opGen——算子生成结果标注（人工勾选），列表"算子生成"列消费；
+// ② 会话指标快照 startTime/endTime/durationMs/totalTokens + 主模型 model——
+//   上传时刻从 DB 会话行取值，与导入后列表展示同源同值，cannbay viewer
+//   未导入行也能显示
+//   开始/耗时/Token（含算子生成耗时优化图），无需先导入 insight。
+// 三条 staging 路径（cpx 伴生 meta 拷贝 / 合成 insight-upload / DB 导出
+// insight-export）都落同一 meta 文件——此处一个补丁点全覆盖。
+function annotateSessionMeta(stagingDir: string, sid: string, session: SessionRow, opGen?: 'success' | 'failure'): void {
   const metaPath = path.join(stagingDir, 'sessions', sid, `${sid}.meta.json`);
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
     const xb = meta?.x_cannbay;
-    if (xb?.schema === 'cc-session-meta' && xb.data && typeof xb.data === 'object') {
-      xb.data.opGen = opGen;
-      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2) + '\n');
+    if (xb?.schema !== 'cc-session-meta' || !xb.data || typeof xb.data !== 'object') return;
+    if (opGen === 'success' || opGen === 'failure') xb.data.opGen = opGen;
+    const start = session.startTime instanceof Date ? session.startTime : null;
+    const end = session.endTime instanceof Date ? session.endTime : null;
+    if (start) {
+      xb.data.startTime = start.toISOString();
+      if (end && end.getTime() > start.getTime()) {
+        xb.data.endTime = end.toISOString();
+        xb.data.durationMs = end.getTime() - start.getTime();
+      }
     }
+    if (Number.isFinite(session.totalTokens)) xb.data.totalTokens = session.totalTokens;
+    if (typeof session.model === 'string' && session.model) xb.data.model = session.model;
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2) + '\n');
   } catch { /* meta 缺失/畸形：跳过标注，不阻断上传 */ }
 }
 
@@ -410,7 +427,7 @@ export async function uploadCannbay2Session(
 
   const { stagingDir, sid } = await stageSessionFiles(session, prisma);
   try {
-    annotateOpGen(stagingDir, sid, opGen);
+    annotateSessionMeta(stagingDir, sid, session, opGen);
     governStagedSession(stagingDir, sid);
     // 范式行由服务端从结构化字段注入（git log 人类可读；列表 paradigm 以目录
     // 为准）。必须放在空行后的 body：git %s 会把 subject 折叠成单行，混进

@@ -1,0 +1,264 @@
+// Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+// This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+// CANN Open Software License Agreement Version 2.0 (the "License").
+// Please refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+
+// 运行聚合层 IT：本地 bare 数据湖 × 真测试库（进程内取数，无 HTTP mock）→
+// 混合口径 join / 筛选 / baseline delta。评分卡走 SCORING_DATA_DIR 隔离缓存
+// （scorecardStore 单例惰性建目录，env 在首个测试前生效即可）。env 必须在
+// src 模块导入前设置（lake remote 的 env 常量在 import 时求值）。
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { PrismaClient } from '@prisma/client';
+import type { Scorecard } from '../../../src/lib/scoring';
+import { makeBareLake } from './helpers/makeLake';
+
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cannbay-viewer-runs-'));
+process.env.CANNBAY2_REMOTE_URL = path.join(TMP, 'lake.git');
+process.env.CANNBAY_VIEWER_CACHE_DIR = path.join(TMP, 'cache');
+process.env.SCORING_DATA_DIR = path.join(TMP, 'scorecards');
+
+const seededIds: string[] = [];
+const prisma = new PrismaClient();
+
+// 测试库内已导入的三个 sid（taskId 即数据仓 sid）；指标与旧 fake insight 夹具同值。
+// mix-zed0001：混格式排序专用（库内 startTime 序列化为 UTC '.000Z'）
+const DB_SEED = [
+  { taskId: 'ele-aaaa1111', startTime: '2026-08-01T10:05:00+08:00', endTime: '2026-08-01T10:35:00+08:00', totalTokens: 120_000, framework: 'claude-code', version: '1.2.3', model: 'test-model-a' },
+  { taskId: 'ele-base9999', startTime: '2026-08-20T09:00:00+08:00', endTime: '2026-08-20T09:30:00+08:00', totalTokens: 80_000, framework: 'opencode', version: '0.9.1' },
+  { taskId: 'con-bbbb2222', startTime: '2026-09-01T14:00:00+08:00', endTime: '2026-09-01T14:10:00+08:00', totalTokens: 99_000, framework: 'codex', version: '2.0.0' },
+  { taskId: 'mix-zed0001', startTime: '2026-08-01T10:05:00+08:00', endTime: '2026-08-01T10:20:00+08:00', totalTokens: 1_000, framework: 'claude-code', version: '1.2.3' },
+];
+
+beforeAll(async () => {
+  makeBareLake(path.join(TMP, 'lake.git'), [
+    {
+      time: '2026-08-01T10:00:00+08:00',
+      message: 'ele first run',
+      sessions: [
+        { sid: 'ele-aaaa1111', paradigm: 'elementwise', framework: 'claude-code', ccVersion: '1.2.3', opGen: 'success' },
+        { sid: 'legacy-0000', paradigm: '', legacy: true, framework: 'opencode', ccVersion: '0.9.0' },
+      ],
+    },
+    {
+      time: '2026-09-01T10:00:00+08:00',
+      message: '提交人: li4 内容描述: baseline + new runs 批次 备注: 无',
+      sessions: [
+        { sid: 'ele-base9999', paradigm: 'elementwise', baseline: true, framework: 'opencode', ccVersion: '0.9.1', producer: 'insight-export' },
+        // cccc 不进 DB，但 meta 带上传时刻指标快照（spec §4.4）→ 未导入行也有精确指标
+        { sid: 'ele-cccc3333', paradigm: 'elementwise', framework: 'claude-code', ccVersion: '1.2.3', startTime: '2026-09-01T11:20:00+08:00', endTime: '2026-09-01T11:50:00+08:00', totalTokens: 45_000, model: 'glm-4.7' },
+        { sid: 'con-bbbb2222', paradigm: 'contraction', framework: 'codex', ccVersion: '2.0.0', workflow: 'wf-v3', opGen: 'failure' },
+      ],
+    },
+    {
+      time: '2026-09-10T10:00:00+08:00',
+      message: '提交人: wang5 内容描述: 新范式先传 baseline 备注: 无',
+      sessions: [
+        { sid: 'gemm-base01', paradigm: 'gemm', baseline: true, framework: 'opencode', ccVersion: '0.9.1' },
+      ],
+    },
+    {
+      time: '2026-09-11T10:00:00+08:00',
+      message: '提交人: zhao6 内容描述: 混格式排序夹具 备注: 无',
+      sessions: [
+        // 同日两条：库内 UTC '…02:05:00.000Z'（=10:05+08）vs meta '+08:00' 09:30
+        // （=01:30Z，更早）——字符串比较会把 '+08' 行错排在前，epoch 比较不会
+        { sid: 'mix-zed0001', paradigm: 'mixfmt', framework: 'claude-code', ccVersion: '1.2.3' },
+        { sid: 'mix-plus001', paradigm: 'mixfmt', framework: 'claude-code', ccVersion: '1.2.3', startTime: '2026-08-01T09:30:00+08:00', endTime: '2026-08-01T09:40:00+08:00', totalTokens: 2_000 },
+      ],
+    },
+  ]);
+
+  // 测试库 seed：全会话独立清理（并行套件共享 dev.db，只动自己的 taskId）
+  await prisma.session.deleteMany({ where: { taskId: { in: DB_SEED.map(s => s.taskId) } } });
+  const { scorecardStore } = await import('../../../src/lib/scoring');
+  for (const s of DB_SEED) {
+    const row = await prisma.session.create({
+      data: {
+        taskId: s.taskId,
+        framework: s.framework,
+        version: s.version,
+        startTime: new Date(s.startTime),
+        endTime: new Date(s.endTime),
+        totalTokens: s.totalTokens,
+        model: s.model,
+      },
+      select: { id: true },
+    });
+    seededIds.push(row.id);
+    // 评分卡缓存 seed（与旧 tests/data fixture 同值：high 82.5 / baseline 70 / low 61.2）
+    const dims: Scorecard['dimensions'] = s.taskId === 'ele-aaaa1111'
+      ? [
+        { dimensionId: 'd1', name: '完成度', english: 'completion', role: 'weighted', status: 'scored' as const, score: 0.9, items: [] },
+        { dimensionId: 'd2', name: '可信度', english: 'trust', role: 'veto' as const, status: 'scored' as const, score: null, verdict: 'clean', items: [] },
+        { dimensionId: 'd3', name: '质量', english: 'quality', role: 'weighted' as const, status: 'scored' as const, score: 0.8, items: [] },
+      ]
+      : s.taskId === 'ele-base9999'
+        ? [{ dimensionId: 'd1', name: '完成度', english: 'completion', role: 'weighted' as const, status: 'scored' as const, score: 0.7, items: [] }]
+        : [
+          { dimensionId: 'd1', name: '完成度', english: 'completion', role: 'weighted' as const, status: 'scored' as const, score: 0.6, items: [] },
+          { dimensionId: 'd3', name: '质量', english: 'quality', role: 'weighted' as const, status: 'scored' as const, score: 0.62, items: [] },
+        ];
+    const total = s.taskId === 'ele-aaaa1111' ? 82.5 : s.taskId === 'ele-base9999' ? 70 : 61.2;
+    const card: Scorecard = {
+      schemaVersion: 'workflow-scorecard@2',
+      sessionId: row.id,
+      taskType: 'operator',
+      computedAt: '2026-09-10T08:00:00Z',
+      status: 'completed',
+      framework: { totalScore: total, veto: null, coverage: 1, weightsUsed: {} },
+      dimensions: dims,
+      judgeCost: null,
+    };
+    await scorecardStore().put(card);
+  }
+});
+
+afterAll(async () => {
+  await prisma.session.deleteMany({ where: { taskId: { in: DB_SEED.map(s => s.taskId) } } });
+  await prisma.$disconnect();
+  try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* best-effort */ }
+});
+
+describe('listParadigms', () => {
+  it('范式汇总：运行数（不含 baseline）/ baseline 标记 / 排序', async () => {
+    const { listParadigms } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const items = await listParadigms();
+    const names = items.map(p => p.name);
+    expect(names).toContain('elementwise');
+    expect(names).toContain('contraction');
+    expect(names).not.toContain('sessions');
+    const ele = items.find(p => p.name === 'elementwise');
+    expect(ele?.runCount).toBe(2);
+    expect(ele?.hasBaseline).toBe(true);
+    const con = items.find(p => p.name === 'contraction');
+    expect(con?.runCount).toBe(1);
+    expect(con?.hasBaseline).toBe(false);
+    // 回归：只含 baseline 的范式（新范式首个上传）也要显示 ◆ 标记
+    const gemm = items.find(p => p.name === 'gemm');
+    expect(gemm?.runCount).toBe(0);
+    expect(gemm?.hasBaseline).toBe(true);
+  });
+});
+
+describe('listRuns（混合口径 join）', () => {
+  it('elementwise：已导入行指标来自本地库，未导入行降级，baseline 行在列', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'elementwise' });
+    expect(r.insightReachable).toBe(true);
+    expect(r.baselineSid).toBe('ele-base9999');
+    expect(r.total).toBe(3);
+    const bySid = new Map(r.items.map(x => [x.sid, x]));
+
+    const aaaa = bySid.get('ele-aaaa1111');
+    expect(aaaa?.imported).toBe(true);
+    expect(aaaa?.durationMs).toBe(30 * 60_000);
+    expect(aaaa?.totalTokens).toBe(120_000);
+    expect(aaaa?.startTimeApprox).toBe(false);
+    expect(aaaa?.model).toBe('test-model-a'); // 已导入取 DB Session.model
+    expect(aaaa?.insightUrl).toBe('/session/ele-aaaa1111?framework=claude-code');
+    // 首个 commit 无「内容描述」标签 → null；第二个 commit 带 标签 → 解析出描述/作者
+    expect(aaaa?.description).toBeNull();
+    expect(aaaa?.author).toBeNull();
+
+    const cccc = bySid.get('ele-cccc3333');
+    expect(cccc?.imported).toBe(false);
+    // meta 指标快照：未导入也有精确耗时/Token/开始时间/模型（无 ≈）
+    expect(cccc?.durationMs).toBe(30 * 60_000);
+    expect(cccc?.totalTokens).toBe(45_000);
+    expect(cccc?.model).toBe('glm-4.7');
+    expect(cccc?.startTime).toBe('2026-09-01T11:20:00+08:00');
+    expect(cccc?.startTimeApprox).toBe(false);
+    expect(cccc?.totalScore).toBeNull();
+    expect(cccc?.description).toBe('baseline + new runs 批次');
+    expect(cccc?.author).toBe('li4');
+
+    const baseRow = bySid.get('ele-base9999');
+    expect(baseRow?.isBaseline).toBe(true);
+  });
+
+  it('质量分 + vs baseline delta（评分卡缓存 seed 数据驱动）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'elementwise' });
+    const aaaa = r.items.find(x => x.sid === 'ele-aaaa1111');
+    expect(aaaa?.totalScore).toBe(82.5);
+    expect(aaaa?.baselineDelta).toBe(12.5);
+    expect(aaaa?.dimensions.length).toBeGreaterThan(0);
+    expect(aaaa?.dimensions[0]?.score).toBe(90);
+  });
+
+  it('无 baseline 范式：delta 为空但分数照常', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'contraction' });
+    expect(r.baselineSid).toBeNull();
+    const con = r.items.find(x => x.sid === 'con-bbbb2222');
+    expect(con?.totalScore).toBe(61.2);
+    expect(con?.baselineDelta).toBeNull();
+    expect(con?.workflow).toBe('wf-v3');
+  });
+
+  it('筛选：opGen / scored / imported / q / framework', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const all = await listRuns({ paradigm: 'elementwise' });
+    expect(all.facets.frameworks).toEqual(['claude-code', 'opencode']);
+
+    expect((await listRuns({ paradigm: 'elementwise', opGen: 'success' })).items.map(x => x.sid)).toEqual(['ele-aaaa1111']);
+    expect((await listRuns({ paradigm: 'elementwise', scored: false })).items.map(x => x.sid)).toEqual(['ele-cccc3333']);
+    expect((await listRuns({ paradigm: 'elementwise', imported: false })).items.map(x => x.sid)).toEqual(['ele-cccc3333']);
+    expect((await listRuns({ paradigm: 'elementwise', q: 'cccc' })).items.map(x => x.sid)).toEqual(['ele-cccc3333']);
+    expect((await listRuns({ paradigm: 'elementwise', framework: ['opencode'] })).items.map(x => x.sid)).toEqual(['ele-base9999']);
+  });
+
+  it('时间范围筛选（本地库 startTime 口径）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'elementwise', from: '2026-08-15', to: '2026-09-15' });
+    expect(r.items.map(x => x.sid).sort()).toEqual(['ele-base9999', 'ele-cccc3333']);
+  });
+
+  it('时间范围筛选：时区口径不漂移（UTC Z 凌晨的运行归对本地的天）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    // 测试库 startTime 落库为 UTC：2026-08-01T02:05Z = 北京时间 08-01 10:05
+    const r = await listRuns({ paradigm: 'elementwise', from: '2026-09-16', to: '2026-09-16' });
+    expect(r.items.map(x => x.sid)).toEqual([]);
+    // 08-01 当天（北京 10:05）命中
+    const day = await listRuns({ paradigm: 'elementwise', from: '2026-08-01', to: '2026-08-01' });
+    expect(day.items.map(x => x.sid)).toEqual(['ele-aaaa1111']);
+  });
+
+  it('时间范围筛选：tz 参数显式定时区（与服务器本地时区无关，review #190172825）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    // 同一时刻 2026-08-01T02:05Z：+08 用户眼里是 08-01 10:05；-05 用户眼里是
+    // 07-31 22:05——两种时区各自「当天」都命中、对方「当天」不命中
+    const plus8 = await listRuns({ paradigm: 'elementwise', from: '2026-08-01', to: '2026-08-01', tz: '+08:00' });
+    expect(plus8.items.map(x => x.sid)).toEqual(['ele-aaaa1111']);
+    const minus5 = await listRuns({ paradigm: 'elementwise', from: '2026-07-31', to: '2026-07-31', tz: '-05:00' });
+    expect(minus5.items.map(x => x.sid)).toEqual(['ele-aaaa1111']);
+    const wrongDay = await listRuns({ paradigm: 'elementwise', from: '2026-08-01', to: '2026-08-01', tz: '-05:00' });
+    expect(wrongDay.items.map(x => x.sid)).toEqual([]);
+  });
+});
+
+describe('listRuns（混格式开始时间排序）', () => {
+  it('UTC "Z" 与 "+08:00" 混排按 epoch 比较（字符串比较会错序）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'mixfmt' });
+    // mix-zed0001（库内 → '2026-08-01T02:05:00.000Z' = 10:05+08）新于
+    // mix-plus001（meta '09:30+08:00' = 01:30Z）；字符串比较 'T09…' > 'T02…'
+    // 会把 plus 排前——回归防护
+    expect(r.items.map(x => x.sid)).toEqual(['mix-zed0001', 'mix-plus001']);
+  });
+});
+
+describe('insightSessionUrl', () => {
+  it('站内相对路径：sid 编码、framework 缺省无参', async () => {
+    const { insightSessionUrl } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    expect(insightSessionUrl('abc 123', 'claude-code'))
+      .toBe('/session/abc%20123?framework=claude-code');
+    expect(insightSessionUrl('xyz', null)).toBe('/session/xyz');
+  });
+});

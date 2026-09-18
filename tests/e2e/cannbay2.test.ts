@@ -238,6 +238,16 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
     // native jsonl 直传无伴生 meta → 上传时从 DB 合成（producer=insight-upload，
     // 展示专用）→ type 列可见
     expect(entry!.framework).toBe('claude-code');
+    // 上传时刻指标快照（spec §4.4，annotateSessionMeta 一个补丁点三路径全
+    // 覆盖）：meta 带 startTime/durationMs/totalTokens，viewer 未导入行直显
+    const metaJson = JSON.parse(execSync(
+      `git -C "${BARE}" show "main:others/${SID}/${SID}.meta.json"`,
+      { encoding: 'utf8' },
+    )) as { x_cannbay: { data: Record<string, unknown> } };
+    expect(typeof metaJson.x_cannbay.data.startTime).toBe('string');
+    expect(typeof metaJson.x_cannbay.data.durationMs).toBe('number');
+    expect(metaJson.x_cannbay.data.totalTokens).toBeGreaterThan(0);
+    expect(metaJson.x_cannbay.data.model).toBe('test-model');
   });
 
   it('重复上传同内容 → unchanged', async () => {

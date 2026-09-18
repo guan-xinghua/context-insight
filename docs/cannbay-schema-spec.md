@@ -146,6 +146,16 @@ success/failure，其余值按未标注处理）。insight 上传链在 staging 
 导出三条路径全覆盖），cannbay2 列表「算子生成」列消费。加可选字段不升
 schema 版本
 
+`startTime` / `endTime` / `durationMs` / `totalTokens` / `model`（可选，上传
+时刻从 insight DB 会话行快照，与 annotateSessionMeta 同一补丁点三条路径全
+覆盖）：会话指标快照——开始/结束时间（ISO 8601 字符串）、耗时（`endTime −
+startTime` 毫秒数）、token 总量、会话主模型（首条 assistant 轮的 model，
+即 Session.model）。消费方为 cannbay viewer 列表/实验记录面板
+与算子生成耗时优化图：**未导入 insight 的行也能直接展示**这些指标，无需先
+下载会话本体。会话已导入时展示以 DB 为权威（两者同源同值）；存量旧 meta
+无这些字段，读方按缺省处理（时间退化为 commit 时间近似）。加可选字段不升
+schema 版本
+
 ### 4.5 `cc-subagent-meta` v1（`subagents/<subId>.meta.json`）
 
 ```json
