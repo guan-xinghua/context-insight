@@ -8,17 +8,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { expandHome } from '@/lib/ingest/import-paths';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-
-// `~` 展开：path.resolve 不识别 `~`，快捷路径（~/.cannbot-insight/proxy 等）
-// 在服务端按当前用户主目录展开（web 客户端不知道服务端 home）
-function expandHome(p: string): string {
-  if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
-  return p;
-}
 
 export async function POST(request: NextRequest) {
   try {

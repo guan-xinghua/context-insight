@@ -14,12 +14,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import Database from 'better-sqlite3';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { isPathInside } from '@/lib/ingest/import-paths';
 
 const CANNBAY_PULL_URL = 'https://gitcode.com/guanxinghua/CANNBay.git';
 
-function runGit(cmd: string, cwd: string) {
-  return execSync(cmd, { cwd, stdio: 'pipe', timeout: 120_000 });
+function runGit(args: string[], cwd: string) {
+  return execFileSync('git', args, { cwd, stdio: 'pipe', timeout: 120_000 });
+}
+
+// isPathInside 是纯词法比较（path.resolve 不解析 symlink）：镜像 worktree 会原样
+// 物化仓里提交的链接，词法校验 + existsSync 都拦不住指向克隆目录外的 symlink，
+// 随后 Database/importSession 会顺着链接读到本地文件。落地 sink 前按真实路径再校验。
+function realPathInside(root: string, p: string): boolean {
+  try {
+    return isPathInside(fs.realpathSync(root), fs.realpathSync(p));
+  } catch {
+    return false;
+  }
 }
 
 // 解析 cannbay 提交约定：`提交人:<姓名> 内容描述:<描述>`（冒号兼容半角/全角，
@@ -65,9 +77,9 @@ function ensureCannbayClone(): Promise<string> {
     if (fs.existsSync(path.join(cacheDir, '.git'))) {
       try {
         // 增量更新：只拉取 master 新 commit，硬重置工作树
-        runGit('git fetch --quiet origin master', cacheDir);
-        runGit('git reset --hard --quiet origin/master', cacheDir);
-        runGit('git clean -fdq', cacheDir);
+        runGit(['fetch', '--quiet', 'origin', 'master'], cacheDir);
+        runGit(['reset', '--hard', '--quiet', 'origin/master'], cacheDir);
+        runGit(['clean', '-fdq'], cacheDir);
         return cacheDir;
       } catch {
         // 镜像损坏或历史被强推 → 删除重建
@@ -75,7 +87,7 @@ function ensureCannbayClone(): Promise<string> {
       }
     }
     fs.rmSync(cacheDir, { recursive: true, force: true });
-    runGit(`git clone --quiet "${CANNBAY_PULL_URL}" "${cacheDir}"`, os.tmpdir());
+    runGit(['clone', '--quiet', CANNBAY_PULL_URL, cacheDir], os.tmpdir());
     return cacheDir;
   })().finally(() => { cloneLock = null; });
   return cloneLock;
@@ -128,6 +140,7 @@ export async function POST(request: NextRequest) {
 
         for (const f of files) {
           const fullPath = path.join(cloneDir, f);
+          if (!realPathInside(cloneDir, fullPath)) continue;
           const stat = fs.statSync(fullPath);
 
           const taskIdMatch = path.basename(f).match(/^cannbot_db_session_(.+?)_/);
@@ -139,7 +152,7 @@ export async function POST(request: NextRequest) {
           let commitSubject = '';
           try {
             const out = runGit(
-              `git log -1 --pretty=format:%an%x1f%ad%x1f%s --date=iso-strict -- "${f}"`,
+              ['log', '-1', '--pretty=format:%an%x1f%ad%x1f%s', '--date=iso-strict', '--', f],
               cloneDir,
             ).toString().trim();
             const parts = out.split('\x1f');
@@ -184,9 +197,17 @@ export async function POST(request: NextRequest) {
         }> = [];
 
         for (const f of filenames) {
+          if (typeof f !== 'string' || !isPathInside(cloneDir, f)) {
+            results.push({ filename: f, taskId: '', imported: false, query: null, error: `Invalid filename (must stay inside ${BAY_NAME} clone)` });
+            continue;
+          }
           const fullPath = path.join(cloneDir, f);
           if (!fs.existsSync(fullPath)) {
             results.push({ filename: f, taskId: '', imported: false, query: null, error: `File not found in ${BAY_NAME}` });
+            continue;
+          }
+          if (!realPathInside(cloneDir, fullPath)) {
+            results.push({ filename: f, taskId: '', imported: false, query: null, error: `Invalid filename (must stay inside ${BAY_NAME} clone)` });
             continue;
           }
 

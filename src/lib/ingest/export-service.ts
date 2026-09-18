@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { isSafeTaskId } from '@/lib/task-id';
 
 const DDL = `
 CREATE TABLE "Session" (
@@ -232,6 +233,9 @@ export async function exportSession(
   prisma?: PrismaClient,
   framework?: string,
 ): Promise<string> {
+  if (!isSafeTaskId(taskId)) {
+    throw new Error(`Invalid taskId: ${JSON.stringify(String(taskId).slice(0, 40))}`);
+  }
   const client = prisma ?? new PrismaClient();
 
   try {

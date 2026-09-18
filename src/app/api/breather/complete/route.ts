@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server"
 import { OpenCodeClient } from "@/lib/breather/opencode-api"
-import { readHandoffRegistry, writeHandoffRegistry, extractOperatorNameFromPath, computeSessionIdShort, computeContinuationTitle, computeHandoffDocName, extractHandoffNumFromBirthDoc, findSessionRecord, addOrUpdateSessionRecord, addChildToSession } from "@/lib/breather/handoff-registry"
+import { readHandoffRegistry, writeHandoffRegistry, extractOperatorNameFromPath, computeSessionIdShort, computeContinuationTitle, computeHandoffDocName, extractHandoffNumFromBirthDoc, findSessionRecord, addOrUpdateSessionRecord, addChildToSession, resolveProjectPath } from "@/lib/breather/handoff-registry"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
   }
 
   const originalSession = await client.getSession(originalSessionId)
-  const projectPath = originalSession?.directory
+  const projectPath = resolveProjectPath(originalSession?.directory)
   if (!projectPath) {
     return NextResponse.json({ error: `无法获取 session ${originalSessionId} 的 projectPath` }, { status: 500 })
   }

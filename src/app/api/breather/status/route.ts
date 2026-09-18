@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server"
 import { OpenCodeClient } from "@/lib/breather/opencode-api"
 import { getSessionContextHistory, getLatestSessionContext } from "@/lib/breather/context-monitor"
-import { HandoffSessionRecord, HandoffLinks, readHandoffRegistry, buildHandoffLinks } from "@/lib/breather/handoff-registry"
+import { HandoffSessionRecord, HandoffLinks, readHandoffRegistry, buildHandoffLinks, resolveProjectPath } from "@/lib/breather/handoff-registry"
 
 export const dynamic = "force-dynamic"
 
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     ? await getSessionContextHistory(client, sessionId)
     : []
 
-  const projectPath = targetSession?.directory
+  const projectPath = resolveProjectPath(targetSession?.directory)
   if (!projectPath) {
     return NextResponse.json({ error: `无法获取 session ${sessionId} 的 projectPath` }, { status: 500 })
   }

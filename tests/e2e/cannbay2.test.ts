@@ -203,7 +203,7 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
   });
 
   it('远端文件已脱敏（gzip 出仓）：物化回读明文密钥不出仓，掩码保留可读性', () => {
-    const mainJsonl = mirror.materializeSession(SID);
+    const mainJsonl = mirror.materializeSession(SID, undefined, 'native');
     expect(mainJsonl.endsWith('.jsonl.gz')).toBe(true); // gzip at rest 出仓形态
     const text = zlib.gunzipSync(fs.readFileSync(mainJsonl)).toString('utf8');
     for (const key of RAW_KEYS) {
@@ -215,8 +215,8 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
   });
 
   it('杂散文件不进公开仓：staging 白名单只带 .jsonl/.json，stray 内容零泄漏', () => {
-    mirror.materializeSession(SID);
-    const matSub = path.join(CACHE, 'materialized', SID, 'subagents');
+    mirror.materializeSession(SID, undefined, 'native');
+    const matSub = path.join(CACHE, 'materialized', `${SID}.native`, 'subagents');
     const names = fs.readdirSync(matSub);
     expect(names.length).toBeGreaterThan(0);
     expect(names.every(n => n.endsWith('.jsonl.gz') || n.endsWith('.json'))).toBe(true);
@@ -241,7 +241,7 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
     // 上传时刻指标快照（spec §4.4，annotateSessionMeta 一个补丁点三路径全
     // 覆盖）：meta 带 startTime/durationMs/totalTokens，viewer 未导入行直显
     const metaJson = JSON.parse(execSync(
-      `git -C "${BARE}" show "main:others/${SID}/${SID}.meta.json"`,
+      `git -C "${BARE}" show "main:others/${SID}.native/${SID}.meta.json"`,
       { encoding: 'utf8' },
     )) as { x_cannbay: { data: Record<string, unknown> } };
     expect(typeof metaJson.x_cannbay.data.startTime).toBe('string');
@@ -256,7 +256,7 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
   });
 
   it('import：物化回 proxy 布局 → claude-jsonl 管线导入（含 subagent）', async () => {
-    const result = await cannbay2.importCannbay2Session(SID, prisma);
+    const result = await cannbay2.importCannbay2Session(SID, prisma, undefined, 'native');
     expect(result).toBeTruthy();
     // 合成 meta（producer=insight-upload）不触发 framework/version patch —— 导入
     // 响应的 type 来自管线自身判定，展示专用 meta 对导入行为零影响
@@ -286,7 +286,7 @@ describe('cannbay2 opencode 导出上传', () => {
     expect(entry?.framework).toBe('opencode');
     expect(entry?.ccVersion).toBeTruthy();
 
-    const result = await withDbRaceRetry(() => cannbay2.importCannbay2Session(OPENCODE_SID, prisma));
+    const result = await withDbRaceRetry(() => cannbay2.importCannbay2Session(OPENCODE_SID, prisma, undefined, 'native'));
     expect(result).toBeTruthy();
     // 导入响应带 type（patch 后 DB 准确值），供导入完成态显示徽标
     expect(result.framework).toBe('opencode');
@@ -294,7 +294,7 @@ describe('cannbay2 opencode 导出上传', () => {
     // 同机已有同 taskId 会话 → merge 路径（imported:false，合并进原 opencode 会话）
     // 异机下载场景：删掉本地会话再导入 → 全新建 claude-code 会话
     await prisma.session.deleteMany({ where: { taskId: OPENCODE_SID } });
-    const fresh = await cannbay2.importCannbay2Session(OPENCODE_SID, prisma);
+    const fresh = await cannbay2.importCannbay2Session(OPENCODE_SID, prisma, undefined, 'native');
     expect(fresh).toBeTruthy();
     // framework 由 cc-session-meta 声明恢复为原值（opencode），不再错变 claude-code
     const reSession = await prisma.session.findFirst({ where: { taskId: OPENCODE_SID } });
@@ -408,7 +408,7 @@ describe('cannbay2 无 jsonl 源兜底：DB 导出上传（v1 .db 快照会话 /
     const up = await cannbay2.uploadCannbay2Session(prisma, SID2, '提交人: 测试者\n内容描述: DB 导出兜底', undefined, 'others');
     expect(up.unchanged).toBe(false);
 
-    const result = await cannbay2.importCannbay2Session(SID2, prisma);
+    const result = await cannbay2.importCannbay2Session(SID2, prisma, undefined, 'native');
     expect(result).toBeTruthy();
     const session = await prisma.session.findFirst({ where: { taskId: SID2 } });
     const turns = await prisma.turn.findMany({ where: { sessionId: session!.id } });

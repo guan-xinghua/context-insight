@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exportSession } from '@/lib/ingest/export-service';
 import { prisma } from '@/lib/db';
+import { isSafeTaskId } from '@/lib/task-id';
 import fs from 'node:fs';
 
 export async function POST(request: NextRequest) {
@@ -18,6 +19,9 @@ export async function POST(request: NextRequest) {
 
     if (!taskId) {
       return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+    }
+    if (!isSafeTaskId(taskId)) {
+      return NextResponse.json({ error: 'Invalid taskId: must be non-empty, max 128 chars, no path separators or control characters' }, { status: 400 });
     }
 
     const filePath = await exportSession(taskId, undefined, prisma, framework);

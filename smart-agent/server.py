@@ -35,6 +35,57 @@ PORT = int(os.environ.get("CANNBOT_AGENT_PORT", "21026"))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROMPTS_DIR = os.path.join(PROJECT_ROOT, "prompts")
 
+
+def _safe_output_basename(raw: object) -> str:
+    """outputBasename 归一化：只取最后一段路径组件，剥掉一切遍历前缀。"""
+    name = os.path.basename(str(raw)) if raw else "session"
+    name = name.strip()
+    if name in ("", ".", ".."):
+        return "session"
+    return name
+
+
+def _output_roots() -> list[str]:
+    """outputDir 允许根：cwd / 项目根下的 tmp、logs 子目录 + 环境变量扩展。
+
+    刻意不含裸 cwd/项目根本身：产物文件名嵌请求方可控的 outputBasename，
+    裸根会让整个项目树（含 .git/src/prompts）落入可写范围。
+    """
+    extras = [p.strip() for p in os.environ.get("CANNBOT_AGENT_OUTPUT_ROOTS", "").split(",") if p.strip()]
+    candidates = [
+        os.path.join(os.getcwd(), "tmp"), os.path.join(os.getcwd(), "logs"),
+        os.path.join(PROJECT_ROOT, "tmp"), os.path.join(PROJECT_ROOT, "logs"),
+        *extras,
+    ]
+    roots: list[str] = []
+    for p in candidates:
+        rp = os.path.realpath(p)
+        if rp not in roots:
+            roots.append(rp)
+    return roots
+
+
+def _confined_output_dir(candidate: object, default: str) -> str:
+    """请求体 outputDir 落在允许根内才采用，否则回退端点默认目录。"""
+    if not isinstance(candidate, str) or not candidate.strip():
+        return default
+    rp = os.path.realpath(candidate)
+    if any(rp == root or rp.startswith(root + os.sep) for root in _output_roots()):
+        return rp
+    return default
+
+
+def confined_prompt_path(candidate: object) -> str:
+    """promptPath 收敛：仅允许 PROMPTS_DIR 内真实存在的文件，其余回退默认。"""
+    default = os.path.join(PROMPTS_DIR, "trajectory-compress.md")
+    if not isinstance(candidate, str) or not candidate.strip():
+        return default
+    rp = os.path.realpath(candidate)
+    prompts_root = os.path.realpath(PROMPTS_DIR)
+    if rp.startswith(prompts_root + os.sep) and os.path.isfile(rp):
+        return rp
+    return default
+
 # 同 basename（同一 session）并发运行守卫：审计一轮可达 10 分钟且所有产物
 # （smart-agent-<basename>.jsonl / *-analysis.json / subagents/）按 basename 共享，
 # 并发第二轮会交错撕裂日志行、后完成者覆盖前一轮报告（2026-08-27 实测两次 UI
@@ -157,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _begin_ndjson_run(self, req: dict) -> tuple[str, object] | None:
         """按 outputBasename 占用并发守卫并开 NDJSON 流；冲突时已写 409 响应返回 None。"""
-        run_key = req.get("outputBasename", "session")
+        run_key = _safe_output_basename(req.get("outputBasename", "session"))
         conflict = try_acquire_run(run_key)
         if conflict:
             self._json(409, {"error": conflict})
@@ -226,7 +277,7 @@ class Handler(BaseHTTPRequestHandler):
         def run(run_key: str, write_event) -> None:
             trajectory_text = req["trajectoryText"]
             prompt_md = req.get("promptMd", "")
-            output_dir = req.get("outputDir", os.path.join(os.getcwd(), "logs"))
+            output_dir = _confined_output_dir(req.get("outputDir"), os.path.join(os.getcwd(), "logs"))
             # Claude Code JSONL 日志：记录完整中间过程
             logger = JsonlLogger(
                 log_path=os.path.join(output_dir, f"smart-agent-{run_key}.jsonl"),
@@ -251,9 +302,8 @@ class Handler(BaseHTTPRequestHandler):
 
         def run(run_key: str, write_event) -> None:
             trajectory_text = req["trajectoryText"]
-            output_dir = req.get("outputDir", os.path.join(os.getcwd(), "logs"))
-            prompt_path = req.get("promptPath",
-                os.path.join(PROMPTS_DIR, "trajectory-compress.md"))
+            output_dir = _confined_output_dir(req.get("outputDir"), os.path.join(os.getcwd(), "logs"))
+            prompt_path = confined_prompt_path(req.get("promptPath"))
             logger = JsonlLogger(
                 log_path=os.path.join(output_dir, f"smart-agent-{run_key}-compress.jsonl"),
                 cwd=os.getcwd())
@@ -272,9 +322,8 @@ class Handler(BaseHTTPRequestHandler):
         def run(run_key: str, write_event) -> None:
             trajectory_text = req["trajectoryText"]
             prompt_md = req.get("promptMd", "")
-            output_dir = req.get("outputDir", os.path.join(os.getcwd(), "tmp"))
-            compress_prompt_path = req.get("compressPromptPath",
-                os.path.join(PROMPTS_DIR, "trajectory-compress.md"))
+            output_dir = _confined_output_dir(req.get("outputDir"), os.path.join(os.getcwd(), "tmp"))
+            compress_prompt_path = confined_prompt_path(req.get("compressPromptPath"))
             provider = _provider_from_req(req)
             mode = req.get("mode", "agent")
             ctx = RunContext(output_dir=output_dir, output_basename=run_key,

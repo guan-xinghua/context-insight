@@ -89,6 +89,19 @@ describe("audit-session-py 路由", () => {
     vi.unstubAllGlobals()
   })
 
+  it("taskId 含路径分隔符 → 400，不触达导出器/上游（0000026 修复）", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await POST(makeRequest({ taskId: "x/../../../tmp/evil", provider: PROVIDER, mode: "agent" }))
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.error).toContain("Invalid taskId")
+    expect(exportMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
   it("v4 模式先做确定性 agent-IO 提取再打上游", async () => {
     agentIoMock.mockResolvedValue({ agents: [{ id: "main" }, { id: "sub-1" }] })
     const fetchMock = vi.fn().mockResolvedValue(

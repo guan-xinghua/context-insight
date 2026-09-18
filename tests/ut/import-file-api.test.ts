@@ -14,6 +14,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { prisma } from '../setup';
 import { POST } from '@/app/api/ingest/import-file/route';
@@ -39,7 +40,7 @@ describe('POST /api/ingest/import-file — failure reasons', () => {
     const res = await POST(req({
       source: 'claude-jsonl',
       sessionId: 'no-such-file-sid',
-      filePath: '/root/.cannbot-insight/proxy/definitely-missing-capture.jsonl',
+      filePath: path.join(os.homedir(), '.cannbot-insight/proxy/definitely-missing-capture.jsonl'),
     }));
     expect(res.status).toBe(404);
     const data = await res.json();

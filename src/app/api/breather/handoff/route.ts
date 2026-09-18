@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server"
 import { OpenCodeClient, V1Message } from "@/lib/breather/opencode-api"
-import { HandoffSessionRecord, readHandoffRegistry, writeHandoffRegistry, extractOperatorNameFromPath, computeSessionIdShort, computeHandoffNum, computeHandoffDocName, computeHandoffSessionTitle, findBirthHandoffDoc, findSessionRecord, addOrUpdateSessionRecord, addChildToSession } from "@/lib/breather/handoff-registry"
+import { HandoffSessionRecord, readHandoffRegistry, writeHandoffRegistry, extractOperatorNameFromPath, computeSessionIdShort, computeHandoffNum, computeHandoffDocName, computeHandoffSessionTitle, findBirthHandoffDoc, findSessionRecord, addOrUpdateSessionRecord, addChildToSession, resolveProjectPath } from "@/lib/breather/handoff-registry"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
 
   const sessions = await client.listSessions()
   const targetSession = sessions.find(s => s.id === sessionId)
-  const projectPath = targetSession?.directory
+  const projectPath = resolveProjectPath(targetSession?.directory)
   if (!projectPath) {
     return NextResponse.json({ error: `无法获取 session ${sessionId} 的 projectPath` }, { status: 500 })
   }

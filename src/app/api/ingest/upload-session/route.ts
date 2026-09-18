@@ -13,24 +13,25 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { planArchive, MAX_MASTER_SESSIONS, type FileWithDate } from '@/lib/cannbay-archive';
 import { BAY_NAME } from '@/lib/branding';
+import { isSafeTaskId } from '@/lib/task-id';
 
 const CANNBAY_PULL_URL = 'https://gitcode.com/guanxinghua/CANNBay.git';
 const CANNBAY_PUSH_URL = Buffer.from('aHR0cHM6Ly9ndWFueGluZ2h1YTpwc3F5WXAyYnpFRkI0eDVQRlVTV0dMS3lAZ2l0Y29kZS5jb20vZ3VhbnhpbmdodWEvQ0FOTkJheS5naXQ=', 'base64').toString();
 
-function runGit(cmd: string, cwd: string) {
+function runGit(args: string[], cwd: string) {
   // First-ever clone of ~1.6GB needs many minutes; subsequent uploads only
   // fetch the delta (seconds). 60s is far too short for the first clone.
-  return execSync(cmd, { cwd, stdio: 'pipe', timeout: 1_800_000 });
+  return execFileSync('git', args, { cwd, stdio: 'pipe', timeout: 1_800_000 });
 }
 
 // Commit date (ms) of the commit that first added `filename` to master.
 // Falls back to -1 (treated as oldest) when history can't resolve it.
 function fileAddedAtMs(filename: string, cwd: string): number {
   try {
-    const out = runGit(`git log -1 --diff-filter=A --format=%aI -- "${filename}"`, cwd).toString().trim();
+    const out = runGit(['log', '-1', '--diff-filter=A', '--format=%aI', '--', filename], cwd).toString().trim();
     const ms = out ? Date.parse(out) : NaN;
     return Number.isFinite(ms) ? ms : -1;
   } catch {
@@ -62,14 +63,14 @@ function ensureUploadMirror(): Promise<string> {
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     if (fs.existsSync(path.join(dir, '.git'))) {
       try {
-        runGit('git fetch --quiet origin master', dir);
+        runGit(['fetch', '--quiet', 'origin', 'master'], dir);
         return dir;
       } catch {
         fs.rmSync(dir, { recursive: true, force: true });
       }
     }
     fs.rmSync(dir, { recursive: true, force: true });
-    runGit(`git clone --quiet "${CANNBAY_PULL_URL}" "${dir}"`, os.tmpdir());
+    runGit(['clone', '--quiet', CANNBAY_PULL_URL, dir], os.tmpdir());
     return dir;
   })().finally(() => { uploadMirrorLock = null; });
   return uploadMirrorLock;
@@ -96,24 +97,23 @@ export function rotateArchiveIfNeeded(cloneDir: string, runMs: number, pushUrl: 
 
     const branch = plan.archiveBranch;
     try {
-      runGit(`git fetch origin "${branch}"`, cloneDir);
-      runGit(`git checkout -B "${branch}" "origin/${branch}"`, cloneDir);
+      runGit(['fetch', 'origin', branch], cloneDir);
+      runGit(['checkout', '-B', branch, `origin/${branch}`], cloneDir);
     } catch {
-      runGit(`git checkout -B "${branch}" master`, cloneDir);
+      runGit(['checkout', '-B', branch, 'master'], cloneDir);
     }
     for (const name of plan.toArchive) {
       fs.copyFileSync(path.join(staging, name), path.join(cloneDir, name));
     }
-    runGit('git add .', cloneDir);
+    runGit(['add', '.'], cloneDir);
     try {
-      runGit(`git commit -m "archive: rotate ${plan.toArchive.length} oldest sessions to ${branch}"`, cloneDir);
+      runGit(['commit', '-m', `archive: rotate ${plan.toArchive.length} oldest sessions to ${branch}`], cloneDir);
     } catch { /* nothing to commit — already archived */ }
-    runGit(`git push "${pushUrl}" "${branch}"`, cloneDir);
+    runGit(['push', pushUrl, branch], cloneDir);
 
-    runGit('git checkout master', cloneDir);
-    const rmArgs = plan.toArchive.map((n) => `"${n}"`).join(' ');
-    runGit(`git rm --quiet ${rmArgs}`, cloneDir);
-    runGit(`git commit -m "archive: rotate out ${plan.toArchive.length} oldest sessions (-> ${branch})"`, cloneDir);
+    runGit(['checkout', 'master'], cloneDir);
+    runGit(['rm', '--quiet', '--', ...plan.toArchive], cloneDir);
+    runGit(['commit', '-m', `archive: rotate out ${plan.toArchive.length} oldest sessions (-> ${branch})`], cloneDir);
 
     return branch;
   } finally {
@@ -128,6 +128,9 @@ export async function POST(request: NextRequest) {
 
     if (!taskId) {
       return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+    }
+    if (!isSafeTaskId(taskId)) {
+      return NextResponse.json({ error: 'Invalid taskId: must be non-empty, max 128 chars, no path separators or control characters' }, { status: 400 });
     }
 
     const randomSuffix = crypto.randomBytes(4).toString('hex');
@@ -150,24 +153,24 @@ export async function POST(request: NextRequest) {
       // working tree to that tip (discards stale local state from a previous
       // failed upload; last success was pushed, so remote has it).
       try {
-        runGit('git checkout -B master origin/master', mirrorDir);
+        runGit(['checkout', '-B', 'master', 'origin/master'], mirrorDir);
       } catch {
-        runGit('git checkout -B master', mirrorDir);
+        runGit(['checkout', '-B', 'master'], mirrorDir);
       }
-      runGit('git clean -fdq', mirrorDir);
+      runGit(['clean', '-fdq'], mirrorDir);
 
       fs.copyFileSync(filePath, path.join(mirrorDir, filename));
-      runGit('git add .', mirrorDir);
+      runGit(['add', '.'], mirrorDir);
       const commitMsg = description ?? `Add session ${taskId}`;
       const msgFile = path.join(mirrorDir, '_commit_msg.txt');
       fs.writeFileSync(msgFile, commitMsg);
-      runGit(`git commit -F "${msgFile}"`, mirrorDir);
+      runGit(['commit', '-F', msgFile], mirrorDir);
       try { fs.unlinkSync(msgFile); } catch {}
 
       // Integrate any concurrent remote pushes so our push is fast-forward.
       try {
-        runGit('git fetch --quiet origin master', mirrorDir);
-        runGit('git merge --allow-unrelated-histories --no-edit origin/master', mirrorDir);
+        runGit(['fetch', '--quiet', 'origin', 'master'], mirrorDir);
+        runGit(['merge', '--allow-unrelated-histories', '--no-edit', 'origin/master'], mirrorDir);
       } catch {
         // Remote has no master yet (first-ever push) — nothing to integrate.
       }
@@ -181,7 +184,7 @@ export async function POST(request: NextRequest) {
         // Archiving is best-effort: never let it block the upload.
       }
 
-      runGit(`git push "${CANNBAY_PUSH_URL}" master`, mirrorDir);
+      runGit(['push', CANNBAY_PUSH_URL, 'master'], mirrorDir);
 
       return NextResponse.json({ success: true, filename, archivedBranch });
     } finally {

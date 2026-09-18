@@ -12,12 +12,16 @@ import path from "node:path"
 import { prisma } from "@/lib/db"
 import { exportSessionToMarkdown } from "@/lib/export/markdown-exporter"
 import { buildAgentIO } from "@/lib/export/agent-io-export"
+import { isSafeTaskId } from "@/lib/task-id"
 
 const PYTHON_AGENT_URL = process.env.CANNBOT_AGENT_URL ?? "http://localhost:21026"
 
 export async function POST(req: Request) {
   const { taskId, framework, provider, mode } = await req.json()
   if (!taskId) return NextResponse.json({ error: "Missing taskId" }, { status: 400 })
+  if (!isSafeTaskId(taskId)) {
+    return NextResponse.json({ error: "Invalid taskId: must be non-empty, max 128 chars, no path separators or control characters" }, { status: 400 })
+  }
   if (!provider?.apiKey || !provider?.baseUrl || !provider?.model) {
     return NextResponse.json({ error: "Missing provider config" }, { status: 400 })
   }

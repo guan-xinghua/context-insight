@@ -2,7 +2,7 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
-## [Unreleased]
+## [v0.2.32] - 2026-09-18
 
 ### Added
 - 【同 sid 双记录·cannbay 侧：wire 捕获与原生会话两份记录在数据仓并存（不再互踩覆盖）】仓内布局按记录类拆目录——**不变量从「sid 全仓唯一」升级为「sid × 记录类 全仓唯一」**：wire 捕获占裸 `<sid>/`（cpx 直传/insight 捕获行/存量数据零迁移，今日行为不变），原生 claude 会话占 `<sid>.native/`（点分隔——uuid 形态 sid 不含点，与真实 sid 裸目录零歧义；**目录内文件仍以真实 sid 命名**，materialize/导入 taskId 不带后缀，与 insight 方案一双向闭环：仓内两记录分别导入 → insight 两行）。同记录类重传仍是整体替换（幂等/清旧语义不变），staging 仍是该记录的完整权威集合；换范式/普通↔baseline 迁移与 baseline 交换均按记录类各自执行（每记录类各一个范式基准，另一记录类的目录永不触碰）。上传侧记录类推导：version 带 marker 或 framework 带 `-proxy` 后缀 → 裸主位（capture）；**其余非 proxy 行（claude/opencode 原生行、insight 导出行）一律落 `.native/`**——含 opencode/codex 原生行的重传：此类行的仓内位置会从旧裸位迁到 `<sid>.native/`（存量原生裸目录在下一次原生行上传时按 meta 归属自动迁移，见下）。**存量迁移（上传时自愈）**：旧世界非 proxy 上传落在裸 `<sid>/`，裸目录不在 native 记录类的 stale 位置视野内会永不清理（list 同 sid 双条目、旧原生内容错标 capture 且无法被重传替换）——上传 native 时识别裸目录内容归属（`bareDirHoldsNativeRecording`，与上传侧记录类推导**同构**：producer=cpx / framework 带 `-proxy` / **ccVersion 带 proxy marker（早期捕获行形态——framework 无后缀 + version 带 marker，合成/DB 导出 meta 原样抄行值，ccVersion 是该形态下唯一 proxy 信号；漏判会把存量捕获裸目录误判为存量原生而删除）**任一命中 = 捕获不动；producer=insight-export/insight-upload 且无任何 proxy 信号作为过期位置一并删除（同 commit 完成迁移）；无 meta 的归属不明目录保守不动（宁可残留勿误删，如需彻底清理可手工删除该裸目录）。**cpx 侧零改动**（只传捕获 → 永远落裸位，parity 不受影响）。配套：`listOverview` 条目增 `recording` 字段（同 sid 两条目、`readSessionMetas` 按目录名双形态匹配）；`importCannbay2Session`/cannbay2 路由 import action 增 `recording` 参数；导入对话框选择键改 `sid@recording` 复合键（同 sid 两行可选可导——**复合键只用于选择集与状态更新定位**，ImportHistory taskId/File Path/列表 label 一律真实 sid，避免 delete-session 404 静默失败与假路径显示；原生条目靠同 sid 两条目并排区分，不加额外徽标）；**Recent Imports 删除按行消歧**——同 sid 双记录两条 history 条目共享 taskId，`handleDeleteOne` 请求体带 `framework`（不带会命中两行全部级联删除、另一份记录 DB 数据随之被删），localStorage 过滤按 taskId+framework 双键只清点击的那条（framework 缺失的旧条目回落裸 taskId 语义）；类型徽标事实源（dbMeta）按行定位键查找（双记录各显各的，不再都查首行），knownFramework 白名单经 `agentFrameworkOf` 剥 `-proxy` 后缀归一（捕获条目不再显示「—」）。IT：`tests/ut/cannbay2-dual-recording.test.ts`（①双行上传仓内两目录并存 ②list 两条目 ③分别导入 insight 两行各自落位 ④同记录类重传只替换自己目录 ⑤目录名推导纯单元 ⑥存量迁移：insight 导出件裸目录在原生重传时清除、捕获形态裸目录（cpx / 早期捕获行 ccVersion 带 marker）不动 ⑦注入面：恶意顶层目录名被 root 段级白名单过滤，不进入定位与 shell 命令）+ `tests/ut/local-import-cannbay-dual.test.tsx`（组件级：双记录勾选导入 label/history 真实 sid 不外泄复合键 + 全选键对齐）+ `tests/ut/import-history-dual-delete.test.tsx`（Recent Imports 删除带 framework 消歧只清单条 + 徽标按行定位 + 旧条目回落）；既有 6 个 cannbay2 测试文件 fixture 同步捕获形态（测主路径机械，`.native` 路径由新 IT 覆盖）
@@ -16,6 +16,10 @@
 - 【导入列表类型徽标归一】success 徽标白名单经 `agentFrameworkOf` 剥 `-proxy` 后缀（捕获条目 claude-code-proxy 不再缺徽标，与 ImportHistory 同款）
 - 【多行删除确认改服务端事实源（PR #20 审查复核）】前端 `rowCounts` 探测源 `/api/observe/data?limit=500` 实际只认 `pageSize`（缺省 20）——DB 会话一多，旧条目 taskId 落窗口外 → 确认弹窗永不触发、无消歧删除照旧级联全删。改为 **delete-session 服务端守卫**：无 framework 且命中多行返回 409 + rowCount（`findMany` 事实源判定，不受列表截断影响），前端据此弹确认、用户确认后带 `confirmAll: true` 重发放行。IT：delete-session-api 双行 409/消歧删单行/confirmAll 全删三态 + 组件级 409 驱动弹窗全流程（首删 409 → 取消保留 → 再删 409 → 确认全删）
 - 【baseline 交换注入面补口（PR #20 审查复核）】`locateBaselineSids` 返回的 baseline/ 目录名（ls-tree 原始输出，同 root 威胁模型）未过白名单即直通 sparse-checkout/git add 的 shell 字符串——swapBack 过滤补 `isSafeRootSegment`（合法 `<sid>`/`<sid>.native` 不受影响）
+
+### Security
+- 【安全加固批】修复服务端多类输入校验缺失问题（命令执行 / 路径越权 / 请求伪造类）：本地 git 调用全部改为无 shell 的数组参数模式；taskId、cannbay 导入 filenames、smart-agent 输出与 prompt 参数统一白名单收敛（导入/浏览路径与 breather 连接目标为本地自用功能，刻意不设白名单）。新增环境变量：`CANNBOT_AGENT_OUTPUT_ROOTS`（追加 smart-agent 输出根）。**建议所有部署尽快升级；旧版本请勿将服务端口暴露给不可信网络**
+- 【测试】新增守卫 IT（`security-guards` / `upload-git-injection` 等，vitest + pytest 共 20+ 用例），存量用例适配新校验口径
 
 ## [v0.2.31] - 2026-09-17
 

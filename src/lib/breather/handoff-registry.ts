@@ -18,14 +18,29 @@ export interface HandoffSessionRecord {
   status?: string
 }
 
+export function resolveProjectPath(projectPath: string | null | undefined): string | null {
+  if (typeof projectPath !== "string" || projectPath.trim() === "") return null
+  try {
+    const st = fs.statSync(projectPath)
+    if (!st.isDirectory()) return null
+    return fs.realpathSync(projectPath)
+  } catch {
+    return null
+  }
+}
+
 export function readHandoffRegistry(projectPath: string): HandoffSessionRecord[] {
-  const regPath = path.join(projectPath, ".opencode-handoff-registry.json")
+  const dir = resolveProjectPath(projectPath)
+  if (!dir) return []
+  const regPath = path.join(dir, ".opencode-handoff-registry.json")
   if (!fs.existsSync(regPath)) return []
   try { return JSON.parse(fs.readFileSync(regPath, "utf-8")) } catch { return [] }
 }
 
 export function writeHandoffRegistry(projectPath: string, registry: HandoffSessionRecord[]): void {
-  const regPath = path.join(projectPath, ".opencode-handoff-registry.json")
+  const dir = resolveProjectPath(projectPath)
+  if (!dir) throw new Error(`Invalid projectPath: ${projectPath}`)
+  const regPath = path.join(dir, ".opencode-handoff-registry.json")
   fs.writeFileSync(regPath, JSON.stringify(registry, null, 2), "utf-8")
 }
 
