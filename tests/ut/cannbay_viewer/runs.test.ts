@@ -33,6 +33,13 @@ const DB_SEED = [
   { taskId: 'ele-base9999', startTime: '2026-08-20T09:00:00+08:00', endTime: '2026-08-20T09:30:00+08:00', totalTokens: 80_000, framework: 'opencode', version: '0.9.1' },
   { taskId: 'con-bbbb2222', startTime: '2026-09-01T14:00:00+08:00', endTime: '2026-09-01T14:10:00+08:00', totalTokens: 99_000, framework: 'codex', version: '2.0.0' },
   { taskId: 'mix-zed0001', startTime: '2026-08-01T10:05:00+08:00', endTime: '2026-08-01T10:20:00+08:00', totalTokens: 1_000, framework: 'claude-code', version: '1.2.3' },
+  // 双记录两行同 taskId（framework 消歧）：capture 行与 native 行指标各异
+  { taskId: 'dual2-bbbb2222', startTime: '2026-09-13T09:00:00+08:00', endTime: '2026-09-13T09:20:00+08:00', totalTokens: 111_000, framework: 'claude-code-proxy', version: '1.0.0', model: 'cap-model' },
+  { taskId: 'dual2-bbbb2222', startTime: '2026-09-13T10:00:00+08:00', endTime: '2026-09-13T10:40:00+08:00', totalTokens: 222_000, framework: 'opencode', version: '1.18.30', model: 'nat-model' },
+  // 存量漂移：lake meta framework 与本地导入行 DB framework 不一致（单行）
+  { taskId: 'fb-cccc3333', startTime: '2026-09-13T11:00:00+08:00', endTime: '2026-09-13T11:10:00+08:00', totalTokens: 3_000, framework: 'claude-code-proxy', version: '1.2.3', model: 'fb-model' },
+  // 半导：lake 双记录、DB 仅 native 一行——capture 行必须保持未导入
+  { taskId: 'half-dddd4444', startTime: '2026-09-13T12:00:00+08:00', endTime: '2026-09-13T12:30:00+08:00', totalTokens: 9_000, framework: 'opencode', version: '1.18.30', model: 'half-model' },
 ];
 
 beforeAll(async () => {
@@ -70,6 +77,29 @@ beforeAll(async () => {
         // （=01:30Z，更早）——字符串比较会把 '+08' 行错排在前，epoch 比较不会
         { sid: 'mix-zed0001', paradigm: 'mixfmt', framework: 'claude-code', ccVersion: '1.2.3' },
         { sid: 'mix-plus001', paradigm: 'mixfmt', framework: 'claude-code', ccVersion: '1.2.3', startTime: '2026-08-01T09:30:00+08:00', endTime: '2026-08-01T09:40:00+08:00', totalTokens: 2_000 },
+      ],
+    },
+    {
+      time: '2026-09-12T10:00:00+08:00',
+      message: '提交人: heweidong 内容描述: 同 sid 双记录上传 备注: 无',
+      sessions: [
+        // 同 sid 双记录：裸目录（捕获）与 .native/（原生）两个条目
+        { sid: 'dual-aaaa1111', paradigm: 'dualrec', framework: 'claude-code-proxy', ccVersion: '1.0.0' },
+        { sid: 'dual-aaaa1111', paradigm: 'dualrec', recording: 'native', framework: 'opencode', ccVersion: '1.18.30', startTime: '2026-09-12T09:00:00+08:00', endTime: '2026-09-12T09:40:00+08:00', totalTokens: 8_000, model: 'glm-5.3-flash' },
+      ],
+    },
+    {
+      time: '2026-09-13T10:00:00+08:00',
+      message: '提交人: qi8 内容描述: 双记录 DB 消歧夹具 备注: 无',
+      sessions: [
+        // 两条记录都已导入（DB_SEED 两行）——消歧后各行各显各的指标
+        { sid: 'dual2-bbbb2222', paradigm: 'dualdb', framework: 'claude-code-proxy', ccVersion: '1.0.0' },
+        { sid: 'dual2-bbbb2222', paradigm: 'dualdb', recording: 'native', framework: 'opencode', ccVersion: '1.18.30' },
+        // 单行存量漂移：lake 记 claude-code，本地导入行判为 claude-code-proxy
+        { sid: 'fb-cccc3333', paradigm: 'dualdb', framework: 'claude-code', ccVersion: '1.2.3' },
+        // 半导：DB 只有 native 一行（见 DB_SEED）
+        { sid: 'half-dddd4444', paradigm: 'dualdb', framework: 'claude-code-proxy', ccVersion: '1.0.0' },
+        { sid: 'half-dddd4444', paradigm: 'dualdb', recording: 'native', framework: 'opencode', ccVersion: '1.18.30' },
       ],
     },
   ]);
@@ -251,6 +281,70 @@ describe('listRuns（混格式开始时间排序）', () => {
     // mix-plus001（meta '09:30+08:00' = 01:30Z）；字符串比较 'T09…' > 'T02…'
     // 会把 plus 排前——回归防护
     expect(r.items.map(x => x.sid)).toEqual(['mix-zed0001', 'mix-plus001']);
+  });
+});
+
+describe('listRuns（同 sid 双记录）', () => {
+  it('native 位：sid 无后缀、meta 字段全量、开始时间取快照（回归：meta 读不出导致 工具未知/时间为上传时刻）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'dualrec' });
+    expect(r.total).toBe(2);
+
+    const nat = r.items.find(x => x.recording === 'native');
+    expect(nat?.sid).toBe('dual-aaaa1111');
+    expect(nat?.framework).toBe('opencode');
+    expect(nat?.ccVersion).toBe('1.18.30');
+    expect(nat?.model).toBe('glm-5.3-flash');
+    expect(nat?.startTime).toBe('2026-09-12T09:00:00+08:00');
+    expect(nat?.startTimeApprox).toBe(false);
+    expect(nat?.durationMs).toBe(40 * 60_000);
+    expect(nat?.totalTokens).toBe(8_000);
+    expect(nat?.description).toBe('同 sid 双记录上传');
+    expect(nat?.author).toBe('heweidong');
+
+    const cap = r.items.find(x => x.recording === 'capture');
+    expect(cap?.sid).toBe('dual-aaaa1111');
+    expect(cap?.framework).toBe('claude-code-proxy');
+  });
+});
+
+describe('listRuns（同 sid 双记录 DB 消歧）', () => {
+  it('两行都已导入：按 framework 各取本行指标/模型/URL，不再串行（review 回归）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'dualdb' });
+
+    const nat = r.items.find(x => x.sid === 'dual2-bbbb2222' && x.recording === 'native');
+    expect(nat?.imported).toBe(true);
+    expect(nat?.model).toBe('nat-model');
+    expect(nat?.totalTokens).toBe(222_000);
+    expect(nat?.durationMs).toBe(40 * 60_000);
+    expect(nat?.insightUrl).toBe('/session/dual2-bbbb2222?framework=opencode');
+
+    const cap = r.items.find(x => x.sid === 'dual2-bbbb2222' && x.recording === 'capture');
+    expect(cap?.imported).toBe(true);
+    expect(cap?.model).toBe('cap-model');
+    expect(cap?.totalTokens).toBe(111_000);
+    expect(cap?.insightUrl).toBe('/session/dual2-bbbb2222?framework=claude-code-proxy');
+  });
+
+  it('只导 native：capture 行不被单行回落误标为已导入（review 回归）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'dualdb' });
+    const nat = r.items.find(x => x.sid === 'half-dddd4444' && x.recording === 'native');
+    expect(nat?.imported).toBe(true);
+    expect(nat?.model).toBe('half-model');
+    const cap = r.items.find(x => x.sid === 'half-dddd4444' && x.recording === 'capture');
+    // 此前：另一条导入 → 本条错标已导入 + 借显他行指标 + 直达 URL 查无会话
+    expect(cap?.imported).toBe(false);
+  });
+
+  it('单行存量漂移：lake framework 与 DB 行不一致仍命中（兼容回归）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'dualdb' });
+    const fb = r.items.find(x => x.sid === 'fb-cccc3333');
+    expect(fb?.imported).toBe(true);
+    expect(fb?.model).toBe('fb-model');
+    expect(fb?.totalTokens).toBe(3_000);
   });
 });
 

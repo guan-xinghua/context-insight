@@ -2,6 +2,11 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [v0.2.33] - 2026-09-18
+
+### Fixed
+- 【cannbay viewer】适配同 sid 双记录布局：native 会话（`<sid>.native/`）此前 meta 读不出（工具/模型列为空、开始时间退化为上传时间）且导入失败，现列表 / 导入 / 实验记录全链路按记录类定位
+
 ## [v0.2.32] - 2026-09-18
 
 ### Added

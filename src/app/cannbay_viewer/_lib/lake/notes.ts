@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { ensureMirrorAsync, markLakePhase, resolveLakeRemote, revParseMain, runGit, runGitAsync } from './mirror';
+import { ensureMirrorAsync, markLakePhase, resolveLakeRemote, revParseMain, runGit, runGitAsync, sessionFolderName } from './mirror';
 import { redactLakeSecrets } from './remote';
 import type { LakeRemote } from './remote';
 
@@ -40,7 +40,9 @@ export type LakeRecord = NoteEntry | ScorecardEntry
 /** 会话提交信息：上传时人工填写、落在该会话目录最后触碰 commit 的 message 里 */
 export interface SessionSubmitInfo { author: string | null; description: string | null; remark: string | null }
 
-export interface SessionLoc { sid: string; paradigm: string; isBaseline: boolean }
+/** 记录定位：recording 缺省 capture（存量兼容）；native 会话的记录落在
+ *  <sid>.native/ 目录内——写错位会在裸目录制造幻影会话条目。 */
+export interface SessionLoc { sid: string; paradigm: string; isBaseline: boolean; recording?: 'capture' | 'native' }
 
 const MAX_NOTE_CHARS = 10_000;
 const PUSH_RETRIES = 3;
@@ -51,7 +53,8 @@ function validateSegment(kind: string, v: string): string {
 }
 
 function sessionDir(s: SessionLoc): string {
-  return `${validateSegment('范式目录', s.paradigm)}/${s.isBaseline ? 'baseline/' : ''}${validateSegment('会话 id', s.sid)}`;
+  const folder = sessionFolderName(validateSegment('会话 id', s.sid), s.recording ?? 'capture');
+  return `${validateSegment('范式目录', s.paradigm)}/${s.isBaseline ? 'baseline/' : ''}${folder}`;
 }
 
 export function notesPath(s: SessionLoc): string {

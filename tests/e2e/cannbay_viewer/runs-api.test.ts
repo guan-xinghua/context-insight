@@ -28,7 +28,7 @@ process.env.SCORING_DATA_DIR = path.join(TMP, 'scorecards');
 
 const prisma = new PrismaClient();
 
-const OUR_SIDS = ['e2e-aaaa1111', 'e2e-base9999', 'e2e-cccc3333', 'e2e-con2222', 'e2e-legacy0', 'gemm-base01'];
+const OUR_SIDS = ['e2e-aaaa1111', 'e2e-base9999', 'e2e-cccc3333', 'e2e-con2222', 'e2e-dual5555', 'e2e-legacy0', 'e2e-nat4444', 'gemm-base01'];
 
 beforeAll(async () => {
   makeBareLake(path.join(TMP, 'lake.git'), [
@@ -48,6 +48,16 @@ beforeAll(async () => {
         // cccc 不在测试库，但 meta 带指标快照 → 未导入行也有精确耗时/Token
         { sid: 'e2e-cccc3333', paradigm: 'elementwise', framework: 'claude-code', ccVersion: '1.2.3', startTime: '2026-09-01T11:20:00+08:00', endTime: '2026-09-01T11:50:00+08:00', totalTokens: 45_000, model: 'glm-4.7' },
         { sid: 'e2e-con2222', paradigm: 'contraction', framework: 'codex', ccVersion: '2.0.0', workflow: 'wf-v3', opGen: 'failure' },
+        // 原生会话双记录位：目录 e2e-nat4444.native/，目录内文件用真实 sid 命名
+        { sid: 'e2e-nat4444', paradigm: 'contraction', recording: 'native', framework: 'opencode', ccVersion: '1.18.30', startTime: '2026-09-02T09:00:00+08:00', endTime: '2026-09-02T09:30:00+08:00', totalTokens: 5_000, model: 'glm-5.3-flash' },
+      ],
+    },
+    {
+      time: '2026-09-03T10:00:00+08:00',
+      message: '提交人: qi8 内容描述: 同 sid 双记录对 备注: 无',
+      sessions: [
+        { sid: 'e2e-dual5555', paradigm: 'dualdb', framework: 'claude-code-proxy', ccVersion: '1.0.0' },
+        { sid: 'e2e-dual5555', paradigm: 'dualdb', recording: 'native', framework: 'opencode', ccVersion: '1.18.30', startTime: '2026-09-03T09:00:00+08:00', endTime: '2026-09-03T09:30:00+08:00', totalTokens: 6_000, model: 'glm-5.3-flash' },
       ],
     },
   ]);
@@ -69,10 +79,10 @@ afterAll(async () => {
 });
 
 const runsReq = (query: string) => new NextRequest(`http://localhost/cannbay_viewer/api/runs?${query}`);
-const importReq = (sid: string) => new NextRequest('http://localhost/cannbay_viewer/api/runs/import', {
+const importReq = (sid: string, recording?: 'capture' | 'native') => new NextRequest('http://localhost/cannbay_viewer/api/runs/import', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ sid }),
+  body: JSON.stringify(recording ? { sid, recording } : { sid }),
 });
 
 interface ApiRun {
@@ -81,6 +91,7 @@ interface ApiRun {
   durationMs: number | null;
   totalTokens: number | null;
   model: string | null;
+  startTime: string | null;
   startTimeApprox: boolean;
   description: string | null;
   author: string | null;
@@ -181,6 +192,47 @@ describe('POST /cannbay_viewer/api/runs/import（一键导入全链路）', () =
     // 会话行真实落库（taskId 即 sid）
     const dbRow = await prisma.session.findFirst({ where: { taskId: 'e2e-cccc3333' }, select: { id: true } });
     expect(dbRow).toBeTruthy();
+  });
+
+  it('导入 native 位会话（.native 目录）→ 写库 → 行转已导入', async () => {
+    const { GET: getRuns } = await import('../../../src/app/cannbay_viewer/api/runs/route');
+    const { POST } = await import('../../../src/app/cannbay_viewer/api/runs/import/route');
+
+    const before = await (await getRuns(runsReq('paradigm=contraction'))).json() as { items: Array<ApiRun & { recording?: string }> };
+    const natRow = before.items.find(x => x.sid === 'e2e-nat4444');
+    // 列表层（回归：native 目录 meta 此前读不出 → 工具未知/时间为上传时刻）
+    expect(natRow?.recording).toBe('native');
+    expect(natRow?.imported).toBe(false);
+    expect(natRow?.model).toBe('glm-5.3-flash');
+    expect(natRow?.startTimeApprox).toBe(false);
+    expect(natRow?.startTime).toBe('2026-09-02T09:00:00+08:00');
+
+    const res = await POST(importReq('e2e-nat4444', 'native'));
+    expect(res.status).toBe(200);
+    expect((await res.json() as { ok: boolean }).ok).toBe(true);
+
+    const after = await (await getRuns(runsReq('paradigm=contraction'))).json() as { items: ApiRun[] };
+    expect(after.items.find(x => x.sid === 'e2e-nat4444')?.imported).toBe(true);
+    const dbRow = await prisma.session.findFirst({ where: { taskId: 'e2e-nat4444' }, select: { id: true } });
+    expect(dbRow).toBeTruthy();
+  });
+
+  it('双记录只导 native → capture 行仍为未导入，不借显他行指标（review 回归）', async () => {
+    const { GET: getRuns } = await import('../../../src/app/cannbay_viewer/api/runs/route');
+    const { POST } = await import('../../../src/app/cannbay_viewer/api/runs/import/route');
+
+    const res = await POST(importReq('e2e-dual5555', 'native'));
+    expect(res.status).toBe(200);
+
+    const after = await (await getRuns(runsReq('paradigm=dualdb'))).json() as { items: Array<ApiRun & { recording?: string }> };
+    const nat = after.items.find(x => x.sid === 'e2e-dual5555' && x.recording === 'native');
+    const cap = after.items.find(x => x.sid === 'e2e-dual5555' && x.recording === 'capture');
+    expect(nat?.imported).toBe(true);
+    // 此前：单键 map 只剩一行 → 两条 lake 行都命中 → capture 行错标已导入
+    expect(cap?.imported).toBe(false);
+    // capture 行指标仍来自自身 meta 快照，未被 native 行污染
+    expect(cap?.model).toBeNull();
+    expect(cap?.totalTokens).toBeNull();
   });
 
   it('未知 sid → 502（物化失败上抛为导入错误）', async () => {

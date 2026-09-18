@@ -205,6 +205,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **Doc files**: Don't create `.md` / README unless explicitly requested
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
 - **Version bumps**: PR-granularity — bump once per merged PR (+0.0.1), **only the packages this PR actually touched** — insight only when `packages/insight` changed (`src/lib/version.ts` + `package.json` together, single-track), cpx only when `packages/cpx` changed (`src/version.ts` + `package.json`); untouched packages stay; individual commits don't bump
+- **CHANGELOG 简洁**: 条目一两句说清「什么变了、用户可感知什么」——不写实现细节（函数名/内部机制/IT 清单，那些放 PR 描述或 docs/design）；只有功能性变化才写，小加固/杂项不单开条目
 - **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4
 - **Charts**: Pure SVG, no chart libraries — match TraceView DAG style

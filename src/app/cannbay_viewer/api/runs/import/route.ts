@@ -14,11 +14,13 @@ export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
-    const { sid } = await request.json() as { sid?: string };
+    const { sid, recording } = await request.json() as { sid?: string; recording?: string };
     if (!sid) {
       return NextResponse.json({ error: 'Missing sid' }, { status: 400 });
     }
-    const result = await importSession(sid);
+    // recording 缺省按 capture 兼容旧客户端；非法值同样回落（导入侧会因目录
+    // 不存在而 502，无需在此强校验）
+    const result = await importSession(sid, recording === 'native' ? 'native' : 'capture');
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? 'Import failed' }, { status: 502 });
     }

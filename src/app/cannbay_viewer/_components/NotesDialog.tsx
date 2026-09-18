@@ -41,7 +41,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/cannbay_viewer/api/runs/${encodeURIComponent(item.sid)}/notes`)
+    fetch(`/cannbay_viewer/api/runs/${encodeURIComponent(item.sid)}/notes?recording=${item.recording}`)
       .then(r => r.json())
       .then((d: { records?: LakeRecord[]; submit?: SubmitInfo; error?: string }) => {
         if (cancelled) return;
@@ -63,7 +63,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
     busy(true);
     setError(null);
     try {
-      const res = await fetch(`/cannbay_viewer/api/runs/${encodeURIComponent(item.sid)}/notes`, {
+      const res = await fetch(`/cannbay_viewer/api/runs/${encodeURIComponent(item.sid)}/notes?recording=${item.recording}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -101,7 +101,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
     setSavingOpGen(true);
     setError(null);
     try {
-      const res = await fetch(`/cannbay_viewer/api/runs/${encodeURIComponent(item.sid)}/notes`, {
+      const res = await fetch(`/cannbay_viewer/api/runs/${encodeURIComponent(item.sid)}/notes?recording=${item.recording}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: 'opgen', value }),

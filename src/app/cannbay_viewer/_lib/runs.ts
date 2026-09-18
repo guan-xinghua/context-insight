@@ -15,6 +15,7 @@ import { readLakeSessions, readParadigmDirs, resolveLakeRemote, revParseMain, en
 import { parseSubmitInfo } from './lake/notes';
 import type { LakeSession } from './lake/mirror';
 import { normalizeScore } from './format';
+import { agentFrameworkOf } from '@/lib/shared/session-format';
 
 export interface ParadigmSummary {
   name: string;
@@ -27,6 +28,8 @@ export interface RunItem {
   sid: string;
   paradigm: string;
   isBaseline: boolean;
+  /** 记录类：capture（裸目录）/ native（<sid>.native/ 原生会话位）——导入与记录按类定位 */
+  recording: 'capture' | 'native';
   framework: string | null;
   ccVersion: string | null;
   workflow: string | null;
@@ -91,7 +94,7 @@ const SCORECARD_TTL_MS = 300_000;
 let lakeCacheAt = 0;
 let lakeCachePromise: Promise<LakeListing> | null = null;
 let lakeInflight: Promise<LakeListing> | null = null;
-let insightCache: CacheEntry<Map<string, InsightSession> | null> | null = null;
+let insightCache: CacheEntry<Map<string, InsightSession[]> | null> | null = null;
 const scorecardCache = new Map<string, CacheEntry<InsightScorecard | null>>();
 
 interface LakeListing {
@@ -156,7 +159,7 @@ export function invalidateCaches(): void {
   scorecardCache.clear();
 }
 
-async function getInsightSessions(): Promise<Map<string, InsightSession> | null> {
+async function getInsightSessions(): Promise<Map<string, InsightSession[]> | null> {
   const now = Date.now();
   if (!insightCache || now - insightCache.at > INSIGHT_TTL_MS) {
     const value = await listInsightSessions();
@@ -166,17 +169,40 @@ async function getInsightSessions(): Promise<Map<string, InsightSession> | null>
   return insightCache.value;
 }
 
-async function fetchScorecard(taskId: string): Promise<InsightScorecard | null> {
+// 同 sid 双记录在 DB 是两行（capture = <agent>-proxy / native = 真实框架），按
+// (taskId, framework) 消歧取本行数据（lake meta framework 与该记录导入后的
+// DB 行 framework 同值）。回落仅限「确实同一记录」：framework 精确未命中且仅
+// 一行时，基座框架一致（agentFrameworkOf 剥 -proxy，分类漂移场景）或行
+// framework 缺失才命中；两行无法消歧 / 另一记录的单行一律 null（按未导入
+// 处理——重导幂等，且避免借显他行指标与「查无会话」的直达 URL）。
+function matchInsightRow(index: Map<string, InsightSession[]> | null, sid: string, framework: string | null): InsightSession | null {
+  if (!index) return null;
+  const rows = index.get(sid);
+  if (!rows || rows.length === 0) return null;
+  if (framework) {
+    const hit = rows.find(r => r.framework === framework);
+    if (hit) return hit;
+    const only = rows.length === 1 ? rows[0] : null;
+    if (only && (only.framework == null || agentFrameworkOf(only.framework) === agentFrameworkOf(framework))) return only;
+    return null;
+  }
+  // lake meta 无 framework（存量裸目录形态）：单行沿用旧 sid 命中语义
+  return rows.length === 1 ? rows[0]! : null;
+}
+
+async function fetchScorecard(taskId: string, framework?: string | null): Promise<InsightScorecard | null> {
+  // 缓存键带 framework：同 sid 双记录两行的卡各自缓存互不覆盖
+  const cacheKey = framework ? `${taskId}@${framework}` : taskId;
   const now = Date.now();
-  const hit = scorecardCache.get(taskId);
+  const hit = scorecardCache.get(cacheKey);
   if (hit && now - hit.at < SCORECARD_TTL_MS) return hit.value;
   let value: InsightScorecard | null;
   try {
-    value = await getScorecard(taskId);
+    value = await getScorecard(taskId, framework);
   } catch {
     return null; // 查询失败不缓存（TTL 内下次请求立即重试），本次降级为未评分
   }
-  scorecardCache.set(taskId, { at: now, value });
+  scorecardCache.set(cacheKey, { at: now, value });
   return value;
 }
 
@@ -215,7 +241,7 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
 
   let rows: RunItem[] = [];
   for (const s of remoteSessions) {
-    const insight = insightSessions?.get(s.sid) ?? null;
+    const insight = matchInsightRow(insightSessions, s.sid, s.framework);
     if (insight) {
       const start = insight.startTime ? new Date(insight.startTime).getTime() : NaN;
       const end = insight.endTime ? new Date(insight.endTime).getTime() : NaN;
@@ -223,6 +249,7 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         sid: s.sid,
         paradigm: s.paradigm as string,
         isBaseline: s.isBaseline,
+        recording: s.recording,
         framework: s.framework,
         ccVersion: s.ccVersion,
         workflow: s.workflow,
@@ -246,6 +273,7 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         sid: s.sid,
         paradigm: s.paradigm as string,
         isBaseline: s.isBaseline,
+        recording: s.recording,
         framework: s.framework,
         ccVersion: s.ccVersion,
         workflow: s.workflow,
@@ -274,7 +302,7 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
   rows.sort(byStartTimeDesc);
   const scoreTargets = rows.filter(r => r.imported).slice(0, MAX_ITEMS);
   await mapBounded(scoreTargets, SCORE_FETCH_LIMIT, async (r) => {
-    const card = await fetchScorecard(r.sid);
+    const card = await fetchScorecard(r.sid, r.framework);
     r.totalScore = normalizeScore(card?.totalScore ?? null);
     r.dimensions = card?.dimensions.map(d => ({ ...d, score: d.score == null ? null : normalizeScore(d.score) })) ?? [];
     r.baselineDelta = r.totalScore != null && baselineScore != null

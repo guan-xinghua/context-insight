@@ -21,6 +21,24 @@ import type { LakeRemote } from './remote';
 export { resolveLakeRemote } from './remote';
 export type { LakeRemote } from './remote';
 
+// 双记录目录布局（与 cannbay2/mirror.ts 同构）：捕获/主位占裸 <sid>/，原生
+// 会话占 <sid>.native/（目录内文件仍以真实 sid 命名）。同一 sid 可各有一条。
+export type RecordingClass = 'capture' | 'native';
+
+const NATIVE_FOLDER_SUFFIX = '.native';
+
+/** 仓内目录名 → (真实 sid, 记录类)。无 .native 后缀的目录一律视为捕获位。 */
+export function parseSessionFolder(folder: string): { sid: string; recording: RecordingClass } {
+  return folder.endsWith(NATIVE_FOLDER_SUFFIX)
+    ? { sid: folder.slice(0, -NATIVE_FOLDER_SUFFIX.length), recording: 'native' }
+    : { sid: folder, recording: 'capture' };
+}
+
+/** 记录类 → 仓内目录名。 */
+export function sessionFolderName(sid: string, recording: RecordingClass = 'capture'): string {
+  return recording === 'native' ? `${sid}${NATIVE_FOLDER_SUFFIX}` : sid;
+}
+
 // LFS 免疫（per-command 中和，镜像内 git 操作对"装没装 git-lfs"完全不敏感）：
 // 数据仓 .gitattributes 带 filter=lfs 行 + 客户机 gitconfig 挂着 lfs filter 时——
 // checkout：孤儿指针触发 smudge 下载，远端 LFS 未启用 → 403 "project lfs not
@@ -305,6 +323,7 @@ function lsTreeTopDirs(dir: string, remote: LakeRemote): string[] {
 
 export interface LakeSession {
   sid: string;
+  recording: RecordingClass;
   fileCount: number;
   commitTime: string;
   commitSubject: string;
@@ -339,22 +358,28 @@ interface SessionMeta {
   model: string | null;
 }
 
-function wantedMetaEntries(treeOut: string): Array<{ sid: string; oid: string }> {
-  const pathPattern = /^[^/]+\/(?:baseline\/)?([^/]+)\/\1\.meta\.json$/;
-  const wanted: Array<{ sid: string; oid: string }> = [];
+// 双目录形态（同 sid 双记录）：裸 <sid>/<sid>.meta.json（捕获/主位）与
+// <sid>.native/<sid>.meta.json（原生——目录带后缀、文件用真实 sid）。
+function wantedMetaEntries(treeOut: string): Array<{ folder: string; oid: string }> {
+  const barePattern = /^[^/]+\/(?:baseline\/)?([^/]+)\/\1\.meta\.json$/;
+  const nativePattern = /^[^/]+\/(?:baseline\/)?([^/]+)\.native\/\1\.meta\.json$/;
+  const wanted: Array<{ folder: string; oid: string }> = [];
   for (const rec of treeOut.split('\0')) {
     const entry = splitLsTreeEntry(rec);
     if (!entry) continue;
     const oidMatch = entry.meta.match(/^[0-9]+\s+blob\s+([0-9a-f]+)$/);
     if (!oidMatch) continue;
-    const pathMatch = entry.path.match(pathPattern);
-    if (pathMatch) wanted.push({ sid: pathMatch[1], oid: oidMatch[1] });
+    // 裸形态捕获组 = 目录名；.native 形态捕获组 = 去后缀 sid，补回后缀才是目录名（map 键）
+    const bare = entry.path.match(barePattern);
+    const native = bare ? null : entry.path.match(nativePattern);
+    if (bare) wanted.push({ folder: bare[1], oid: oidMatch[1] });
+    else if (native) wanted.push({ folder: `${native[1]}${NATIVE_FOLDER_SUFFIX}`, oid: oidMatch[1] });
   }
   return wanted;
 }
 
 // 输出格式（每个请求一条）：<oid> SP <type> SP <size>\n<content>\n\n
-function parseSessionMetas(buf: Buffer, wanted: Array<{ sid: string; oid: string }>): Map<string, SessionMeta> {
+function parseSessionMetas(buf: Buffer, wanted: Array<{ folder: string; oid: string }>): Map<string, SessionMeta> {
   const out = new Map<string, SessionMeta>();
   let offset = 0;
   const text = (start: number, end: number): string => buf.toString('utf8', start, end);
@@ -371,7 +396,7 @@ function parseSessionMetas(buf: Buffer, wanted: Array<{ sid: string; oid: string
     try {
       const meta = JSON.parse(body) as { x_cannbay?: { data?: { framework?: unknown; ccVersion?: unknown; producer?: unknown; workflow?: unknown; opGen?: unknown; startTime?: unknown; durationMs?: unknown; totalTokens?: unknown; model?: unknown } } };
       const d = meta.x_cannbay?.data;
-      out.set(w.sid, {
+      out.set(w.folder, {
         framework: typeof d?.framework === 'string' ? d.framework : null,
         ccVersion: typeof d?.ccVersion === 'string' ? d.ccVersion : null,
         producer: typeof d?.producer === 'string' ? d.producer : null,
@@ -430,6 +455,7 @@ async function readSessionMetas(dir: string): Promise<Map<string, SessionMeta>> 
 
 /** ls-tree + 一次 git log walk + 一次批量 meta 读取 → 全部运行及提交元数据。
  *  布局（spec §2）：<paradigm>/<sid>/（范式目录即注册表）、<paradigm>/baseline/<sid>/、
+ *  <paradigm>/<sid>.native/（原生会话双记录位，目录内文件用真实 sid 命名）、
  *  sessions/<sid>/（存量区 → paradigm null，不入范式视图）。 */
 export async function listSessions(remote: LakeRemote = resolveLakeRemote()): Promise<LakeSession[]> {
   return readLakeSessions(await ensureMirrorAsync(remote), remote);
@@ -448,9 +474,11 @@ export async function readLakeSessions(dir: string, remote: LakeRemote): Promise
   for (const line of treeFiles) {
     const m = line.match(filePattern);
     if (m) {
-      const sid = m[3];
-      fileCount.set(sid, (fileCount.get(sid) ?? 0) + 1);
-      sidLoc.set(sid, { root: m[1], baseline: m[2] != null });
+      // m 捕获的是目录名（folder）——同 sid 双记录下裸目录与 .native 是两个
+      // 目录，各自一条目；真实 sid 由 parseSessionFolder 剥后缀还原
+      const folder = m[3];
+      fileCount.set(folder, (fileCount.get(folder) ?? 0) + 1);
+      sidLoc.set(folder, { root: m[1], baseline: m[2] != null });
     }
   }
 
@@ -486,12 +514,14 @@ export async function readLakeSessions(dir: string, remote: LakeRemote): Promise
 
   const entries: LakeSession[] = [];
   const metas = await readSessionMetas(dir);
-  for (const [sid, count] of fileCount) {
-    const meta = metas.get(sid);
-    const loc = sidLoc.get(sid) ?? { root: 'sessions', baseline: false };
-    const upload = sidCommit.get(`${loc.root}/${loc.baseline ? 'baseline/' : ''}${sid}`);
+  for (const [folder, count] of fileCount) {
+    const { sid, recording } = parseSessionFolder(folder);
+    const meta = metas.get(folder);
+    const loc = sidLoc.get(folder) ?? { root: 'sessions', baseline: false };
+    const upload = sidCommit.get(`${loc.root}/${loc.baseline ? 'baseline/' : ''}${folder}`);
     entries.push({
       sid,
+      recording,
       fileCount: count,
       commitTime: upload?.time ?? '',
       commitSubject: upload?.subject ?? '',

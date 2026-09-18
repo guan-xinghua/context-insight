@@ -120,12 +120,12 @@ function ViewerPage() {
     return () => { cancelled = true; };
   }, [query, refreshKey]);
 
-  const importRun = async (sid: string): Promise<boolean> => {
+  const importRun = async (sid: string, recording: 'capture' | 'native'): Promise<boolean> => {
     try {
       const res = await fetch('/cannbay_viewer/api/runs/import', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sid }),
+        body: JSON.stringify({ sid, recording }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };

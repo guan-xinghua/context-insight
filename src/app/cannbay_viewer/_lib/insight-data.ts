@@ -29,17 +29,20 @@ export interface InsightScorecard {
   computedAt: string;
 }
 
-// 全量会话 map（taskId 即数据仓 sid）。DB 故障返回 null——runs 层按「库不可读」
-// 降级（指标列空、行标未导入），不拖垮数据湖侧列表；null 不落缓存，下次即重试。
-export async function listInsightSessions(): Promise<Map<string, InsightSession> | null> {
+// 全量会话索引（taskId → 本地行集）：同 sid 双记录在 DB 是两行（capture/
+// native framework 各异），单键 map 会互相覆盖。DB 故障返回 null——runs 层按
+// 「库不可读」降级（指标列空、行标未导入），不拖垮数据湖侧列表；null 不落
+// 缓存，下次即重试。
+export async function listInsightSessions(): Promise<Map<string, InsightSession[]> | null> {
   try {
     const sessions = await prisma.session.findMany({
       select: { taskId: true, startTime: true, endTime: true, totalTokens: true, framework: true, version: true, model: true },
     });
-    const out = new Map<string, InsightSession>();
+    const out = new Map<string, InsightSession[]>();
     for (const s of sessions) {
       if (!s.taskId) continue;
-      out.set(s.taskId, {
+      const rows = out.get(s.taskId) ?? [];
+      rows.push({
         taskId: s.taskId,
         startTime: s.startTime ? s.startTime.toISOString() : null,
         endTime: s.endTime ? s.endTime.toISOString() : null,
@@ -48,6 +51,7 @@ export async function listInsightSessions(): Promise<Map<string, InsightSession>
         version: s.version,
         model: s.model,
       });
+      out.set(s.taskId, rows);
     }
     return out;
   } catch {
@@ -59,8 +63,13 @@ export async function listInsightSessions(): Promise<Map<string, InsightSession>
 // scorecard 路由同口径。aborted（截断）卡与未找到一律 null；查询失败上抛
 // （区别于「确定无卡」）——调用方降级但不缓存，避免瞬态 DB 故障被 TTL 放大
 // 成「未评分」（与 listInsightSessions 的失败不缓存策略对齐）。
-export async function getScorecard(taskId: string): Promise<InsightScorecard | null> {
-  const session = await prisma.session.findFirst({ where: { taskId }, select: { id: true } });
+export async function getScorecard(taskId: string, framework?: string | null): Promise<InsightScorecard | null> {
+  // 同 sid 双记录两行：优先按 framework 取本记录的行；未带 framework 或未命中
+  // 回落裸 taskId（存量/单记录语义不变）
+  let session = framework
+    ? await prisma.session.findFirst({ where: { taskId, framework }, select: { id: true } })
+    : null;
+  if (!session) session = await prisma.session.findFirst({ where: { taskId }, select: { id: true } });
   if (!session) return null;
   let card: Scorecard | null = await scorecardStore().get(session.id);
   if (!card) card = await runScorecard(taskId, prisma);
@@ -76,10 +85,11 @@ export async function getScorecard(taskId: string): Promise<InsightScorecard | n
   };
 }
 
-// 一键导入：cannbay2 导入编排（物化 + 写库 + x_cannbay 补列），大会话可达数分钟
-export async function importSession(sid: string): Promise<{ ok: boolean; error?: string }> {
+// 一键导入：cannbay2 导入编排（物化 + 写库 + x_cannbay 补列），大会话可达数分钟。
+// recording 定位仓内记录位：native = <sid>.native/（原生会话），capture = 裸 <sid>/
+export async function importSession(sid: string, recording: 'capture' | 'native' = 'capture'): Promise<{ ok: boolean; error?: string }> {
   try {
-    await importCannbay2Session(sid, prisma);
+    await importCannbay2Session(sid, prisma, undefined, recording);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

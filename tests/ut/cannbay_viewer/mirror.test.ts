@@ -36,6 +36,8 @@ beforeAll(() => {
         { sid: 'ele-base9999', paradigm: 'elementwise', baseline: true, framework: 'opencode', ccVersion: '0.9.1', producer: 'insight-export' },
         // 带上传时刻指标快照（spec §4.4 可选字段）的新代会话
         { sid: 'con-bbbb2222', paradigm: 'contraction', framework: 'codex', ccVersion: '2.0.0', workflow: 'wf-v3', opGen: 'failure', startTime: '2026-09-01T14:00:00+08:00', endTime: '2026-09-01T14:10:00+08:00', totalTokens: 99_000 },
+        // 原生会话双记录位（<sid>.native/ 目录，目录内文件用真实 sid 命名）
+        { sid: 'nat-eeee4444', paradigm: 'contraction', recording: 'native', framework: 'opencode', ccVersion: '1.18.30', startTime: '2026-09-02T09:00:00+08:00', endTime: '2026-09-02T09:30:00+08:00', totalTokens: 5_000, model: 'glm-5.3-flash' },
       ],
     },
   ]);
@@ -59,6 +61,7 @@ describe('lake mirror（本地 bare 仓）', () => {
     const aaaa = bySid.get('ele-aaaa1111');
     expect(aaaa?.paradigm).toBe('elementwise');
     expect(aaaa?.isBaseline).toBe(false);
+    expect(aaaa?.recording).toBe('capture');
     expect(aaaa?.framework).toBe('claude-code');
     expect(aaaa?.ccVersion).toBe('1.2.3');
     expect(aaaa?.opGen).toBe('success');
@@ -86,6 +89,26 @@ describe('lake mirror（本地 bare 仓）', () => {
 
     const legacy = bySid.get('legacy-0000');
     expect(legacy?.paradigm).toBe('sessions');
+
+    // .native 位：sid 还原真实值（无后缀）、meta 从带后缀目录读出全量字段
+    // （回归：meta 正则此前只认 <sid>/<sid>.meta.json，native 目录全空）
+    const nat = bySid.get('nat-eeee4444');
+    expect(nat?.paradigm).toBe('contraction');
+    expect(nat?.recording).toBe('native');
+    expect(nat?.framework).toBe('opencode');
+    expect(nat?.ccVersion).toBe('1.18.30');
+    expect(nat?.model).toBe('glm-5.3-flash');
+    expect(nat?.startTime).toBe('2026-09-02T09:00:00+08:00');
+    expect(nat?.durationMs).toBe(30 * 60_000);
+    expect(nat?.totalTokens).toBe(5_000);
+  });
+
+  it('parseSessionFolder / sessionFolderName：目录名 ↔ 记录类互推', async () => {
+    const m = await import('../../../src/app/cannbay_viewer/_lib/lake/mirror');
+    expect(m.parseSessionFolder('ses_abc123')).toEqual({ sid: 'ses_abc123', recording: 'capture' });
+    expect(m.parseSessionFolder('ses_abc123.native')).toEqual({ sid: 'ses_abc123', recording: 'native' });
+    expect(m.sessionFolderName('ses_abc123', 'native')).toBe('ses_abc123.native');
+    expect(m.sessionFolderName('ses_abc123')).toBe('ses_abc123');
   });
 
   it('listSessions：按 commit 时间新→旧排序', async () => {

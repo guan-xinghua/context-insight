@@ -17,6 +17,7 @@ export type ImportState = 'idle' | 'importing' | 'error';
 export interface RunItemView {
   sid: string;
   isBaseline: boolean;
+  recording: 'capture' | 'native';
   framework: string | null;
   ccVersion: string | null;
   workflow: string | null;
@@ -68,12 +69,16 @@ function copySid(sid: string) {
   void navigator.clipboard?.writeText(sid);
 }
 
+// 同 sid 双记录（捕获 + 原生）是两行——行键用 sid@recording 复合（与导入
+// 对话框的 sid@recording 选择键同口径）
+const rowKey = (r: RunItemView): string => `${r.sid}@${r.recording}`;
+
 export function RunsTable({
   items,
   onImport,
 }: {
   items: RunItemView[];
-  onImport: (sid: string) => Promise<boolean>;
+  onImport: (sid: string, recording: 'capture' | 'native') => Promise<boolean>;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('startTime');
   const [sortDesc, setSortDesc] = useState(true);
@@ -83,15 +88,16 @@ export function RunsTable({
 
   // 会话详情页同源站内跳转：同窗口 location 跳转（浏览器返回键回到 viewer，
   // URL 记住范式与筛选状态），无需旧独立应用时期的 window.open 用户激活技巧
-  const importAndOpen = async (sid: string, insightUrl: string) => {
-    setImporting(prev => new Set(prev).add(sid));
-    setImportErrors(prev => { const m = new Map(prev); m.delete(sid); return m; });
-    const ok = await onImport(sid);
-    setImporting(prev => { const s = new Set(prev); s.delete(sid); return s; });
+  const importAndOpen = async (r: RunItemView) => {
+    const k = rowKey(r);
+    setImporting(prev => new Set(prev).add(k));
+    setImportErrors(prev => { const m = new Map(prev); m.delete(k); return m; });
+    const ok = await onImport(r.sid, r.recording);
+    setImporting(prev => { const s = new Set(prev); s.delete(k); return s; });
     if (ok) {
-      window.location.href = insightUrl;
+      window.location.href = r.insightUrl;
     } else {
-      setImportErrors(prev => new Map(prev).set(sid, '导入失败，详见浏览器控制台或服务日志'));
+      setImportErrors(prev => new Map(prev).set(k, '导入失败，详见浏览器控制台或服务日志'));
     }
   };
 
@@ -141,15 +147,15 @@ export function RunsTable({
         </thead>
         <tbody>
           {sorted.map(r => {
-            const busy = importing.has(r.sid);
+            const busy = importing.has(rowKey(r));
             const rowAction = () => {
               if (busy) return;
               if (r.imported) window.location.href = r.insightUrl;
-              else void importAndOpen(r.sid, r.insightUrl);
+              else void importAndOpen(r);
             };
             return (
             <tr
-              key={r.sid}
+              key={rowKey(r)}
               className={`${busy ? 'cursor-not-allowed' : 'cursor-pointer'} border-b border-neutral-100 hover:bg-neutral-50`}
               onClick={rowAction}
               title={r.imported ? '点击查看会话详情' : '点击导入到本地库并打开（首次需物化下载数据）'}
@@ -158,6 +164,9 @@ export function RunsTable({
                 <span className="inline-flex items-center gap-1.5">
                   {r.isBaseline && <span className="text-emerald-600" title="范式基准">◆</span>}
                   <span title={r.sid}>{r.sid.slice(0, 8)}</span>
+                  {r.recording === 'native' && (
+                    <span className="rounded bg-amber-100 px-1 py-px text-[10px] leading-none text-amber-700" title="原生会话记录（仓内 <sid>.native/ 位）">原生</span>
+                  )}
                   <button
                     type="button"
                     className="text-neutral-400 hover:text-neutral-700"
@@ -225,12 +234,12 @@ export function RunsTable({
                   <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
                     导入中…
                   </span>
-                ) : importErrors.has(r.sid) ? (
+                ) : importErrors.has(rowKey(r)) ? (
                   <button
                     type="button"
-                    onClick={() => void importAndOpen(r.sid, r.insightUrl)}
+                    onClick={() => void importAndOpen(r)}
                     className="rounded border border-red-300 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                    title={importErrors.get(r.sid)}
+                    title={importErrors.get(rowKey(r))}
                   >
                     重试导入
                   </button>
@@ -244,7 +253,7 @@ export function RunsTable({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => void importAndOpen(r.sid, r.insightUrl)}
+                    onClick={() => void importAndOpen(r)}
                     className="rounded border border-sky-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50"
                   >
                     导入查看

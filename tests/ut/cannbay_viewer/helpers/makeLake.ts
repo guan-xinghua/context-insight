@@ -19,6 +19,8 @@ export interface LakeSeedSession {
   paradigm: string;
   baseline?: boolean;
   legacy?: boolean;
+  /** 双记录布局：native → 目录落 <sid>.native/（目录内文件仍用真实 sid 命名） */
+  recording?: 'capture' | 'native';
   framework?: string;
   ccVersion?: string;
   producer?: string;
@@ -62,7 +64,7 @@ export function makeBareLake(bareDir: string, commits: LakeSeedCommit[]): void {
     for (const s of commit.sessions) {
       const dir = s.legacy
         ? path.join(seed, 'sessions', s.sid)
-        : path.join(seed, s.paradigm, s.baseline ? 'baseline' : '', s.sid);
+        : path.join(seed, s.paradigm, s.baseline ? 'baseline' : '', s.recording === 'native' ? `${s.sid}.native` : s.sid);
       fs.mkdirSync(dir, { recursive: true });
       const lines = Math.max(1, s.jsonlLines ?? 2);
       const body = Array.from({ length: lines - 1 }, (_, i) =>
