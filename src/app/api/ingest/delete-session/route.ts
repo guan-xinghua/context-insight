@@ -77,6 +77,18 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
+    // 方案一双行防误删：无 framework 消歧且命中多行（同 sid 双记录并存）时
+    // 拒绝执行，返回 409 + rowCount 让前端弹确认——无消歧删除会级联清掉
+    // 全部行。前端显式带 confirmAll: true（用户已确认）才放行
+    if (!framework && sessions.length > 1 && body.confirmAll !== true) {
+      return NextResponse.json({
+        error: `Multiple sessions (${sessions.length}) share taskId "${taskId}" (dual recording) — delete-all requires confirmation`,
+        multiRow: true,
+        rowCount: sessions.length,
+        taskId,
+      }, { status: 409 });
+    }
+
     for (const s of sessions) {
       await cascadeDeleteSession(s.id);
     }

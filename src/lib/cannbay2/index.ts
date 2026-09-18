@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import zlib from 'node:zlib';
-import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, type Cannbay2Remote, type Cannbay2SessionEntry, type Cannbay2Overview, type UploadResult } from './mirror';
+import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, type Cannbay2Remote, type Cannbay2SessionEntry, type Cannbay2Overview, type UploadResult, type RecordingClass } from './mirror';
 import { readCcSessionMeta } from '../ingest/proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { defaultCannbay2Remote } from './remote';
@@ -63,8 +63,8 @@ async function readSessionType(prisma: PrismaLike, rowId: string): Promise<{ fra
   }
 }
 
-export async function importCannbay2Session(sid: string, prisma: PrismaLike, remote?: Cannbay2Remote) {
-  const mainJsonl = materializeSession(sid, remote);
+export async function importCannbay2Session(sid: string, prisma: PrismaLike, remote?: Cannbay2Remote, recording: RecordingClass = 'capture') {
+  const mainJsonl = materializeSession(sid, remote, recording);
   const result = await importSession(mainJsonl, sid, prisma, mainJsonl, 'claude-jsonl');
   // x_cannbay 补列（docs/cannbay-schema-spec.md）：核心管线无通道、只存在于
   // 声明里的列（Turn.ttftMs/temperature/maxTokens/modelId/providerId、
@@ -91,7 +91,10 @@ interface DbTurnPayload {
 // sessionRowId：目标行 id（importSession 返回值）——同 sid 双行下裸
 // taskId findFirst 会补到另一行上。
 async function patchXCannbayColumns(mainJsonl: string, sessionRowId: string, prisma: PrismaLike): Promise<void> {
-  const sid = path.basename(mainJsonl, '.jsonl');
+  // 物化 stem 按记录类带后缀（capture=<sid>，native=<sid>.native）——与
+  // materializeSession 的 subagents 物化目录对齐；先剥 .gz 再剥 .jsonl（basename
+  // 后缀逐字匹配，一次传 .jsonl.gz 剥不掉）
+  const matStem = path.basename(mainJsonl.replace(/\.gz$/, ''), '.jsonl');
   const fileGroups: Array<{ subId: string | null; payloads: DbTurnPayload[] }> = [];
   const collect = (file: string, subId: string | null): void => {
     // .jsonl.gz（物化压缩件）/ .jsonl（旧明文仓件）双形态
@@ -110,7 +113,7 @@ async function patchXCannbayColumns(mainJsonl: string, sessionRowId: string, pri
     if (payloads.length > 0) fileGroups.push({ subId, payloads });
   };
   collect(mainJsonl, null);
-  const subagentsDir = path.join(path.dirname(mainJsonl), sid, 'subagents');
+  const subagentsDir = path.join(path.dirname(mainJsonl), matStem, 'subagents');
   if (fs.existsSync(subagentsDir)) {
     for (const entry of fs.readdirSync(subagentsDir, { withFileTypes: true })) {
       if (entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz'))) {
@@ -258,7 +261,7 @@ async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promi
       }
     }
   } else {
-    const written = await exportSessionToClaudeJsonl(prisma, session.taskId, stagingDir);
+    const written = await exportSessionToClaudeJsonl(prisma, session.taskId, stagingDir, session.framework);
     const mainFile = path.join(stagingDir, 'sessions', sid, `${sid}.jsonl`);
     if (!written.includes(path.posix.join('sessions', sid, `${sid}.jsonl`)) || fs.statSync(mainFile).size === 0) {
       throw new Error(`Session "${sid}" has no uploadable content (no local jsonl source, DB export empty)`);
@@ -425,6 +428,13 @@ export async function uploadCannbay2Session(
   }) as SessionRow | null;
   if (!session) throw new Error(`Session not found: "${taskId}"`);
 
+  // 记录类（同 sid 双记录·cannbay 侧）：wire 捕获行（version 带 -proxy 或
+  // framework 带 -proxy 后缀）落裸 <sid>/（cpx 直传/存量数据零迁移）；
+  // 其余（claude/opencode 原生行、insight 导出行）一律落 <sid>.native/——
+  // 同 sid 的捕获与原生两份记录并存，互不覆盖
+  const recording: RecordingClass =
+    isProxyVersion(session.version) || session.framework?.endsWith('-proxy') ? 'capture' : 'native';
+
   const { stagingDir, sid } = await stageSessionFiles(session, prisma);
   try {
     annotateSessionMeta(stagingDir, sid, session, opGen);
@@ -433,7 +443,7 @@ export async function uploadCannbay2Session(
     // 为准）。必须放在空行后的 body：git %s 会把 subject 折叠成单行，混进
     // subject 会污染 parseCommitSubject 的 description 提取
     const commitMessage = description!.trim() + (categoryValue ? `\n\n范式: ${categoryValue}${baseline ? '（baseline）' : ''}` : '');
-    const result = await uploadFolder(stagingDir, sid, commitMessage, rem, categoryValue, baseline);
+    const result = await uploadFolder(stagingDir, sid, commitMessage, rem, categoryValue, baseline, recording);
     return { ...result, sid };
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });

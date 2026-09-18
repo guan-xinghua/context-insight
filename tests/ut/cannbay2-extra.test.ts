@@ -73,6 +73,10 @@ function turnLine(turnIndex: number, role: 'user' | 'assistant', content: string
       usage: { input_tokens: 10, output_tokens: 5 },
     },
     timestamp: new Date(Date.now() + turnIndex * 1000).toISOString(),
+    // 捕获形态标记（同 sid 双记录 IT 后）：上传走裸 <sid>/ 主位（原生 claude 行
+    // 会落 <sid>.native/，本文件的覆盖/并发机械用例测的是主路径）
+    source: 'claude-proxy',
+    x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} },
   });
 }
 

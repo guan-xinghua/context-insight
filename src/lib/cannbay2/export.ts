@@ -180,12 +180,17 @@ function turnGroupToLines(turns: ExportTurn[], toolCallsByTurn: Map<string, Expo
 }
 
 // 导出为 cannbay2 仓库布局文件，返回写出的相对路径（相对 outDir）。
+// framework：同 sid 双行（方案一）消歧——不带时裸 taskId findFirst 在双行下
+// 取行不确定，可能把他行的轮次导出上传到错误记录类的目录（错误数据出机器）
 export async function exportSessionToClaudeJsonl(
   prisma: MinimalPrisma,
   taskId: string,
   outDir: string,
+  framework?: string | null,
 ): Promise<string[]> {
-  const session = await prisma.session.findFirst({ where: { taskId } });
+  const where: Record<string, string> = { taskId };
+  if (framework) where.framework = framework;
+  const session = await prisma.session.findFirst({ where });
   if (!session) throw new Error(`Session not found: "${taskId}"`);
 
   const turns = await prisma.turn.findMany({

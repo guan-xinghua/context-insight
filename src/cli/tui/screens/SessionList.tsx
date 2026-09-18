@@ -23,7 +23,8 @@ interface SessionListProps {
   onCompare?: (taskId1: string, taskId2: string) => void;
   onImport?: () => void;
   onDelete?: (taskId: string) => void;
-  onUpload?: (taskId: string) => void;
+  // framework：同 sid 双行（方案一）上传消歧——行值随选中项传出
+  onUpload?: (taskId: string, framework?: string | null) => void;
 }
 
 const PAGE_SIZE = 20;
@@ -118,7 +119,7 @@ export function SessionList({ client, onSelect, onCompare, onImport, onDelete, o
       'i': () => onImport?.(),
       'u': () => {
         const selected = filteredItems[selectedIndex];
-        if (selected) onUpload?.(selected.taskId);
+        if (selected) onUpload?.(selected.taskId, selected.framework ?? undefined);
       },
       'd': () => {
         const selected = filteredItems[selectedIndex];

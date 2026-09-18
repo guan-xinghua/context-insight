@@ -385,6 +385,8 @@ export interface ApiImportableSession {
 export interface ApiImportResponse {
   sessionId: string;
   imported: boolean | number;
+  /** 导入/合并行的 framework（DB 为准）——同 sid 双行（方案一）上传消歧用 */
+  framework?: string | null;
 }
 
 export interface ApiImportableSessionsResponse {

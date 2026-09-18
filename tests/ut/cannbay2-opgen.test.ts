@@ -45,13 +45,14 @@ process.env.CANNBAY2_REMOTE_URL = BARE;
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = path.join(TMP, 'cache');
 
-// 标注会话 A（成功）/ B（失败）的 fixture：native claude jsonl（直传源文件）
+// 标注会话 A（成功）/ B（失败）的 fixture：wire 捕获形态 jsonl（直传源文件，
+// 落裸 <sid>/ 主位——同 sid 双记录 IT 后原生 claude 行会上传到 <sid>.native/）
 const SID_OK = 'opgen-it-ok-0001';
 const SID_FAIL = 'opgen-it-fail-0002';
 fs.mkdirSync(FIXTURES, { recursive: true });
 for (const [sid, firstLine] of [[SID_OK, '生成成功场景'], [SID_FAIL, '生成失败场景']] as const) {
   fs.writeFileSync(path.join(FIXTURES, `${sid}.jsonl`), [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: firstLine }, timestamp: '2026-09-02T03:00:00.000Z' }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: firstLine }, timestamp: '2026-09-02T03:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
     JSON.stringify({ type: 'assistant', message: { id: `msg_${sid}`, role: 'assistant', content: [{ type: 'text', text: '完成' }], model: 'test-model', usage: { input_tokens: 100, output_tokens: 20 } }, timestamp: '2026-09-02T03:00:05.000Z' }),
   ].join('\n') + '\n');
 }
@@ -88,7 +89,7 @@ async function listViaRoute() {
 beforeAll(async () => {
   for (const sid of [SID_OK, SID_FAIL]) {
     await prisma.session.deleteMany({ where: { taskId: sid } });
-    await prisma.session.create({ data: { taskId: sid, framework: 'claude-code', sourcePath: path.join(FIXTURES, `${sid}.jsonl`) } });
+    await prisma.session.create({ data: { taskId: sid, framework: 'claude-code-proxy', version: 'claude-proxy', sourcePath: path.join(FIXTURES, `${sid}.jsonl`) } });
   }
 });
 
@@ -127,8 +128,8 @@ describe('cannbay2 算子生成标注（opGen）round-trip', () => {
     // 缺省：不传 opGen
     const SID3 = 'opgen-it-plain-0003';
     await prisma.session.deleteMany({ where: { taskId: SID3 } });
-    fs.writeFileSync(path.join(FIXTURES, `${SID3}.jsonl`), JSON.stringify({ type: 'user', message: { role: 'user', content: '未标注场景' }, timestamp: '2026-09-02T04:00:00.000Z' }) + '\n');
-    await prisma.session.create({ data: { taskId: SID3, framework: 'claude-code', sourcePath: path.join(FIXTURES, `${SID3}.jsonl`) } });
+    fs.writeFileSync(path.join(FIXTURES, `${SID3}.jsonl`), JSON.stringify({ type: 'user', message: { role: 'user', content: '未标注场景' }, timestamp: '2026-09-02T04:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }) + '\n');
+    await prisma.session.create({ data: { taskId: SID3, framework: 'claude-code-proxy', version: 'claude-proxy', sourcePath: path.join(FIXTURES, `${SID3}.jsonl`) } });
     try {
       const up = await uploadViaRoute(SID3);
       expect(up.ok, JSON.stringify(up.data)).toBe(true);

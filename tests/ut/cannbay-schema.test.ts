@@ -285,7 +285,8 @@ describe('cannbay schema：⑤ cpx 捕获治理上传 → 再导入 —— meta 
       x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', protocol: 'anthropic', ccVersion: '2.1.234.467', sid: CPX_SID } },
     }, null, 2));
     await prisma.session.deleteMany({ where: { taskId: CPX_SID } });
-    await prisma.session.create({ data: { taskId: CPX_SID, framework: 'claude-code', sourcePath: srcFile } });
+    // 捕获行（方案一记录类）：version 带 marker → 上传落裸 <sid>/ 主位
+    await prisma.session.create({ data: { taskId: CPX_SID, framework: 'claude-code-proxy', version: '2.1.234.467-claude-proxy', sourcePath: srcFile } });
     // 完整治理上传路径（staging 含 <sid>.meta.json，governStagedSession 递归扫描）
     const up = await cannbay2.uploadCannbay2Session(prisma, CPX_SID, '提交人: 测试者\n内容描述: cpx badge IT', undefined, 'others');
     expect(up.unchanged).toBe(false);

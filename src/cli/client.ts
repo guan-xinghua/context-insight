@@ -235,16 +235,15 @@ export class InsightClient {
     return { size: buffer.length };
   }
 
-  async uploadSession(taskId: string, description: string, category?: string, baseline?: boolean): Promise<ApiUploadResponse> {
-    // TODO(方案一双行消歧): route 已支持 framework 参数——CLI 侧从所选会话
-    // 列表项（ApiImportableSession.framework）穿参补齐，避免同 sid 双行下
-    // 裸 taskId 上传另一行
+  async uploadSession(taskId: string, description: string, category?: string, baseline?: boolean, framework?: string): Promise<ApiUploadResponse> {
+    // framework：同 sid 双行（方案一）消歧——不带会裸 taskId 任选一行上传
     return this.request<ApiUploadResponse>('POST', '/api/ingest/cannbay2', undefined, {
       action: 'upload',
       taskId,
       description,
       ...(category ? { category } : {}),
       ...(baseline ? { baseline: true } : {}),
+      ...(framework ? { framework } : {}),
     }, 300000);
   }
 

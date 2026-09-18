@@ -84,7 +84,8 @@ const SID_DIR = 'cc-remote-it-dir';
 const SID_BR = 'cc-remote-it-br';
 const SID_CN = 'cc-remote-it-cn';
 const fixtureLines = [
-  JSON.stringify({ type: 'user', message: { role: 'user', content: 'remote 可配置远端 IT' }, timestamp: '2026-08-24T03:00:00.000Z' }),
+  // 捕获形态（同 sid 双记录 IT 后）：上传走裸 <sid>/ 主位（原生 claude 行会上传到 <sid>.native/）
+  JSON.stringify({ type: 'user', message: { role: 'user', content: 'remote 可配置远端 IT' }, timestamp: '2026-08-24T03:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
   JSON.stringify({ type: 'assistant', message: { id: 'msg_rit_1', role: 'assistant', content: [{ type: 'text', text: 'ok' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-08-24T03:00:05.000Z' }),
 ].join('\n') + '\n';
 

@@ -137,6 +137,44 @@ describe('delete-session API (batch)', () => {
   }, DB_IT_TIMEOUT_MS);
 });
 
+describe('delete-session API (dual-row guard: 409 without framework)', () => {
+  it('无 framework 且同 taskId 多行（双记录）→ 409 + rowCount，不执行删除；confirmAll 后放行全删', async () => {
+    const sid = `dual-del-${Date.now()}`;
+    await seedSession(sid, 'claude-code-proxy');
+    await seedSession(sid, 'claude-code');
+
+    // 无消歧 → 409（数据保全：多行不删）
+    const guard = await DELETE(makeDeleteRequest({ taskId: sid }));
+    expect(guard.status).toBe(409);
+    const guardData = await guard.json();
+    expect(guardData.multiRow).toBe(true);
+    expect(guardData.rowCount).toBe(2);
+    expect(await prisma.session.count({ where: { taskId: sid } })).toBe(2);
+
+    // 带 framework 消歧 → 精确删单行，另一行保留
+    const scoped = await DELETE(makeDeleteRequest({ taskId: sid, framework: 'claude-code' }));
+    expect(scoped.status).toBe(200);
+    expect((await scoped.json()).deleted).toBe(1);
+    expect(await prisma.session.count({ where: { taskId: sid } })).toBe(1);
+
+    // 单行残留 + 无 framework → 不触发 409，直接删
+    const single = await DELETE(makeDeleteRequest({ taskId: sid }));
+    expect(single.status).toBe(200);
+    expect(await prisma.session.count({ where: { taskId: sid } })).toBe(0);
+  }, DB_IT_TIMEOUT_MS);
+
+  it('无 framework 多行 + confirmAll: true → 跳过守卫全删', async () => {
+    const sid = `dual-del-confirm-${Date.now()}`;
+    await seedSession(sid, 'claude-code-proxy');
+    await seedSession(sid, 'claude-code');
+
+    const res = await DELETE(makeDeleteRequest({ taskId: sid, confirmAll: true }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).deleted).toBe(2);
+    expect(await prisma.session.count({ where: { taskId: sid } })).toBe(0);
+  }, DB_IT_TIMEOUT_MS);
+});
+
 describe('delete-session API (cascade: no orphan child rows)', () => {
   it('single delete cascades to turns/toolCalls/skillEvents', async () => {
     const { session, turn, toolCall, skillEvent } = await seedSessionWithChildren(`cascade-single-${Date.now()}`);

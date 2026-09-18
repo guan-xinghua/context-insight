@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaultCannbay2Remote, escapeRegExp, normalizeDirPrefix, stripUrlCreds } from './remote';
 import type { Cannbay2Remote } from './remote';
+import { isProxyVersion } from '../shared/session-format';
 
 export { CANNBAY2_PULL_URL, CANNBAY2_PUSH_URL, CANNBAY2_BRANCH } from './remote';
 export type { Cannbay2Remote } from './remote';
@@ -213,16 +214,44 @@ export interface Cannbay2SessionEntry {
   paradigm: string | null;
   /** 是否范式 baseline 会话（位置即身份：<paradigm>/baseline/<sid>/，路径推导非存储标记） */
   isBaseline: boolean;
+  /** 记录类（同 sid 双记录）：capture=裸 <sid>/ 目录（wire 捕获 / 主位上传），
+   *  native=<sid>.native/ 目录（原生 claude 会话文件）。同一 sid 可各有一条。 */
+  recording: RecordingClass;
 }
 
 /** 会话在仓内的位置：<root>/<sid>/（普通）或 <root>/baseline/<sid>/（baseline）。 */
+/** 记录类（同 sid 双记录·cannbay 侧）：同一 sid 的 wire 捕获与原生会话两份
+ *  记录在仓内并存——捕获占裸 <sid>/（cpx 直传/insight 捕获行/存量数据零迁移，
+ *  今日行为不变），原生 claude 会话占 <sid>.native/（目录内文件仍以真实 sid
+ *  命名，materialize/导入侧 taskId 不带后缀）。不变量从「sid 全仓唯一」升级
+ *  为「sid × 记录类 全仓唯一」；同记录类重传仍是整体替换（幂等/清旧语义不变）。 */
+export type RecordingClass = 'capture' | 'native';
+
+const NATIVE_FOLDER_SUFFIX = '.native';
+
+/** 记录类 → 仓内目录名。native 加 .native 后缀——点分隔（uuid 形态 sid 不含
+ *  点）与真实 sid 的裸目录零歧义。 */
+export function sessionFolderOf(sid: string, recording: RecordingClass = 'capture'): string {
+  return recording === 'native' ? `${sid}${NATIVE_FOLDER_SUFFIX}` : sid;
+}
+
+/** 仓内目录名 → (真实 sid, 记录类)。无 .native 后缀的目录一律视为捕获位
+ *  （含存量数据与 opencode/insight-export 的主位上传）。 */
+export function parseSessionFolder(folder: string): { sid: string; recording: RecordingClass } {
+  return folder.endsWith(NATIVE_FOLDER_SUFFIX)
+    ? { sid: folder.slice(0, -NATIVE_FOLDER_SUFFIX.length), recording: 'native' }
+    : { sid: folder, recording: 'capture' };
+}
+
 export interface SessionLocation {
   root: string;
   baseline: boolean;
+  recording: RecordingClass;
 }
 
 function locationPath(loc: SessionLocation, sid: string): string {
-  return loc.baseline ? `${loc.root}/baseline/${sid}` : `${loc.root}/${sid}`;
+  const folder = sessionFolderOf(sid, loc.recording);
+  return loc.baseline ? `${loc.root}/baseline/${folder}` : `${loc.root}/${folder}`;
 }
 
 function parseCommitSubject(subject: string, author: string): { submitter: string; description: string } {
@@ -298,17 +327,23 @@ function readSessionMetas(dir: string, remote: Cannbay2Remote): Map<string, { fr
   try {
     const spec = remote.paradigmRoots ? '' : ` -- ${remote.rootDir}/`;
     const treeOut = runGit(`git ls-tree -r -z origin/${remote.branch}${spec}`, dir).toString('utf8');
-    const pathPattern = remote.paradigmRoots
-      ? /^[^/]+\/(?:baseline\/)?([^/]+)\/\1\.meta\.json$/
-      : new RegExp(`^${escapeRegExp(remote.rootDir)}\\/(?:baseline\\/)?([^/]+)\\/\\1\\.meta\\.json$`);
-    const wanted: Array<{ sid: string; oid: string }> = [];
+    // 双目录形态（同 sid 双记录）：裸 <sid>/<sid>.meta.json（捕获/主位）与
+    // <sid>.native/<sid>.meta.json（原生——目录带后缀、文件用真实 sid）。
+    // 键 = 目录名（folder），与 listSessionsIn 的 fileCount/sidLoc 对齐
+    const rootSeg = remote.paradigmRoots ? '[^/]+' : escapeRegExp(remote.rootDir);
+    const pathPattern = new RegExp(`^${rootSeg}\\/(?:baseline\\/)?([^/]+)\\/\\1\\.meta\\.json$`);
+    const nativePathPattern = new RegExp(`^${rootSeg}\\/(?:baseline\\/)?([^/]+)\\.native\\/\\1\\.meta\\.json$`);
+    const wanted: Array<{ folder: string; oid: string }> = [];
     for (const rec of treeOut.split('\0')) {
       const entry = splitLsTreeEntry(rec);
       if (!entry) continue;
       const oidMatch = entry.meta.match(/^[0-9]+\s+blob\s+([0-9a-f]+)$/);
       if (!oidMatch) continue;
-      const pathMatch = entry.path.match(pathPattern);
-      if (pathMatch) wanted.push({ sid: pathMatch[1], oid: oidMatch[1] });
+      // 裸形态捕获组 = 目录名；.native 形态捕获组 = 去后缀 sid，补回后缀才是目录名（map 键）
+      const bare = entry.path.match(pathPattern);
+      const native = bare ? null : entry.path.match(nativePathPattern);
+      if (bare) wanted.push({ folder: bare[1], oid: oidMatch[1] });
+      else if (native) wanted.push({ folder: `${native[1]}${NATIVE_FOLDER_SUFFIX}`, oid: oidMatch[1] });
     }
     if (wanted.length === 0) return out;
     // 缺失 meta blob 批量预取：一轮 fetch 协商拉齐（懒取是逐对象一次协商，
@@ -338,7 +373,7 @@ function readSessionMetas(dir: string, remote: Cannbay2Remote): Map<string, { fr
       try {
         const meta = JSON.parse(body) as { x_cannbay?: { data?: { framework?: unknown; ccVersion?: unknown; producer?: unknown; opGen?: unknown } } };
         const d = meta.x_cannbay?.data;
-        out.set(w.sid, {
+        out.set(w.folder, {
           framework: typeof d?.framework === 'string' ? d.framework : null,
           ccVersion: typeof d?.ccVersion === 'string' ? d.ccVersion : null,
           producer: typeof d?.producer === 'string' ? d.producer : null,
@@ -376,9 +411,11 @@ function listSessionsIn(dir: string, remote: Cannbay2Remote): Cannbay2SessionEnt
   for (const line of treeFiles) {
     const m = line.match(filePattern);
     if (m) {
-      const sid = multiRoot ? m[3] : m[2];
-      fileCount.set(sid, (fileCount.get(sid) ?? 0) + 1);
-      sidLoc.set(sid, { root: multiRoot ? m[1] : remote.rootDir, baseline: m[m.length - 2] != null });
+      // m 捕获的是目录名（folder）——同 sid 双记录下 bare 与 .native 是两个目录，
+      // 各自一条目；真实 sid 由 parseSessionFolder 剥后缀还原
+      const folder = multiRoot ? m[3] : m[2];
+      fileCount.set(folder, (fileCount.get(folder) ?? 0) + 1);
+      sidLoc.set(folder, { root: multiRoot ? m[1] : remote.rootDir, baseline: m[m.length - 2] != null, recording: parseSessionFolder(folder).recording });
     }
   }
 
@@ -399,8 +436,8 @@ function listSessionsIn(dir: string, remote: Cannbay2Remote): Cannbay2SessionEnt
       for (const file of lines.slice(1)) {
         const m = file.match(filePattern);
         if (m) {
-          const sid = multiRoot ? m[3] : m[2];
-          if (!sidCommit.has(sid)) sidCommit.set(sid, { author, time, subject });
+          const folder = multiRoot ? m[3] : m[2];
+          if (!sidCommit.has(folder)) sidCommit.set(folder, { author, time, subject });
         }
       }
     }
@@ -408,14 +445,15 @@ function listSessionsIn(dir: string, remote: Cannbay2Remote): Cannbay2SessionEnt
 
   const entries: Cannbay2SessionEntry[] = [];
   const metas = readSessionMetas(dir, remote);
-  for (const [sid, count] of fileCount) {
-    const newest = sidCommit.get(sid);
+  for (const [folder, count] of fileCount) {
+    const { sid, recording } = parseSessionFolder(folder);
+    const newest = sidCommit.get(folder);
     const author = newest?.author ?? '';
     const { submitter, description } = parseCommitSubject(newest?.subject ?? '', author);
-    const meta = metas.get(sid);
-    const loc = sidLoc.get(sid) ?? { root: remote.rootDir, baseline: false };
+    const meta = metas.get(folder);
+    const loc = sidLoc.get(folder) ?? { root: remote.rootDir, baseline: false, recording };
     const paradigm = multiRoot && loc.root !== remote.rootDir ? loc.root : null;
-    entries.push({ sid, fileCount: count, author, submitter, description, commitTime: newest?.time ?? '', framework: meta?.framework ?? null, ccVersion: meta?.ccVersion ?? null, producer: meta?.producer ?? null, opGen: meta?.opGen ?? null, paradigm, isBaseline: loc.baseline });
+    entries.push({ sid, recording, fileCount: count, author, submitter, description, commitTime: newest?.time ?? '', framework: meta?.framework ?? null, ccVersion: meta?.ccVersion ?? null, producer: meta?.producer ?? null, opGen: meta?.opGen ?? null, paradigm, isBaseline: loc.baseline });
   }
   entries.sort((a, b) => (b.commitTime || '').localeCompare(a.commitTime || ''));
   return entries;
@@ -476,25 +514,74 @@ export function listParadigmDirs(remote: Cannbay2Remote = defaultCannbay2Remote(
 
 /** sid 现存于哪些位置（含 baseline 三段路径；多根全仓搜，单根在 rootDir 下搜
  *  普通与 baseline 两处 —— 自定义仓手工放置的 baseline 结构也能定位）。 */
-function locateSessionLocations(dir: string, remote: Cannbay2Remote, sid: string): SessionLocation[] {
+function locateSessionLocations(dir: string, remote: Cannbay2Remote, sid: string, recording: RecordingClass = 'capture'): SessionLocation[] {
+  const folder = sessionFolderOf(sid, recording);
   if (!remote.paradigmRoots) {
     const locs: SessionLocation[] = [];
     for (const baseline of [false, true]) {
-      const p = `${remote.rootDir}${baseline ? '/baseline' : ''}/${sid}`;
+      const p = `${remote.rootDir}${baseline ? '/baseline' : ''}/${folder}`;
       if (runGitText(`git ls-tree --name-only origin/${remote.branch} ${p}`, dir).trim()) {
-        locs.push({ root: remote.rootDir, baseline });
+        locs.push({ root: remote.rootDir, baseline, recording });
       }
     }
     return locs;
   }
-  const out = lsTreeFiles(dir, '', remote).join('\n');
-  const re = new RegExp(`^([^/]+)\\/(baseline\\/)?${escapeRegExp(sid)}\\/`);
+  // 逐项匹配（不 join('\n')/split('\n')）：ls-tree -z 路径可含 \n（NUL 才是
+  // 分隔符），按行拆会让恶意文件路径伪造出 `evil-root/<sid>/` 形态的"行"
+  // ——完全可控的 root 进入 locs 后直通下游 shell 命令（sparse/add/show）
+  const files = lsTreeFiles(dir, '', remote);
+  const re = new RegExp(`^([^/]+)\\/(baseline\\/)?${escapeRegExp(folder)}\\/`);
   const locs = new Map<string, SessionLocation>();
-  for (const line of out.split('\n')) {
-    const m = line.match(re);
-    if (m) locs.set(`${m[1]}/${m[2] ?? ''}`, { root: m[1], baseline: m[2] != null });
+  for (const f of files) {
+    const m = f.match(re);
+    if (m) locs.set(`${m[1]}/${m[2] ?? ''}`, { root: m[1], baseline: m[2] != null, recording });
   }
-  return [...locs.values()];
+  // root 段级白名单（与 normalizeDirPrefix 同款规则，非 ASCII 放行、shell
+  // 元字符与空白全挡）：root 来自 ls-tree 原始输出不受控——旧仓/手工推送
+  // 的顶层目录名会经 locationPath 直通 sparse-checkout/git add/git show 的
+  // shell 字符串。非法段丢弃整个 loc（保守不动语义，与"归属不明不动"一致）
+  return [...locs.values()].filter(l => isSafeRootSegment(l.root));
+}
+
+/** root（范式目录名/存量区目录名）的段级安全校验——与 remote.ts
+ *  normalizeDirPrefix 的段规则同源：shell 元字符与路径语义字符全在 ASCII
+ *  区，白名单只约束 ASCII 段即可保住注入面（非 ASCII 段如 "7月" 放行）。 */
+function isSafeRootSegment(root: string): boolean {
+  if (root === '.' || root === '..') return false;
+  return /^[\w\u0080-\uFFFF.-]+$/.test(root);
+}
+
+/** 存量裸目录归属判定（同 sid 双记录收全的迁移路径）：裸 <sid>/ 目录的
+ *  cc-session-meta 内容——与 uploadCannbay2Session 的记录类推导同构
+ *  （isProxyVersion(version) || framework 带 -proxy → capture，否则 native）：
+ *  - producer=cpx（cpx 捕获直传/伴生 meta）= 捕获，位置正确绝不触碰
+ *  - framework 带 -proxy（insight 合成 meta 携带行 framework）= 捕获行，
+ *    同样不动
+ *  - ccVersion 带 proxy marker（早期捕获行 framework 无后缀 + version 带
+ *    marker 的旧形态——合成 meta / DB 导出 meta 都原样抄行值，ccVersion
+ *    是该形态下唯一的 proxy 信号）= 捕获行，不动——漏判会把存量捕获
+ *    裸目录误判为存量原生而删除（wire 捕获记录被毁）
+ *  - producer=insight-export / insight-upload 且无任何 proxy 信号（insight
+ *    侧导出件）= 存量原生（旧世界落错裸位）→ 待迁移
+ *  - 无 meta / 畸形 / git show 失败 = 归属不明，保守不动（宁可残留勿误删） */
+function bareDirHoldsNativeRecording(dir: string, remote: Cannbay2Remote, loc: SessionLocation, sid: string): boolean {
+  try {
+    const metaPath = `${locationPath(loc, sid)}/${sid}.meta.json`;
+    // spawnSync argv（非 runGit shell 字符串）：metaPath 含来自 ls-tree 的
+    // root 段——即便有 isSafeRootSegment 白名单，meta 读取也彻底绕开 shell
+    // 作纵深（与 LFS cat-file 同款纪律）
+    const r = spawnSync('git', ['show', `origin/${remote.branch}:${metaPath}`],
+      { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000, maxBuffer: 8 * 1024 * 1024 });
+    if (r.error || r.status !== 0) return false;
+    const data = (JSON.parse(r.stdout.toString('utf8')) as { x_cannbay?: { data?: { producer?: unknown; framework?: unknown; ccVersion?: unknown } } }).x_cannbay?.data;
+    if (data == null || typeof data !== 'object') return false;
+    if (data.producer === 'cpx') return false;
+    if (typeof data.framework === 'string' && data.framework.endsWith('-proxy')) return false;
+    if (typeof data.ccVersion === 'string' && isProxyVersion(data.ccVersion)) return false;
+    return data.producer === 'insight-export' || data.producer === 'insight-upload';
+  } catch {
+    return false;
+  }
 }
 
 /** 范式 baseline 目录下现任会话 sid 列表（结构即状态：baseline/ 下唯一 <sid>/ 即基准）。 */
@@ -569,7 +656,7 @@ function materializeBlobsByBatch(dir: string, planned: Array<{ oid: string; targ
  * （<sid>.jsonl 与 <sid>/subagents/ 并列 —— claude-jsonl adapter 的约定）。
  * 多根模式自动定位所在位置（范式目录/baseline/存量区）。返回主 jsonl 路径。
  */
-export function materializeSession(sid: string, remote: Cannbay2Remote = defaultCannbay2Remote()): string {
+export function materializeSession(sid: string, remote: Cannbay2Remote = defaultCannbay2Remote(), recording: RecordingClass = 'capture'): string {
   const dir = ensureMirror(remote);
   if (!revParseMain(dir, remote)) throw new Error('cannbay2 mirror has no main branch');
   if (!/^[\w.-]+$/.test(sid)) throw new Error(`Invalid session id: "${sid}"`);
@@ -594,7 +681,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
     }
   }
 
-  const locs = locateSessionLocations(dir, remote, sid);
+  const locs = locateSessionLocations(dir, remote, sid, recording);
   if (locs.length === 0) throw new Error(`Session folder not found in cannbay2: "${sid}"`);
   if (locs.length > 1) throw new Error(`Session "${sid}" exists in multiple locations (${locs.map(l => locationPath(l, sid)).join(', ')}): 数据仓布局损坏，请手工修复`);
 
@@ -611,15 +698,20 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
   }
   if (entries.length === 0) throw new Error(`Session folder not found in cannbay2: "${sid}"`);
 
-  const matDir = path.join(dir, 'materialized', sid);
+  // 物化目标按记录类区分（同 sid 双记录互不覆盖）：capture = <sid>.jsonl[.gz] +
+  // <sid>/subagents/（现状，兼容存量）；native = <sid>.native.jsonl[.gz] +
+  // <sid>.native/subagents/。sid 平铺会让第二份物化覆盖第一份，导入后行
+  // sourcePath 指到别人内容、增量刷新读错源（e2e 现场）。
+  const matStem = sessionFolderOf(sid, recording);
+  const matDir = path.join(dir, 'materialized', matStem);
   fs.rmSync(matDir, { recursive: true, force: true });
   let mainJsonl: string | null = null;
-  // sessions/<sid>/<sid>.jsonl[.gz]|<sid>.meta.json → materialized/<sid>.jsonl[.gz]|.meta.json
-  // sessions/<sid>/subagents/* → materialized/<sid>/subagents/*
+  // sessions/<folder>/<sid>.jsonl[.gz]|<sid>.meta.json → materialized/<matStem>.jsonl[.gz]|.meta.json
+  // sessions/<folder>/subagents/* → materialized/<matStem>/subagents/*
   // .jsonl.gz 是压缩出仓形态（治理后 gzip，proxy/COMPRESSION-DESIGN.md）；
   // 旧明文仓件照旧物化为 .jsonl —— 双形态并存，parseJsonlLines 透明解压。
   const targetRelOf = (rel: string): string =>
-    rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz` || rel === `${sid}.meta.json` ? rel : `${sid}/${rel}`;
+    rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz` || rel === `${sid}.meta.json` ? rel.replace(sid, matStem) : `${matStem}/${rel}`;
 
   if (remote.lfs) {
     // LFS：指针 blob 实体在 LFS 存储，--filters smudge 逐文件拉取（不能批量）。
@@ -636,7 +728,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
         throw new Error(`git cat-file --filters failed for "${e.repoPath}" (${e.oid}): ${cat.error?.message ?? cat.stderr?.toString()}`);
       }
       fs.writeFileSync(target, cat.stdout);
-      if (rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz`) mainJsonl = target;
+      if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
     }
   } else {
     // 批量物化：缺失 blob 先批量预取（一轮协商拉齐，替代逐文件懒取——实测
@@ -650,7 +742,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
       const target = path.join(dir, 'materialized', rel);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       planned.push({ oid: e.oid, target });
-      if (rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz`) mainJsonl = target;
+      if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
     }
     materializeBlobsByBatch(dir, planned);
   }
@@ -742,7 +834,7 @@ function ensureLfsGitattributes(dir: string): void {
  *   两种机器行为分叉，剔除是唯一确定性防线
  * - push 失败（并发推进）→ fetch+merge 后重试一次
  */
-export async function uploadFolder(stagingDir: string, sid: string, commitMessage: string, remote: Cannbay2Remote = defaultCannbay2Remote(), category?: string, baseline?: boolean): Promise<UploadResult> {
+export async function uploadFolder(stagingDir: string, sid: string, commitMessage: string, remote: Cannbay2Remote = defaultCannbay2Remote(), category?: string, baseline?: boolean, recording: RecordingClass = 'capture'): Promise<UploadResult> {
   return withWriteLock(async () => {
     // sid/category 拼进多条 git 命令（sparse-checkout set / add / ls-tree），
     // 白名单校验防命令注入 —— 与 materializeSession 同款（branch/rootDir
@@ -754,26 +846,51 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     if (!revParseMain(dir, remote)) throw new Error('cannbay2 mirror has no main branch');
     // LFS 模式：镜像内就绪（git-lfs 检查 + filter 配置 + pre-push 钩子）
     if (remote.lfs) ensureLfsReady(dir);
+    // 同 sid 双记录：目录名按记录类区分（捕获=裸 sid/，原生 claude=sid.native/）。
+    // 全部路径推导（sparse/rm/target/交换）统一走 folder，另一记录类的目录
+    // 永不触碰
+    const folder = sessionFolderOf(sid, recording);
 
-    // 本会话既有位置（除目标外全删：换范式 / 普通↔baseline 迁移）
-    const staleLocs = locateSessionLocations(dir, remote, sid)
-      .filter(l => !(l.root === targetRoot && l.baseline === !!baseline));
-    // baseline 交换：范式现任 baseline 会话（≠ 本 sid）移回范式普通目录
+    // 本记录类的既有位置（除目标外全删：换范式 / 普通↔baseline 迁移）——
+    // 只清理同记录类，另一记录类的目录不动（各自独立迁移/替换）
+    // 存量迁移（旧世界非 proxy 上传落在裸 <sid>/）：记录类推导收全后裸目录
+    // 不在 native 记录类的定位视野内 → 永不清理——list 同 sid 双条目、旧
+    // 原生内容错标 capture 且永远无法被重传替换。上传 native 时识别裸目录
+    // 的内容归属（bareDirHoldsNativeRecording：meta producer=cpx 或
+    // framework 带 -proxy = 捕获不动；insight 导出件 = 存量原生 → 作为
+    // 过期位置一并删除，本次上传在同 commit 完成迁移；无 meta 归属不明
+    // 保守不动——宁可残留勿误删）
+    const staleLocs = [
+      ...locateSessionLocations(dir, remote, sid, recording)
+        .filter(l => !(l.root === targetRoot && l.baseline === !!baseline)),
+      // 裸目录与 .native 目标是不同路径，不存在「即目标位」——无需排除过滤
+      ...(recording === 'native'
+        ? locateSessionLocations(dir, remote, sid, 'capture')
+            .filter(l => bareDirHoldsNativeRecording(dir, remote, l, sid))
+        : []),
+    ];
+    // baseline 交换（按记录类执行）：范式现任 baseline 的同记录类会话（≠ 本
+    // 目录）移回范式普通目录；另一记录类的 baseline 条目不动（每记录类各一个基准）。
+    // isSafeRootSegment：baseline/ 下 ls-tree 原始目录名与本 PR 收口的 root
+    // 同一威胁模型（旧仓/手工推送），不过滤即直通 sparse-checkout/git add
+    // 的 shell 字符串；合法目录名（<sid> / <sid>.native，上传侧 \w.- 校验过）
+    // 不受影响
     const swapBack: string[] = baseline
-      ? locateBaselineSids(dir, remote, targetRoot).filter(s => s !== sid)
+      ? locateBaselineSids(dir, remote, targetRoot)
+          .filter(f => f !== folder && parseSessionFolder(f).recording === recording && isSafeRootSegment(f))
       : [];
 
     runGit('git sparse-checkout init --no-cone', dir);
-    runGit(`git sparse-checkout set "/${targetRoot}/${sid}/**" "/.gitattributes"${staleLocs.map(l => ` "/${locationPath(l, sid)}/**"`).join('')}${baseline ? ` "/${targetRoot}/baseline/**"` : ''}${swapBack.map(s => ` "/${targetRoot}/${s}/**"`).join('')}`, dir);
+    runGit(`git sparse-checkout set "/${targetRoot}/${folder}/**" "/.gitattributes"${staleLocs.map(l => ` "/${locationPath(l, sid)}/**"`).join('')}${baseline ? ` "/${targetRoot}/baseline/**"` : ''}${swapBack.map(s => ` "/${targetRoot}/${s}/**"`).join('')}`, dir);
     runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
     runGit('git reset --quiet', dir); // 丢弃上次失败上传可能残留的 staged 状态
 
-    // staging 是该会话的完整权威集合：先清空目标目录与旧位置再拷入。
+    // staging 是该记录的完整权威集合：先清空目标目录与旧位置再拷入。
     // （旧明文残留清理同理：scoped add 不删旧根文件，必须显式 rm）
-    for (const l of [...staleLocs.map(l => locationPath(l, sid)), baseline ? `${targetRoot}/baseline/${sid}` : `${targetRoot}/${sid}`]) {
+    for (const l of [...staleLocs.map(l => locationPath(l, sid)), baseline ? `${targetRoot}/baseline/${folder}` : `${targetRoot}/${folder}`]) {
       fs.rmSync(path.join(dir, ...l.split('/')), { recursive: true, force: true });
     }
-    const targetRel = baseline ? `${targetRoot}/baseline/${sid}` : `${targetRoot}/${sid}`;
+    const targetRel = baseline ? `${targetRoot}/baseline/${folder}` : `${targetRoot}/${folder}`;
     const targetDir = path.join(dir, ...targetRel.split('/'));
     fs.mkdirSync(targetDir, { recursive: true });
     fs.cpSync(path.join(stagingDir, 'sessions', sid), targetDir, { recursive: true });

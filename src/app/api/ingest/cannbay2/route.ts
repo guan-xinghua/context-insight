@@ -77,12 +77,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'import') {
-      const { sid } = body as { sid: string };
+      const { sid, recording } = body as { sid: string; recording?: string };
       if (!sid) {
         return NextResponse.json({ error: 'Missing sid' }, { status: 400 });
       }
+      // 记录类（同 sid 双记录）：native = <sid>.native/ 目录（原生 claude 会话），
+      // 缺省 capture = 裸 <sid>/ 目录（wire 捕获 / 主位上传）
+      if (recording != null && recording !== 'capture' && recording !== 'native') {
+        return NextResponse.json({ error: `Invalid recording: "${recording}" (capture | native)` }, { status: 400 });
+      }
       try {
-        const result = await importCannbay2Session(sid, prisma, remote);
+        const result = await importCannbay2Session(sid, prisma, remote, recording === 'native' ? 'native' : 'capture');
         return NextResponse.json({ result });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Import failed';

@@ -35,7 +35,8 @@ function App({ config }: TuiAppProps) {
   const { nav, navigate, goBack } = useNavigation();
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [uploadTarget, setUploadTarget] = useState<string | null>(null);
+  // 同 sid 双行（方案一）上传消歧：framework 随目标行一起保存
+  const [uploadTarget, setUploadTarget] = useState<{ taskId: string; framework?: string } | null>(null);
   const [uploadDone, setUploadDone] = useState<string | null>(null);
 
   useInput((input, key) => {
@@ -72,7 +73,8 @@ function App({ config }: TuiAppProps) {
         ) : uploadTarget ? (
           <UploadPanel
             client={client}
-            taskId={uploadTarget}
+            taskId={uploadTarget.taskId}
+            framework={uploadTarget.framework}
             onDone={(message) => {
               setUploadTarget(null);
               setUploadDone(message);
@@ -95,7 +97,7 @@ function App({ config }: TuiAppProps) {
             onCompare={(taskId1, taskId2) => navigate('compare', { taskId1, taskId2 })}
             onImport={() => navigate('import')}
             onDelete={(taskId) => setDeleteTarget(taskId)}
-            onUpload={(taskId) => setUploadTarget(taskId)}
+            onUpload={(taskId, framework) => setUploadTarget({ taskId, framework: framework ?? undefined })}
           />
         ) : nav.screen === 'session' && nav.params?.taskId ? (
           <SessionDetail

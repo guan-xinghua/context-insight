@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button"
 import { DownloadIcon, LoaderIcon, FolderIcon, FileIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon, ArrowUpIcon, GlobeIcon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
-import { isProxyVersion } from "@/lib/shared/session-format"
+import { isProxyVersion, agentFrameworkOf } from "@/lib/shared/session-format"
 
 // imported:false has three distinct causes — label them accurately instead of
 // blanket "Already exists" (which hid file-missing behind an exists message)
@@ -47,6 +47,9 @@ import {
 
 interface SessionPreview {
   id: string
+  /** 数据仓导入的记录类——同 sid 双记录（capture/native）两条 preview 共享
+   *  id，按 recording 区分归属（本地导入 preview 无值） */
+  recording?: "capture" | "native"
   createdAt: string
   endedAt: string | null
   firstQuery: string | null
@@ -55,7 +58,14 @@ interface SessionPreview {
 }
 
 interface ImportStatus {
+  /** 状态更新/列表渲染定位键：本地导入 = sid；数据仓导入 = sid@recording（同 sid 双记录两条目状态各自独立） */
+  key: string
+  /** 真实 sid —— 流入 ImportHistory taskId / 列表 label / dbMeta 等共享路径（一律按裸 sid 消费，复合键不得外泄） */
   sessionId: string
+  /** 数据仓导入的记录类（仓内目录：capture=裸 <sid>/ / native=<sid>.native/）；本地导入无值 */
+  recording?: "capture" | "native"
+  /** 数据仓条目所在范式目录（默认仓顶层目录；存量区/自定义远端为 null）——File Path 显示真实仓路径 */
+  paradigm?: string | null
   status: "pending" | "importing" | "success" | "error"
   message?: string
   framework?: string | null
@@ -102,6 +112,19 @@ interface CannbaySession {
   isBaseline?: boolean
   /** 算子生成结果标注（cc-session-meta 可选字段 opGen，上传时勾选），null/缺省 = 未标注 */
   opGen?: 'success' | 'failure' | null
+  /** 记录类（同 sid 双记录）：native = <sid>.native/ 原生 claude 会话；capture = 裸 <sid>/（wire 捕获 / 主位） */
+  recording?: 'capture' | 'native'
+}
+
+/** 同 sid 双记录：列表选择键 = sid@recording（同一 sid 的捕获与原生各占一条目） */
+function cannbayEntryKey(s: Pick<CannbaySession, 'sid' | 'recording'>): string {
+  return `${s.sid}@${s.recording ?? 'capture'}`
+}
+
+/** preview 归属匹配：id 相等且记录类一致（本地导入双方均无 recording）——
+ *  同 sid 双记录两条 preview 共享 id，只按 id 查会永远命中第一条 */
+function previewOf(previews: SessionPreview[], s: { sessionId: string; recording?: "capture" | "native" }): SessionPreview | undefined {
+  return previews.find(p => p.id === s.sessionId && (p.recording ?? undefined) === (s.recording ?? undefined))
 }
 
 type Step = "input" | "browse" | "select" | "cannbay" | "importing"
@@ -144,6 +167,8 @@ export function LocalFileImport() {
   const [currentDir, setCurrentDir] = useState<string | null>(null)
   const [parentDir, setParentDir] = useState<string | null>(null)
   const [browseLoading, setBrowseLoading] = useState(false)
+  // Load Sessions 扫描目录/读库期间的前端反馈（对齐 browseLoading/cannbayLoading）
+  const [sessionsLoading, setSessionsLoading] = useState(false)
   const [cannbaySessions, setCannbaySessions] = useState<CannbaySession[]>([])
   const [cannbayScope, setCannbayScope] = useState("")
   const [cannbaySelected, setCannbaySelected] = useState<Set<string>>(new Set())
@@ -167,6 +192,7 @@ export function LocalFileImport() {
     setCurrentDir(null)
     setParentDir(null)
     setBrowseLoading(false)
+    setSessionsLoading(false)
     setCannbaySessions([])
     setCannbaySelected(new Set())
     setCannbayLoading(false)
@@ -213,7 +239,7 @@ export function LocalFileImport() {
     setFilePath(entry.fullPath)
     setSourceType("claude-jsonl")
     setStep("importing")
-    setImportStatuses([{ sessionId, status: "importing" }])
+    setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
     try {
       const res = await fetch("/api/ingest/import-file", {
         method: "POST",
@@ -225,13 +251,13 @@ export function LocalFileImport() {
         setSessions([{ id: sessionId, createdAt: new Date().toISOString(), endedAt: null, firstQuery: data.query, turnCount: 0, totalTokens: null }])
       }
       setImportStatuses(prev =>
-        prev.map(s => s.sessionId === sessionId
+        prev.map(s => s.key === sessionId
           ? { ...s, status: res.ok ? "success" : "error", message: res.ok ? importResultMessage(data) : (data.error ?? "Import failed") }
           : s)
       )
     } catch (e) {
       setImportStatuses(prev =>
-        prev.map(s => s.sessionId === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
+        prev.map(s => s.key === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
       )
     }
   }
@@ -272,7 +298,7 @@ export function LocalFileImport() {
       const filename = filePath.trim().split("/").pop() ?? ""
       const sessionId = filename.replace(/\.jsonl(\.gz)?$/, "").replace(/^cpx-/, "")
       setStep("importing")
-      setImportStatuses([{ sessionId, status: "importing" }])
+      setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
       try {
         const res = await fetch("/api/ingest/import-file", {
           method: "POST",
@@ -284,18 +310,19 @@ export function LocalFileImport() {
           setSessions([{ id: sessionId, createdAt: new Date().toISOString(), endedAt: null, firstQuery: data.query, turnCount: 0, totalTokens: null }])
         }
         setImportStatuses(prev =>
-          prev.map(s => s.sessionId === sessionId
+          prev.map(s => s.key === sessionId
             ? { ...s, status: res.ok ? "success" : "error", message: res.ok ? importResultMessage(data) : (data.error ?? "Import failed"), framework: data.framework ?? undefined, version: data.version ?? undefined }
             : s)
         )
       } catch (e) {
         setImportStatuses(prev =>
-          prev.map(s => s.sessionId === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
+          prev.map(s => s.key === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
         )
       }
       return
     }
 
+    setSessionsLoading(true)
     try {
       const res = await fetch("/api/ingest/import-file/sessions", {
         method: "POST",
@@ -316,6 +343,8 @@ export function LocalFileImport() {
       setStep("select")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error")
+    } finally {
+      setSessionsLoading(false)
     }
   }
 
@@ -404,31 +433,49 @@ export function LocalFileImport() {
     if (cannbaySelected.size === 0) return
     setStep("importing")
 
-    const sids = Array.from(cannbaySelected)
-    setImportStatuses(sids.map(sid => ({ sessionId: sid, status: "pending" as const })))
+    // 选择键 = sid@recording（同 sid 双记录各一条目）；导入按各自记录类定位目录。
+    // 复合键只用于选择集与状态更新定位（key 字段）——sessionId 一律真实 sid：
+    // 共享路径（ImportHistory taskId / dbMeta / 列表 label / delete-session）
+    // 全部按裸 sid 消费，复合键外泄会让删除 404 静默失败、File Path 列错显
+    const keys = Array.from(cannbaySelected)
+    const byKey = new Map(cannbaySessions.map(s => [cannbayEntryKey(s), s]))
+    const selectedEntries = keys
+      .map(k => byKey.get(k))
+      .filter((s): s is CannbaySession => s != null)
+    setImportStatuses(selectedEntries.map(e => ({
+      key: cannbayEntryKey(e),
+      sessionId: e.sid,
+      recording: e.recording ?? 'capture',
+      paradigm: e.paradigm ?? null,
+      status: "pending" as const,
+    })))
 
     const importedPreviews: SessionPreview[] = []
 
-    async function importOne(sid: string) {
+    async function importOne(key: string) {
       setImportStatuses(prev =>
-        prev.map(s => s.sessionId === sid ? { ...s, status: "importing" as const } : s)
+        prev.map(s => s.key === key ? { ...s, status: "importing" as const } : s)
       )
+      const entry = byKey.get(key)
+      const sid = entry?.sid ?? key.split('@')[0]
+      const recording = entry?.recording ?? 'capture'
       try {
         const res = await fetch("/api/ingest/cannbay2", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "import", sid, ...cannbayRemoteInput(loadCannbayConfig()) }),
+          body: JSON.stringify({ action: "import", sid, recording, ...cannbayRemoteInput(loadCannbayConfig()) }),
         })
         const data = await res.json()
         const result = res.ok ? data.result : null
         const ok = Boolean(result)
         setImportStatuses(prev => prev.map(s =>
-          s.sessionId === sid
+          s.key === key
             ? { ...s, status: ok ? "success" as const : "error" as const, message: ok ? importResultMessage(result) : (data.error ?? "Import failed"), framework: result?.framework ?? undefined, version: result?.version ?? undefined }
             : s))
         if (ok) {
           importedPreviews.push({
             id: sid,
+            recording,
             createdAt: new Date().toISOString(),
             endedAt: null,
             firstQuery: result.query ?? null,
@@ -438,7 +485,7 @@ export function LocalFileImport() {
         }
       } catch (e) {
         setImportStatuses(prev => prev.map(s =>
-          s.sessionId === sid
+          s.key === key
             ? { ...s, status: "error" as const, message: e instanceof Error ? e.message : "Network error" }
             : s))
       }
@@ -447,9 +494,9 @@ export function LocalFileImport() {
     // Concurrent pool（与本地导入同款）：物化网络下载并行，wall-time ÷N
     const CONCURRENCY = 4
     let nextIndex = 0
-    const workers = Array.from({ length: Math.min(CONCURRENCY, sids.length) }, async () => {
-      while (nextIndex < sids.length) {
-        await importOne(sids[nextIndex++])
+    const workers = Array.from({ length: Math.min(CONCURRENCY, keys.length) }, async () => {
+      while (nextIndex < keys.length) {
+        await importOne(keys[nextIndex++])
       }
     })
     await Promise.all(workers)
@@ -492,6 +539,7 @@ export function LocalFileImport() {
 
     const ids = Array.from(selectedIds)
     const statuses: ImportStatus[] = ids.map(id => ({
+      key: id,
       sessionId: id,
       status: "pending" as const,
     }))
@@ -502,7 +550,7 @@ export function LocalFileImport() {
 
     async function importOne(sessionId: string) {
       setImportStatuses(prev =>
-        prev.map(s => s.sessionId === sessionId ? { ...s, status: "importing" } : s)
+        prev.map(s => s.key === sessionId ? { ...s, status: "importing" } : s)
       )
 
       try {
@@ -514,16 +562,16 @@ export function LocalFileImport() {
         const data = await res.json()
         if (!res.ok) {
           setImportStatuses(prev =>
-            prev.map(s => s.sessionId === sessionId ? { ...s, status: "error", message: data.error ?? "Import failed" } : s)
+            prev.map(s => s.key === sessionId ? { ...s, status: "error", message: data.error ?? "Import failed" } : s)
           )
         } else {
           setImportStatuses(prev =>
-            prev.map(s => s.sessionId === sessionId ? { ...s, status: "success", message: importResultMessage(data), framework: data.framework ?? undefined, version: data.version ?? undefined } : s)
+            prev.map(s => s.key === sessionId ? { ...s, status: "success", message: importResultMessage(data), framework: data.framework ?? undefined, version: data.version ?? undefined } : s)
           )
         }
       } catch (e) {
         setImportStatuses(prev =>
-          prev.map(s => s.sessionId === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
+          prev.map(s => s.key === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
         )
       }
     }
@@ -542,24 +590,30 @@ export function LocalFileImport() {
   const handleDone = useCallback(() => {
     const hasSuccess = importStatuses.some(s => s.status === "success")
     if (hasSuccess) {
-      const cannbayRepoRef = (sid: string): string => {
+      // File Path 列显示真实仓路径：目录 = 范式目录（默认仓条目实际在
+      // <paradigm>/<sid>[.native]/，存量区/自定义远端回落 cfg.directory），
+      // 记录类决定 <sid> vs <sid>.native
+      const cannbayRepoRef = (sid: string, recording?: "capture" | "native", paradigm?: string | null): string => {
         const cfg = loadCannbayConfig()
         const addr = cfg?.address.trim() && cfg.address.trim() !== DEFAULT_CANNBAY_ADDRESS
           ? cfg.address.trim()
           : DEFAULT_CANNBAY_ADDRESS
         const branch = cfg?.branch.trim() || "main"
-        const dir = cfg?.directory.trim() || "sessions"
-        return `${BAY_NAME}@${addr.replace(/^https?:\/\//, "")}@${branch}:${dir}/${sid}`
+        const dir = paradigm ?? (cfg?.directory.trim() || "sessions")
+        const dirName = recording === "native" ? `${sid}.native` : sid
+        return `${BAY_NAME}@${addr.replace(/^https?:\/\//, "")}@${branch}:${dir}/${dirName}`
       }
       const entries: ImportHistoryEntry[] = importStatuses.map(s => {
-        const session = sessions.find(p => p.id === s.sessionId)
+        const session = previewOf(sessions, s)
         return {
+          // taskId 一律真实 sid（复合键外泄会让 delete-session 404 静默失败、
+          // dbMeta 徽标源永远 miss）
           taskId: s.sessionId,
           importedAt: new Date().toISOString(),
           turnCount: session?.turnCount ?? 0,
           status: s.status === "success" ? "success" as const : "error" as const,
           query: session?.firstQuery ?? null,
-          filePath: sourceType === "cannbay" ? cannbayRepoRef(s.sessionId) : filePath.trim(),
+          filePath: sourceType === "cannbay" ? cannbayRepoRef(s.sessionId, s.recording, s.paradigm) : filePath.trim(),
           sourceType: sourceType === "cannbay" ? BRAND_SOURCE_TYPE : sourceType,
           framework: s.framework ?? null,
           version: s.version ?? null,
@@ -644,6 +698,7 @@ export function LocalFileImport() {
                   size="sm"
                   onClick={handleBrowseFromInput}
                   className="gap-1.5 shrink-0"
+                  disabled={sessionsLoading}
                 >
                   <FolderIcon className="size-3.5" />
                   Browse
@@ -706,6 +761,12 @@ export function LocalFileImport() {
               <div className="flex items-center gap-2 py-4 justify-center">
                 <LoaderIcon className="size-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Fetching sessions from {BAY_NAME}...</span>
+              </div>
+            )}
+            {sourceType !== "cannbay" && sessionsLoading && (
+              <div className="flex items-center gap-2 py-4 justify-center">
+                <LoaderIcon className="size-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">Loading sessions...</span>
               </div>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -939,21 +1000,22 @@ export function LocalFileImport() {
                 .slice()
                 // baseline 会话（该范式评分基准）置顶，其余按提交时间倒序
                 .sort((a, b) => Number(b.isBaseline === true) - Number(a.isBaseline === true) || (b.commitTime || "").localeCompare(a.commitTime || ""))
-              const allFilteredSelected = filtered.length > 0 && filtered.every(s => cannbaySelected.has(s.sid))
+              const allFilteredSelected = filtered.length > 0 && filtered.every(s => cannbaySelected.has(cannbayEntryKey(s)))
               return (
                 <>
                   <div className="flex items-center gap-2 mb-2">
                     <Checkbox checked={allFilteredSelected} onCheckedChange={() => {
+                      // 键与行选择一致（cannbayEntryKey）：同 sid 双记录两条目各自独立勾选
                       if (allFilteredSelected) {
                         setCannbaySelected(prev => {
                           const next = new Set(prev)
-                          for (const s of filtered) next.delete(s.sid)
+                          for (const s of filtered) next.delete(cannbayEntryKey(s))
                           return next
                         })
                       } else {
                         setCannbaySelected(prev => {
                           const next = new Set(prev)
-                          for (const s of filtered) next.add(s.sid)
+                          for (const s of filtered) next.add(cannbayEntryKey(s))
                           return next
                         })
                       }
@@ -984,9 +1046,9 @@ export function LocalFileImport() {
                           </TableRow>
                         )}
                         {filtered.map(s => (
-                          <TableRow key={s.sid} className={cannbaySelected.has(s.sid) ? "bg-primary/5" : ""}>
+                          <TableRow key={cannbayEntryKey(s)} className={cannbaySelected.has(cannbayEntryKey(s)) ? "bg-primary/5" : ""}>
                             <TableCell className="px-2 w-[36px]">
-                              <Checkbox checked={cannbaySelected.has(s.sid)} onCheckedChange={() => toggleCannbaySelection(s.sid)} />
+                              <Checkbox checked={cannbaySelected.has(cannbayEntryKey(s))} onCheckedChange={() => toggleCannbaySelection(cannbayEntryKey(s))} />
                             </TableCell>
                             <TableCell className="px-2 text-xs py-2 align-middle">
                               <span className="block truncate" title={s.description || s.sid}>
@@ -995,6 +1057,8 @@ export function LocalFileImport() {
                               </span>
                             </TableCell>
                             <TableCell className="px-2 text-xs py-2 align-middle">
+                              {/* 同 sid 双记录：捕获条目走既有 proxy/框架徽标；原生条目
+                                  靠同 sid 两条目并排即可区分，不加额外徽标 */}
                               {/* proxy 徽标：producer=cpx（cpx 捕获定义性声明）或
                                   ccVersion 带 -proxy 后缀（合成 meta 回传 DB version 场景）。
                                   text-[10px] px-1 紧凑徽标：两个并排不超 table-fixed 列宽 */}
@@ -1060,11 +1124,14 @@ export function LocalFileImport() {
               </span>
             </div>
             {importStatuses.map(s => {
-              const session = sessions.find(p => p.id === s.sessionId)
+              const session = previewOf(sessions, s)
               const label = session?.firstQuery ?? s.sessionId
               return (
-                <div key={s.sessionId} className="flex items-center gap-2 text-sm border-b pb-1.5 last:border-0">
-                  <span className="flex-1 truncate">{label}</span>
+                <div key={s.key} className="flex items-center gap-2 text-sm border-b pb-1.5 last:border-0">
+                  <span className="flex-1 truncate">
+                    {label}
+                    {s.recording && <span className="text-muted-foreground"> ·{s.recording === "native" ? "native" : "capture"}</span>}
+                  </span>
                   {s.status === "pending" && <span className="text-muted-foreground">Waiting</span>}
                   {s.status === "importing" && (
                     <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1">
@@ -1074,9 +1141,15 @@ export function LocalFileImport() {
                   )}
                   {s.status === "success" && (
                     <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-                      {s.framework === "cannbot" ? <Badge variant="green">CANNBot</Badge>
-                        : s.framework === "opencode" ? <Badge variant="blue">OpenCode</Badge>
-                        : s.framework === "claude-code" ? <Badge variant="orange">Claude</Badge> : null}
+                      {/* 方案一：捕获行 framework 带 -proxy 后缀——剥后缀归一进
+                          白名单（同 ImportHistory），proxy 徽标仍走 version */}
+                      {(() => {
+                        const agentFw = agentFrameworkOf(s.framework ?? null)
+                        if (agentFw === "cannbot") return <Badge variant="green">CANNBot</Badge>
+                        if (agentFw === "opencode") return <Badge variant="blue">OpenCode</Badge>
+                        if (agentFw === "claude-code") return <Badge variant="orange">Claude</Badge>
+                        return null
+                      })()}
                       {isProxyVersion(s.version ?? null) && <Badge variant="yellow">proxy</Badge>}
                       {s.message}
                     </span>
@@ -1090,8 +1163,15 @@ export function LocalFileImport() {
 
         <DialogFooter>
           {step === "input" && sourceType !== "cannbay" && (
-            <Button onClick={handleLoadSessions} disabled={!filePath.trim()}>
-              {sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz")) ? "Import" : "Load Sessions"}
+            <Button onClick={handleLoadSessions} disabled={!filePath.trim() || sessionsLoading}>
+              {sessionsLoading ? (
+                <span className="flex items-center gap-1.5">
+                  <LoaderIcon className="size-4 animate-spin" />
+                  Loading...
+                </span>
+              ) : (
+                sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz")) ? "Import" : "Load Sessions"
+              )}
             </Button>
           )}
           {step === "input" && sourceType === "cannbay" && (

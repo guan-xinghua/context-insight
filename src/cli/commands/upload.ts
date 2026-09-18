@@ -217,6 +217,9 @@ export function uploadCommand(): Command {
       try {
         let description = opts.description ?? '';
         const needInteractive = !opts.description && !opts.json;
+        // 同 sid 双行（方案一）上传消歧：DB 行 framework（--session 交互态取
+        // 行详情 / --file 用导入响应里的行 framework）
+        let uploadFramework: string | undefined;
 
         // Mode 1: Upload from Insight DB by taskId
         if (opts.session) {
@@ -232,6 +235,10 @@ export function uploadCommand(): Command {
               framework: sessionDetail.framework ?? opts.framework ?? 'unknown',
               sourcePath: undefined,
             });
+            // 同 sid 双行（方案一）消歧：交互态拿到的行 framework 穿给上传
+            uploadFramework = sessionDetail.framework ?? opts.framework ?? undefined;
+          } else {
+            uploadFramework = opts.framework ?? undefined;
           }
           const paradigm = opts.paradigm ?? (needInteractive ? await paradigmPrompt(client) : undefined);
           const baseline = opts.baseline || (needInteractive && paradigm
@@ -247,10 +254,10 @@ export function uploadCommand(): Command {
           }
 
           const result = paradigm && baseline
-            ? await client.uploadSession(taskId, description, paradigm, true)
+            ? await client.uploadSession(taskId, description, paradigm, true, uploadFramework)
             : paradigm
-              ? await client.uploadSession(taskId, description, paradigm)
-              : await client.uploadSession(taskId, description);
+              ? await client.uploadSession(taskId, description, paradigm, undefined, uploadFramework)
+              : await client.uploadSession(taskId, description, undefined, undefined, uploadFramework);
 
           if (opts.json) {
             console.log(JSON.stringify(result, null, 2));
@@ -350,13 +357,16 @@ export function uploadCommand(): Command {
           if (!opts.json) console.log(theme.muted('  Importing into Insight DB...'));
           const importResult = await client.importSession(source, filePath, target.id);
 
-          // Step 2: 上传到数据仓（taskId lookup happens server-side）
+          // Step 2: 上传到数据仓——framework 用导入响应的行 framework（DB
+          // 为准，proxy 捕获导入后是 claude-code-proxy 等——文件源推导的
+          // resolvedFramework 与行值不一致，用它会消歧失败）
           if (!opts.json) console.log(theme.muted(`  Uploading to ${BAY_NAME}...`));
+          const uploadFw = importResult.framework ?? undefined;
           const uploadResult = paradigm && baseline
-            ? await client.uploadSession(target.id, description, paradigm, true)
+            ? await client.uploadSession(target.id, description, paradigm, true, uploadFw)
             : paradigm
-              ? await client.uploadSession(target.id, description, paradigm)
-              : await client.uploadSession(target.id, description);
+              ? await client.uploadSession(target.id, description, paradigm, undefined, uploadFw)
+              : await client.uploadSession(target.id, description, undefined, undefined, uploadFw);
 
           if (opts.json) {
             console.log(JSON.stringify({ import: importResult, upload: uploadResult }, null, 2));

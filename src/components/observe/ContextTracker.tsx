@@ -282,6 +282,33 @@ interface ContextTrackerProps {
   onNavigateToTurn?: (turnId: string) => void
 }
 
+// Catmull-Rom → 三次 Bézier 平滑曲线。y 向控制点早有 [minY, maxY] 钳制防
+// 纵向过冲；x 向必须对称钳制到段内 [minX, maxX]——x 轴是真实时间，agent
+// 会话的点距极不均匀（相邻段 6 秒 vs 17 小时），未钳制的 (p2.x - p0.x)/6
+// 会被远邻段拉出段外，Bézier 凸包越界 → 曲线先右行再折回（视觉回拐），
+// 实测 ses_f5b4a2b58ffe design #17 的 #134→#135 段即此形态。
+export function curvePath(pts: Array<{ x: number; y: number }>): string {
+  if (pts.length < 2) return pts.length === 1 ? `M ${pts[0].x},${pts[0].y}` : ""
+  if (pts.length === 2) return `M ${pts[0].x},${pts[0].y} L ${pts[1].x},${pts[1].y}`
+  let d = `M ${pts[0].x},${pts[0].y}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[Math.min(pts.length - 1, i + 2)]
+    const minX = Math.min(p1.x, p2.x)
+    const maxX = Math.max(p1.x, p2.x)
+    const cp1x = Math.max(minX, Math.min(maxX, p1.x + (p2.x - p0.x) / 6))
+    const cp2x = Math.max(minX, Math.min(maxX, p2.x - (p3.x - p1.x) / 6))
+    const minY = Math.min(p1.y, p2.y)
+    const maxY = Math.max(p1.y, p2.y)
+    const cp1y = Math.max(minY, Math.min(maxY, p1.y + (p2.y - p0.y) / 6))
+    const cp2y = Math.max(minY, Math.min(maxY, p2.y - (p3.y - p1.y) / 6))
+    d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
+  }
+  return d
+}
+
 export function ContextTracker({ turns, sessionModel, onNavigateToTurn }: ContextTrackerProps) {
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -525,26 +552,6 @@ function GrowthChart({ agentStats, contextWindowLimit, displayLabel, onNavigateT
     if (limitY >= PADDING_TOP && limitY <= baselineY) markers.push({ pct: 100, y: limitY, label: "100%", color: "#ef4444" })
     return markers
   }, [safeY, cautionY, limitY, PADDING_TOP, baselineY])
-
-  function curvePath(pts: Array<{ x: number; y: number }>): string {
-    if (pts.length < 2) return pts.length === 1 ? `M ${pts[0].x},${pts[0].y}` : ""
-    if (pts.length === 2) return `M ${pts[0].x},${pts[0].y} L ${pts[1].x},${pts[1].y}`
-    let d = `M ${pts[0].x},${pts[0].y}`
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[Math.max(0, i - 1)]
-      const p1 = pts[i]
-      const p2 = pts[i + 1]
-      const p3 = pts[Math.min(pts.length - 1, i + 2)]
-      const cp1x = p1.x + (p2.x - p0.x) / 6
-      const cp2x = p2.x - (p3.x - p1.x) / 6
-      const minY = Math.min(p1.y, p2.y)
-      const maxY = Math.max(p1.y, p2.y)
-      const cp1y = Math.max(minY, Math.min(maxY, p1.y + (p2.y - p0.y) / 6))
-      const cp2y = Math.max(minY, Math.min(maxY, p2.y - (p3.y - p1.y) / 6))
-      d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
-    }
-    return d
-  }
 
   function areaPathStr(pts: Array<{ x: number; y: number }>): string {
     if (pts.length < 2) return ""

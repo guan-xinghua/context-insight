@@ -68,7 +68,7 @@ const sampleSession: ApiImportableSession = {
 };
 
 const sampleImportable: ApiImportableSessionsResponse = { sessions: [sampleSession] };
-const sampleImportResult: ApiImportResponse = { sessionId: 'cmqyuh9bu0000abc', imported: true };
+const sampleImportResult: ApiImportResponse = { sessionId: 'cmqyuh9bu0000abc', imported: true, framework: 'opencode' };
 const sampleUploadResult: ApiUploadResponse = {
   sid: 'ses_abc123',
   folder: 'sessions/ses_abc123/',
@@ -131,7 +131,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
       ['--session', 'ses_abc123', '--description', '提交人: gxh\n内容描述: test'],
       { from: 'user' },
     );
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh\n内容描述: test');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh\n内容描述: test', undefined, undefined, undefined);
     expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining('Uploaded session ses_abc123'));
   });
 
@@ -144,7 +144,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
       { from: 'user' },
     );
     // 非交互标志路径：paradigm/baseline 原样透传，不触发 paradigmPrompt/readline
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh\n内容描述: baseline 会话', 'elementwise', true);
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh\n内容描述: baseline 会话', 'elementwise', true, undefined);
     expect(mockListRemoteDirs).not.toHaveBeenCalled();
     const jsonCall = mockConsoleLog.mock.calls.find(c => typeof c[0] === 'string' && c[0].trimStart().startsWith('{'));
     expect(jsonCall).toBeDefined();
@@ -158,7 +158,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
       ['--session', 'ses_abc123', '--paradigm', 'elementwise', '--yes', '--description', '提交人: gxh'],
       { from: 'user' },
     );
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh', 'elementwise');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh', 'elementwise', undefined, undefined);
     expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining('Paradigm dir: elementwise'));
     // 无 --baseline 时摘要不标 baseline
     const paradigmCall = mockConsoleLog.mock.calls.find(
@@ -174,7 +174,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
       ['--session', 'ses_abc123', '--description', 'desc', '--json'],
       { from: 'user' },
     );
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', 'desc');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', 'desc', undefined, undefined, undefined);
     const jsonCall = mockConsoleLog.mock.calls.find(c => typeof c[0] === 'string' && c[0].trimStart().startsWith('{'));
     expect(jsonCall).toBeDefined();
     expect(JSON.parse(jsonCall![0] as string)).toEqual(sampleUploadResult);
@@ -191,7 +191,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
     );
     expect(mockListImportableSessions).toHaveBeenCalledWith('opencode-db', '/path/to/sessions.db');
     expect(mockImportSession).toHaveBeenCalledWith('opencode-db', '/path/to/sessions.db', 'ses_abc123');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh', undefined, undefined, 'opencode'); // framework 用导入响应的行值
     // 顺序：listImportable → import → upload
     expect(mockListImportableSessions).toHaveBeenCalledBefore(mockImportSession);
     expect(mockImportSession).toHaveBeenCalledBefore(mockUploadSession);
@@ -241,11 +241,11 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
       { from: 'user' },
     );
     // description 模板含全部 5 字段
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('提交人:'), 'others');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('内容描述:'), 'others');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('问题说明:'), 'others');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('日志路径:'), 'others');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('备注:'), 'others');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('提交人:'), 'others', undefined, 'opencode');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('内容描述:'), 'others', undefined, 'opencode');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('问题说明:'), 'others', undefined, 'opencode');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('日志路径:'), 'others', undefined, 'opencode');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('备注:'), 'others', undefined, 'opencode');
     // collectDescription 5 问 + paradigmPrompt 1 问 + baseline 确认 1 问 = 7 次
     expect(mockCreateInterface).toHaveBeenCalledTimes(7);
     expect(mockListRemoteDirs).toHaveBeenCalledWith('');
@@ -262,7 +262,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
     );
     // 单会话自动选中 target = sessions[0]
     expect(mockImportSession).toHaveBeenCalledWith('opencode-db', '/path/to/sessions.db', 'ses_abc123');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', '提交人: gxh', undefined, undefined, 'opencode');
   });
 
   it('--session <id>：getSession 拿 detail 填 description 默认值（用户/查询/模型）', async () => {
@@ -277,7 +277,7 @@ describe('uploadCommand (commander.parseAsync 驱动 action 流程)', () => {
       { from: 'user' },
     );
     // 空回车 → 提交人用 detail.user='gxh'、内容描述用 detail.query='Fix the build error'
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('提交人: gxh'), 'contraction');
-    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('内容描述: Fix the build error'), 'contraction');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('提交人: gxh'), 'contraction', undefined, 'opencode');
+    expect(mockUploadSession).toHaveBeenCalledWith('ses_abc123', expect.stringContaining('内容描述: Fix the build error'), 'contraction', undefined, 'opencode');
   });
 });

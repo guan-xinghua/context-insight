@@ -15,6 +15,8 @@ import type { InsightClient } from '@/cli/client';
 interface UploadPanelProps {
   client: InsightClient;
   taskId: string;
+  /** 同 sid 双行（方案一）上传消歧：目标行 framework */
+  framework?: string;
   onDone: (message: string) => void;
   onCancel: () => void;
 }
@@ -24,7 +26,7 @@ type Phase = 'paradigm' | 'submitter' | 'uploading';
 // 数据仓上传面板：① 范式目录选择（数据仓顶层目录即注册表，↑↓ 移动 Enter
 // 确认）→ ② 提交人输入（网关强制非空）→ ③ 上传。Esc 任意阶段取消。
 // 修复旧版 ConfirmDialog 直传空 description 被提交人网关拒绝的缺陷。
-export function UploadPanel({ client, taskId, onDone, onCancel }: UploadPanelProps) {
+export function UploadPanel({ client, taskId, framework, onDone, onCancel }: UploadPanelProps) {
   const [phase, setPhase] = useState<Phase>('paradigm');
   const [dirs, setDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +64,7 @@ export function UploadPanel({ client, taskId, onDone, onCancel }: UploadPanelPro
         `提交人: ${who}\n内容描述: ${taskId}`,
         paradigm,
         baseline || undefined,
+        framework,
       );
       onDone(`Uploaded ${taskId} → ${BAY_NAME} ${result.folder}${result.unchanged ? ' (unchanged)' : ''}`);
     } catch (e) {

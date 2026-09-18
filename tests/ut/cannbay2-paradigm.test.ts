@@ -66,7 +66,7 @@ function writeFixture(sid: string, marker: string): string {
   fs.mkdirSync(FIXTURES, { recursive: true });
   const f = path.join(FIXTURES, `${sid}.jsonl`);
   fs.writeFileSync(f, [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: `范式上传 ${marker}` }, timestamp: '2026-08-27T03:00:00.000Z' }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: `范式上传 ${marker}` }, timestamp: '2026-08-27T03:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
     JSON.stringify({ type: 'assistant', message: { id: `m_${sid}`, role: 'assistant', content: [{ type: 'text', text: `回复 ${marker}` }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-08-27T03:00:05.000Z' }),
   ].join('\n') + '\n');
   return f;
