@@ -11,6 +11,7 @@
 import { useMemo, useState } from 'react';
 import { formatDateTime, formatDuration, formatScore, formatTokens, formatDelta } from '@/app/cannbay_viewer/_lib/format';
 import { NotesDialog } from './NotesDialog';
+import { toast } from 'sonner';
 
 export type ImportState = 'idle' | 'importing' | 'error';
 
@@ -78,7 +79,7 @@ export function RunsTable({
   onImport,
 }: {
   items: RunItemView[];
-  onImport: (sid: string, recording: 'capture' | 'native') => Promise<boolean>;
+  onImport: (sid: string, recording: 'capture' | 'native') => Promise<string | null>;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('startTime');
   const [sortDesc, setSortDesc] = useState(true);
@@ -92,12 +93,13 @@ export function RunsTable({
     const k = rowKey(r);
     setImporting(prev => new Set(prev).add(k));
     setImportErrors(prev => { const m = new Map(prev); m.delete(k); return m; });
-    const ok = await onImport(r.sid, r.recording);
+    const error = await onImport(r.sid, r.recording);
     setImporting(prev => { const s = new Set(prev); s.delete(k); return s; });
-    if (ok) {
+    if (error == null) {
       window.location.href = r.insightUrl;
     } else {
-      setImportErrors(prev => new Map(prev).set(k, '导入失败，详见浏览器控制台或服务日志'));
+      setImportErrors(prev => new Map(prev).set(k, error));
+      toast.error('导入失败', { description: error });
     }
   };
 

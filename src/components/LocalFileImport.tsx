@@ -620,7 +620,17 @@ export function LocalFileImport() {
         }
       })
       saveImportHistory(entries)
-      toast.success("Import complete", { description: `${entries.filter(e => e.status === "success").length} sessions imported.` })
+      const okCount = entries.filter(e => e.status === "success").length
+      const failCount = entries.length - okCount
+      if (failCount > 0) {
+        toast.warning("Import complete", {
+          description: `${okCount} sessions imported, ${failCount} failed`,
+        })
+      } else {
+        toast.success("Import complete", {
+          description: `${okCount} sessions imported.`,
+        })
+      }
     }
     setOpen(false)
     resetState()
@@ -629,15 +639,18 @@ export function LocalFileImport() {
     }
   }, [importStatuses, sessions, filePath, sourceType])
 
-  const allSuccessOrError = importStatuses.length > 0 && importStatuses.every(s => s.status === "success" || s.status === "error")
+  const allDone = importStatuses.length > 0 && importStatuses.every(s => s.status === "success" || s.status === "error")
+  const hasError = importStatuses.some(s => s.status === "error")
 
-  // Auto-redirect to home after import completes
+  // Auto-redirect to home after import completes. Only auto-close when EVERY
+  // import succeeded: any failure stays on the result view so the user can read
+  // the error before manually clicking Done (errors used to flash by in 1s).
   useEffect(() => {
-    if (allSuccessOrError) {
+    if (allDone && !hasError) {
       const timer = setTimeout(handleDone, 1000)
       return () => clearTimeout(timer)
     }
-  }, [allSuccessOrError, handleDone])
+  }, [allDone, hasError, handleDone])
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetState() }}>
@@ -650,7 +663,9 @@ export function LocalFileImport() {
             {step === "browse" && "Browse directories and select a file to import"}
             {step === "select" && "Select sessions to import"}
             {step === "cannbay" && (cannbayParadigm == null ? "选择范式目录（数据仓顶层目录）" : "选择该范式下的会话导入")}
-            {step === "importing" && `Importing ${importStatuses.filter(s => s.status === "success" || s.status === "error").length}/${importStatuses.length} sessions...`}
+            {step === "importing" && (allDone
+              ? (hasError ? "Import finished — some sessions failed (details above)" : "Import complete")
+              : `Importing ${importStatuses.filter(s => s.status === "success" || s.status === "error").length}/${importStatuses.length} sessions...`)}
           </DialogDescription>
         </DialogHeader>
 
@@ -1127,34 +1142,39 @@ export function LocalFileImport() {
               const session = previewOf(sessions, s)
               const label = session?.firstQuery ?? s.sessionId
               return (
-                <div key={s.key} className="flex items-center gap-2 text-sm border-b pb-1.5 last:border-0">
-                  <span className="flex-1 truncate">
-                    {label}
-                    {s.recording && <span className="text-muted-foreground"> ·{s.recording === "native" ? "native" : "capture"}</span>}
-                  </span>
-                  {s.status === "pending" && <span className="text-muted-foreground">Waiting</span>}
-                  {s.status === "importing" && (
-                    <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                      <LoaderIcon className="size-3 animate-spin" />
-                      Importing...
+                <div key={s.key} className="text-sm border-b pb-1.5 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1 truncate">
+                      {label}
+                      {s.recording && <span className="text-muted-foreground"> ·{s.recording === "native" ? "native" : "capture"}</span>}
                     </span>
+                    {s.status === "pending" && <span className="text-muted-foreground">Waiting</span>}
+                    {s.status === "importing" && (
+                      <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                        <LoaderIcon className="size-3 animate-spin" />
+                        Importing...
+                      </span>
+                    )}
+                    {s.status === "success" && (
+                      <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                        {/* 方案一：捕获行 framework 带 -proxy 后缀——剥后缀归一进
+                            白名单（同 ImportHistory），proxy 徽标仍走 version */}
+                        {(() => {
+                          const agentFw = agentFrameworkOf(s.framework ?? null)
+                          if (agentFw === "cannbot") return <Badge variant="green">CANNBot</Badge>
+                          if (agentFw === "opencode") return <Badge variant="blue">OpenCode</Badge>
+                          if (agentFw === "claude-code") return <Badge variant="orange">Claude</Badge>
+                          return null
+                        })()}
+                        {isProxyVersion(s.version ?? null) && <Badge variant="yellow">proxy</Badge>}
+                        {s.message}
+                      </span>
+                    )}
+                    {s.status === "error" && <Badge variant="red">Failed</Badge>}
+                  </div>
+                  {s.status === "error" && s.message && (
+                    <div className="mt-1 text-xs text-red-600 dark:text-red-400 break-words whitespace-pre-wrap">{s.message}</div>
                   )}
-                  {s.status === "success" && (
-                    <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-                      {/* 方案一：捕获行 framework 带 -proxy 后缀——剥后缀归一进
-                          白名单（同 ImportHistory），proxy 徽标仍走 version */}
-                      {(() => {
-                        const agentFw = agentFrameworkOf(s.framework ?? null)
-                        if (agentFw === "cannbot") return <Badge variant="green">CANNBot</Badge>
-                        if (agentFw === "opencode") return <Badge variant="blue">OpenCode</Badge>
-                        if (agentFw === "claude-code") return <Badge variant="orange">Claude</Badge>
-                        return null
-                      })()}
-                      {isProxyVersion(s.version ?? null) && <Badge variant="yellow">proxy</Badge>}
-                      {s.message}
-                    </span>
-                  )}
-                  {s.status === "error" && <span className="text-red-600 dark:text-red-400">{s.message}</span>}
                 </div>
               )
             })}
@@ -1210,7 +1230,7 @@ export function LocalFileImport() {
               </Button>
             </>
           )}
-          {step === "importing" && allSuccessOrError && (
+          {step === "importing" && allDone && (
             <Button onClick={handleDone}>Done</Button>
           )}
         </DialogFooter>

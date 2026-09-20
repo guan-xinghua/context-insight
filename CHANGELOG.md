@@ -2,6 +2,11 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [v0.2.34] - 2026-09-20
+
+### Fixed
+- 【导入失败报错一闪而过不可见】导入对话框完成后此前无论成败 1s 自动关闭（`allSuccessOrError` 统一触发 `handleDone`）、有成功时又整页 reload——失败项报错被截断/秒关，用户看不到错误原因。修复：拆 `allDone`/`hasError`，**全部成功才自动关闭**；任一失败驻留结果视图（报错完整展示：失败行 `Failed` 徽标 + 报错正文独立换行 `break-words` 不截断），用户看清后手动 Done（toast 补失败计数，含失败项时用 `toast.warning` 而非成功样式）；**CANNBay Viewer 一键导入同步收口**——`importRun` 不再只 `console.error` 丢真因，改返回错误消息（保留 v0.2.33 的 `(sid, recording)` 双记录签名），`RunsTable` 经 `toast.error` 展示 + 重试按钮 tooltip 保留真实错误（弃「详见浏览器控制台或服务日志」占位）。IT：`tests/ut/local-import-error-persist.test.tsx`（cannbay 与本地 JSONL 两条导入链路：失败驻留、报错可见、越过 1s 不自动关闭、无 reload/无 history、手动 Done）
+
 ## [v0.2.33] - 2026-09-18
 
 ### Fixed

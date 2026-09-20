@@ -120,7 +120,7 @@ function ViewerPage() {
     return () => { cancelled = true; };
   }, [query, refreshKey]);
 
-  const importRun = async (sid: string, recording: 'capture' | 'native'): Promise<boolean> => {
+  const importRun = async (sid: string, recording: 'capture' | 'native'): Promise<string | null> => {
     try {
       const res = await fetch('/cannbay_viewer/api/runs/import', {
         method: 'POST',
@@ -129,14 +129,12 @@ function ViewerPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
-        console.error(`导入 ${sid} 失败:`, data.error ?? `HTTP ${res.status}`);
-        return false;
+        return data.error ?? `HTTP ${res.status}`;
       }
       setRefreshKey(k => k + 1);
-      return true;
+      return null;
     } catch (e) {
-      console.error(`导入 ${sid} 失败:`, e);
-      return false;
+      return e instanceof Error ? e.message : String(e);
     }
   };
 
