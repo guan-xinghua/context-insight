@@ -8,10 +8,9 @@
 
 // 安全修复 IT（0000026/0000050/0000088/0000143/0000147 等）：
 // taskId 白名单（export-session / exportSession / audit-session-py）、
-// projectPath realpath 校验（resolveProjectPath fail-closed）、cannbay
-// filenames 遍历拒绝。按信任边界判定：外部威胁在文件内容侧（taskId/filenames
-// 已在落地 sink 封堵）；导入/浏览路径与 breather 连接目标为本地自用功能，
-// 刻意不设白名单。API 层走完整 POST/PATCH 数据流，mock prisma 与
+// cannbay filenames 遍历拒绝。按信任边界判定：外部威胁在文件内容侧
+// （taskId/filenames 已在落地 sink 封堵）；导入/浏览路径为本地自用功能，
+// 刻意不设白名单。API 层走完整 POST 数据流，mock prisma 与
 // child_process（cannbay 镜像 fetch），不触网、不落真实 git 仓。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -33,10 +32,8 @@ vi.mock('@/lib/db', () => ({ prisma: {} }));
 const { exportMock } = vi.hoisted(() => ({ exportMock: vi.fn() }));
 vi.mock('@/lib/ingest/export-service', () => ({ exportSession: exportMock }));
 
-const { PATCH: handoffStatusPATCH } = await import('@/app/api/breather/handoff-status/route');
 const { POST: importCannbayPOST } = await import('@/app/api/ingest/import-from-cannbay/route');
 const { POST: exportSessionPOST } = await import('@/app/api/ingest/export-session/route');
-const { resolveProjectPath, readHandoffRegistry, writeHandoffRegistry } = await import('@/lib/breather/handoff-registry');
 const { isPathInside } = await import('@/lib/ingest/import-paths');
 const { exportSession } = await vi.importActual<typeof import('@/lib/ingest/export-service')>('@/lib/ingest/export-service');
 
@@ -51,22 +48,6 @@ function req(url: string, body: unknown, method = 'POST'): NextRequest {
 beforeEach(() => {
   execMock.mockReset().mockImplementation(() => Buffer.alloc(0));
   exportMock.mockReset();
-});
-
-describe('handoff-status 路由 — projectPath 校验', () => {
-  it('opencode 返回的 directory 不存在 → 500 projectPath 错误（不落盘）', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 404 })));
-    try {
-      const res = await handoffStatusPATCH(req('http://localhost/api/breather/handoff-status', {
-        sessionId: 's1', status: 'running',
-      }, 'PATCH'));
-      expect(res.status).toBe(500);
-      const data = await res.json();
-      expect(data.error).toContain('projectPath');
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
 });
 
 describe('import 路径守卫（仅 cannbay filenames 收敛 —— 导入/浏览路径为本地自用功能，不设白名单）', () => {
@@ -105,34 +86,6 @@ describe('taskId 白名单 — export-session / exportSession', () => {
     await expect(exportSession('a'.repeat(129), undefined, fakePrisma)).rejects.toThrow('Invalid taskId');
     await expect(exportSession('ses_ok', undefined, fakePrisma)).rejects.toThrow('Session not found');
     expect(findFirst).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('resolveProjectPath — handoff registry fail-closed', () => {
-  it('不存在路径 / 指向文件 → null；真实目录 → realpath', () => {
-    expect(resolveProjectPath('/no/such/dir/xyz')).toBeNull();
-    expect(resolveProjectPath(null)).toBeNull();
-    const file = path.join(os.tmpdir(), `pg-file-${process.pid}`);
-    fs.writeFileSync(file, 'x');
-    try {
-      expect(resolveProjectPath(file)).toBeNull();
-    } finally {
-      fs.unlinkSync(file);
-    }
-    const dir = fs.realpathSync(os.tmpdir());
-    expect(resolveProjectPath(dir)).toBe(dir);
-  });
-
-  it('readHandoffRegistry 非法路径 → []；writeHandoffRegistry 非法路径 → throw', () => {
-    expect(readHandoffRegistry('/no/such/dir/xyz')).toEqual([]);
-    expect(() => writeHandoffRegistry('/no/such/dir/xyz', [])).toThrow();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-guard-'));
-    try {
-      writeHandoffRegistry(dir, [{ sessionId: 's1', from: null, to: [], birthHandoffDoc: null, handoffDoc: null }]);
-      expect(readHandoffRegistry(dir).length).toBe(1);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   });
 });
 

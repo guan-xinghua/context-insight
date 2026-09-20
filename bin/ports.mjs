@@ -44,7 +44,7 @@ export const SMART_AGENT_SERVICE = 'cannbot-smart-agent'
 /**
  * 端口上是否为本 smart-agent：/health 2xx 且响应体带服务标识。
  * 仅凭 2xx 不够——Actuator、k8s 风格健康检查、各类 Node dev server 都有
- * /health，误认会导致复用陌生后端（breather/v2 全部调用打错服务）。
+ * /health，误认会导致复用陌生后端（audit v2/v3/v4 分析调用打错服务）。
  */
 export async function isSmartAgent(port, timeoutMs = 1500) {
   const ac = new AbortController()

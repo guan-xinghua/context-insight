@@ -13,7 +13,7 @@ import { ImportHistory } from '@/components/ImportHistory';
 import { VERSION_DISPLAY } from '@/lib/version';
 import { BRAND_NAME, BAY_VIEWER_NAME } from '@/lib/branding';
 import { prisma } from '@/lib/db';
-import { BarChart3Icon, EyeIcon, SettingsIcon } from 'lucide-react';
+import { EyeIcon, SettingsIcon } from 'lucide-react';
 import { countToolCallErrors } from '@/lib/tool-call-errors';
 
 export default async function Home({
@@ -145,10 +145,6 @@ export default async function Home({
           </div>
           <div className="flex items-center gap-3">
             <LocalFileImport />
-            <a href="/monitor" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
-              <BarChart3Icon className="size-4 text-pink-500" />
-              上下文监控
-            </a>
             <a href="/cannbay_viewer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
               <EyeIcon className="size-4 text-cyan-500" />
               {BAY_VIEWER_NAME}

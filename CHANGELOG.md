@@ -2,6 +2,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [v0.2.35] - 2026-09-20
+
+### Fixed
+- 【Overview 泳道】同泳道短任务条互相压盖、只有最顶层可点（分行机制长期失效）——现按渲染位置分行；悬停补显该 execution 的首个任务 prompt（同名 subagent 可区分各自任务）
+
+### Removed
+- 【上下文监控】特性整体移除（`/monitor` 页、`/api/breather` 路由与首页入口）
+
 ## [v0.2.34] - 2026-09-20
 
 ### Fixed

@@ -219,7 +219,7 @@ async function maybeStartSmartAgent(nextPort) {
   // ① 已有存活的 smart-agent（上次运行遗留）→ 直接复用，不重复 spawn。
   // 正身判定：/health 响应体须带 cannbot-smart-agent 服务标识——通用 /health
   // 服务（Actuator、dev server 等）绝不复用，否则 CANNBOT_AGENT_URL 指向
-  // 陌生后端，breather/v2 全部调用打错服务
+  // 陌生后端，audit v2/v3/v4 分析调用打错服务
   for (const p of agentPortCandidates(nextPort)) {
     if (await isSmartAgent(p)) {
       log(`smart-agent 已在运行 (port ${p})，复用`)
@@ -232,7 +232,7 @@ async function maybeStartSmartAgent(nextPort) {
   for (const c of ['python3', 'python']) {
     try { execSync(`command -v ${c}`, { stdio: 'pipe' }); pythonBin = c; break } catch {}
   }
-  if (!pythonBin) { warn('未检测到 python3 —— smart-agent 后端跳过（breather/v2 分析功能降级）'); return null }
+  if (!pythonBin) { warn('未检测到 python3 —— smart-agent 后端跳过（audit v2/v3/v4 分析功能降级）'); return null }
 
   // ② 找空闲端口起一个（避让 next 实占端口）
   let agentPort = null

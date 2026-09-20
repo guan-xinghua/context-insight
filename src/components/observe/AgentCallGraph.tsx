@@ -135,6 +135,7 @@ interface TooltipData {
   x: number
   y: number
   label: string
+  firstPrompt: string | null
   tokens: number
   maxSingleCallTokens: number
   latencyMs: number
@@ -209,16 +210,17 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
     return entries.map(([key, { def, agents }]) => {
       const trackEnds: number[] = []
       const packed = agents.map(agent => {
-        const startMs = new Date(agent.createdAt).getTime()
-        const endMs = startMs + (wallMs.get(agent.executionId) ?? agent.latencyMs)
-        let ti = trackEnds.findIndex(e => e <= startMs)
-        if (ti === -1) { ti = trackEnds.length; trackEnds.push(endMs) }
-        else trackEnds[ti] = endMs
-        return { agent, trackIdx: ti }
+        const startPct = getStartPct(agent.createdAt)
+        const widthPct = getWidthPct(wallMs.get(agent.executionId) ?? agent.latencyMs)
+        const rightPct = Math.min(100, startPct + widthPct)
+        let ti = trackEnds.findIndex(e => e <= startPct + 1e-9)
+        if (ti === -1) { ti = trackEnds.length; trackEnds.push(rightPct) }
+        else trackEnds[ti] = rightPct
+        return { agent, trackIdx: ti, startPct, widthPct }
       })
       return { key, def, packed, trackCount: trackEnds.length }
     })
-  }, [sorted, wallMs])
+  }, [sorted, wallMs, totalDuration, globalStartMs])
 
   const bridgeBySessionId = useMemo(() => {
     const map = new Map<string, BridgeItem>()
@@ -245,6 +247,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
       x: rect.left + rect.width / 2,
       y: rect.top,
       label: agent.agentName ?? (agent.isSubagent ? "subagent" : "root"),
+      firstPrompt: agent.firstPrompt,
       tokens: agent.tokens,
       maxSingleCallTokens: agent.maxSingleCallTokens,
       latencyMs: wall,
@@ -300,9 +303,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
                   {ticks.filter(t => t.pct > 0 && t.pct < 100).map((t, i) => (
                     <div key={i} className="absolute top-0 h-full w-px bg-border/20" style={{ left: `${t.pct}%` }} />
                   ))}
-                  {packed.map(({ agent, trackIdx }) => {
-                    const startPct = getStartPct(agent.createdAt)
-                    const widthPct = getWidthPct(wallMs.get(agent.executionId) ?? agent.latencyMs)
+                  {packed.map(({ agent, trackIdx, startPct, widthPct }) => {
                     const agentColor = getAgentColor(agent.agentName)
                     const bridge = agent.isSubagent && agent.agentSessionId ? bridgeBySessionId.get(agent.agentSessionId) : undefined
                     const isError = bridge?.status === "error" || bridge?.status === "failed"
@@ -313,7 +314,6 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
                         style={{
                           left: `${startPct}%`,
                           width: `${widthPct}%`,
-                          minWidth: 4,
                           height: SUB_BAR_H,
                           top: SUB_GAP + trackIdx * (SUB_BAR_H + SUB_GAP),
                           backgroundColor: agentColor,
@@ -344,10 +344,13 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
 
       {tooltip && (
         <div
-          className="fixed z-[9999] bg-popover border rounded-md shadow-lg px-3 py-2 text-xs whitespace-nowrap pointer-events-none"
+          className="fixed z-[9999] bg-popover border rounded-md shadow-lg px-3 py-2 text-xs max-w-[340px] pointer-events-none"
           style={{ left: tooltip.x, top: tooltip.y - 8, transform: "translate(-50%, -100%)" }}
         >
           <div className="font-medium mb-1">{tooltip.label}</div>
+          {tooltip.firstPrompt && (
+            <div className="text-muted-foreground break-words line-clamp-2 mb-1">{tooltip.firstPrompt}</div>
+          )}
           <div className="text-muted-foreground space-y-0.5">
             <div>{formatTokenCount(tooltip.maxSingleCallTokens)} token max · {formatTokenCount(tooltip.tokens)} total · {formatLatency(tooltip.latencyMs)}</div>
             <div>{tooltip.startTime} → {tooltip.endTime}</div>
