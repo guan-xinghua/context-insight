@@ -2,11 +2,31 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [Unreleased]
+
+### Added
+- 【压缩格式升级 gzip → 7z（LZMA2）——与 cpx v0.2.0 同步的双端变更】cpx 捕获 `.jsonl.7z` 直接导入（IT：.7z 导入 / sourcePath 明文-压缩态互找 / 存量 .gz 永续）；cannbay2 上传出仓统一 `.jsonl.7z`（staging ensure7z——本地 `.gz`/明文源上传时自动迁移新格式，湖内同 sid 重传整体替换语义天然完成逐会话迁移）；LFS 声明 `.gitattributes` 同时声明 `*.7z` 与 `*.gz`（存量件照走 LFS，读路径镜像按双声明刷新）；物化/导入/列表/目录扫描全部三形态透明解压（明文 / 存量 `.jsonl.gz` / 新 `.jsonl.7z`）。压缩模块 `src/lib/compression.ts` 与 cpx 同构（受控双实现，命令常量一致——parity 锁），`7zip-bin` npm 预编译 7za 随包。
+
+### Changed
+- 【首页 Sessions 列表 Duration 列 → LLM Active（模型推理时间）】Start→End 列已天然反映会话墙钟时长，Duration 列改为展示 LLM Active（assistant turn 在途窗口并集、并行去重叠）——一眼区分"会话经历时长"与"模型真正忙时"。列表 API 与 SSR 单查询批量取本页会话 turn 窗口计算（无 N+1，与既有 error 统计查询同款模式）；列头悬停有口径说明。CLI/TUI 列表维持 Duration=墙钟不变。
+- 【LFS 上传默认开启——与 cpx 对齐的三层决议链】`env CANNBAY2_LFS`（显式 `1/true/on` 开、`0/false/off` 关，一次性覆写）> 请求体 `config.lfs` > **默认开**（此前默认关且 env 只认开值）。数据仓平台侧启用 LFS 后会话件默认走 LFS 指针出仓、容量脱离 git 仓配额。配套：git-lfs 解析链升级为「系统件 > cpx 私有件（`~/.cannbot-insight/bin/git-lfs`，`cpx lfs-setup` 自举产物——insight 进程 PATH 前置复用，零全局污染）」，缺件 fail-fast 指引三出路（系统安装 / `cpx lfs-setup` 自举 / `CANNBAY2_LFS=0` 回退 blob）。IT：`cannbay2-lfs-resolution`（决议链全态）；既有 blob 断言类测试统一钉 `CANNBAY2_LFS=0`（12 处）。
+
+### Fixed
+- 【7z 导入在 next build 生产态产出空会话（7zip-bin 被 bundler 内联）】`7zip-bin` 的 index.js 用 `__dirname` 定位平台二进制——被 Turbopack 内联打包后 `__dirname` 编译成构建期常量（如 `/ROOT/node_modules/7zip-bin/...`），运行机上不存在 → `spawnSync` ENOENT → 读捕获抛错被 `parseJsonlLines` 的兜底 catch 吞掉 → "导入成功"但 0 turns 空会话（页面显示「捕获中，暂无内容」）。vitest 全走 tsx 直跑源码测不到该路径（生产构建盲区）。修复：`next.config.ts` 声明 `serverExternalPackages: ["7zip-bin"]`（Next 官方机制，带二进制的包不打包、运行时从真实 node_modules require，`__dirname` 保真）；构建产物复核无内联残留，真机 `.7z` 重导 turns/latency/LLM Active 全量恢复。
+- 【cannbay2 治理快路径从未生效（governed 信任标记读取路径错误）】`governStagedSession` 此前从 `<sid>.jsonl.gz` 读 cc-session-meta（gzip 二进制 JSON.parse 必败 → meta 恒 null → 快路径永假，全部 cpx 捕获上传都走慢路径解压重洗重压）——cpx v0.1.4 修了自家同款 bug 但 insight 侧漏修。现改读 `<sid>.meta.json`（staging 必备伴生件），带 governed 标记的 cpx 会话恢复免解压直传。
+- 【start.sh 启动被 git-lfs 自举预取阻塞 ~2min（重启期间 21025 无服务）】start.sh 内部调 cpx install.sh 会连带 postinstall 的 git-lfs 自举预取——GitHub 直连受限的机器上预取要等满 120s 超时才降级，把"杀旧实例 → next start"之间的停机窗口从秒级拉长到 ~2 分钟，期间浏览器打不开 Web UI。现 start.sh 调用行钉 `CPX_SKIP_LFS_SETUP=1`：insight 启动关键路径零网络等待，自举推迟到首次上传时自动发生（独立 install.sh / npm 安装路径不受影响，预取保留）。IT：start-sh-validation 源码级锁（调用行 env 前缀被移除即红）
+- 【-k 重启后浏览器一直转圈（SIGTERM 双等死锁）】next-server 对 SIGTERM 走 graceful close：LISTEN 释放（新实例得以绑上 21025）但进程等存量 keep-alive 连接收尾，浏览器在等响应——双等死锁使旧连接永驻不响应：新连接（curl）正常 200、浏览器复用旧连接永远转圈（实测 2026-09-20）。`kill_all_insight` 击杀升级为 SIGTERM → 3s 宽限 → SIGKILL 补刀，残存进程连同其套接字被内核强制回收（浏览器侧连接 RST 后重试命中新实例）。IT：start-sh-validation 行为级验证（忽略 SIGTERM 的仿真 next-server 必须在宽限后被 SIGKILL，仅 SIGTERM 的旧实现即红）
+
 ## [v0.2.36] - 2026-09-20
+
+### Added
+- 【LLM Active 指标】详情页 / compare / CLI session·compare·stats--session / TUI Overview·Compare 新增 "LLM Active"——所有 assistant turn 在途窗口的区间并集（root + subagent 合并去重叠），即"大模型真正在工作的时间"。并行 subagent 重叠只计一次（不再双计，≤ 墙钟）；proxy 捕获行无 completedAt 时用 `createdAt − latencyMs` 推窗口起点。性质：区分"会话经历时长"与"模型忙时"——长会话含大量用户空闲时 LLM Active ≪ 墙钟；并行密集会话 LLM Active ≈ 墙钟。服务端对该会话 Turn 行算一次（列表不加，N 会话×全 turns 太重）。
 
 ### Fixed
 - 【导入】超 512MiB 的大捕获（长会话 wire 全量）此前导入必败且**假成功**——整读文件撞 V8 字符串上限、错误被吞成"空文件"走占位路径；现改 Buffer 逐行解码（现场 631MB 捕获 15.7s 导入成功），读取/解压/单行超限错误真实上抛
 - 【会话列表】混合模型长会话的 Model 显示改为**最频次**模型（此前取首条，长会话换模型后被首条边缘样本代表）
+- 【Session Duration 虚高（并行子代理双计）】列表 / CLI / TUI / compare 的 Duration 此前取 Σ turn latency（root 与全部子代理直接相加，并行执行时间重叠双计，实测可达墙钟 2.1 倍），且与详情页 Wall Clock、CANNBay Viewer 耗时、Markdown 导出互相打架。现统一为会话墙钟时长（endTime − startTime，客户端用已有 start/end/Σ 三字段自算，API 不派生冗余 durationMs）；全局 Avg Duration 同步改墙钟口径。存储的 totalLatencyMs 保留原语义（Σ turn latency），评分 D4 等内部消费方不受影响。
+- 【启动即崩（Node 24 客户现场回归）】`better-sqlite3@11` 手写 V8 绑定的 `Database` 析构在 GC 回收已 close 对象时直接调 `node::RemoveEnvironmentCleanupHook`——Node ≥24 部分版本在 GC 线程无环境上下文，触发原生断言 `(env) != nullptr` **abort 整个进程**（启动器 `ensureNative()` 探针必踩：打印数据目录后 core dump；测试 worker 退出期同栈）。升级 **better-sqlite3@13**（上游 N-API/node-addon-api 重写，cleanup hook 改经 Napi 管理）根因消除；附带收益：预编译二进制随 npm 包分发（prebuilds/ 全平台目录），**安装不再从 GitHub Releases 下载**（国内安装慢/回退 node-gyp 编译的问题一并解决，`npm_config_better_sqlite3_binary_host` 镜像配置不再需要）。tests/setup.ts 的探针强引用 workaround 随根因修复一并退役（对照验证：v13 + 摘除 workaround 全量 191 文件零 abort）。
 
 ## [v0.2.35] - 2026-09-20
 

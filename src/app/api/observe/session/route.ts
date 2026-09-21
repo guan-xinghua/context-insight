@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { computeLlmActiveMs } from '@/lib/session-duration';
 
 export async function GET(request: NextRequest) {
   try {
@@ -141,6 +142,14 @@ export async function GET(request: NextRequest) {
       invocationCount: s.invocationCount,
     }));
 
+    // LLM 活跃时间：assistant turn 在途窗口区间并集（root + subagent 合并去重叠）。
+    // proxy 行 completedAt 缺失，computeLlmActiveMs 用 createdAt - latencyMs 推窗口起点。
+    const llmTurns = await prisma.turn.findMany({
+      where: { sessionId: session.id, role: 'assistant' },
+      select: { createdAt_ts: true, completedAt: true, latencyMs: true },
+    });
+    const llmActiveMs = computeLlmActiveMs(llmTurns);
+
     return NextResponse.json({
       sessionId: session.id,
       taskId: session.taskId,
@@ -163,6 +172,7 @@ export async function GET(request: NextRequest) {
       totalCacheWriteTokens: session.totalCacheWriteTokens,
       totalCost: session.totalCost,
       totalLatencyMs: session.totalLatencyMs,
+      llmActiveMs,
       totalToolCallCount: session.totalToolCallCount,
       totalLlmCallCount: session.totalLlmCallCount,
       totalSkillLoadCount: session.totalSkillLoadCount,

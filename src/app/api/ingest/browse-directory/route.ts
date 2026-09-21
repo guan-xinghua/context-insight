@@ -60,11 +60,11 @@ export async function POST(request: NextRequest) {
         const s = fs.statSync(full);
         const ext = path.extname(name).toLowerCase();
         const isDb = ext === '.db' || ext === '.sqlite' || ext === '.sqlite3';
-        // .jsonl.gz（gzip at rest，cpx 压缩捕获形态）与 .jsonl 双形态都算
-        // claude-jsonl 可导入——extname 对 'x.jsonl.gz' 返回 '.gz'，必须用
+        // .jsonl.7z（7z at rest，cpx 压缩捕获形态）/ .jsonl.gz（存量）/ .jsonl
+        // 三形态都算 claude-jsonl 可导入——extname 对 'x.jsonl.7z' 返回 '.7z'，必须用
         // endsWith 判定
         const lower = name.toLowerCase();
-        const isJsonl = lower.endsWith('.jsonl') || lower.endsWith('.jsonl.gz');
+        const isJsonl = lower.endsWith('.jsonl') || lower.endsWith('.jsonl.gz') || lower.endsWith('.jsonl.7z');
         const isCannbot = isDb && name.startsWith('cannbot_session_');
         const isDir = s.isDirectory();
         const isImportableFile = !isDir && (isDb || isJsonl);

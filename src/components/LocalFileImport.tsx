@@ -233,9 +233,9 @@ export function LocalFileImport() {
   }
 
   async function handleDirectImportJsonl(entry: DirEntry) {
-    // .jsonl.gz（cpx 压缩捕获）双形态 + 剥 cpx- 前缀：与退出自动导入（真实
+    // .jsonl.7z / .jsonl.gz（cpx 压缩捕获）三形态 + 剥 cpx- 前缀：与退出自动导入（真实
     // sid）落同一 taskId，避免同会话双身份入库
-    const sessionId = entry.name.replace(/\.jsonl(\.gz)?$/, "").replace(/^cpx-/, "")
+    const sessionId = entry.name.replace(/\.jsonl(\.7z|\.gz)?$/, "").replace(/^cpx-/, "")
     setFilePath(entry.fullPath)
     setSourceType("claude-jsonl")
     setStep("importing")
@@ -292,11 +292,11 @@ export function LocalFileImport() {
     setError(null)
 
     // Claude Code JSONL single file: one session per file, skip selection step
-    // （.jsonl.gz 压缩捕获同走直导；cpx- 前缀剥掉与自动导入 taskId 对齐）
-    if (sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz"))) {
+    // （.jsonl.7z/.jsonl.gz 压缩捕获同走直导；cpx- 前缀剥掉与自动导入 taskId 对齐）
+    if (sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z"))) {
       // Derive sessionId from filename
       const filename = filePath.trim().split("/").pop() ?? ""
-      const sessionId = filename.replace(/\.jsonl(\.gz)?$/, "").replace(/^cpx-/, "")
+      const sessionId = filename.replace(/\.jsonl(\.7z|\.gz)?$/, "").replace(/^cpx-/, "")
       setStep("importing")
       setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
       try {
@@ -703,7 +703,7 @@ export function LocalFileImport() {
               <label className="text-sm font-medium mb-1.5 block">File Path</label>
               <div className="flex gap-2">
                 <Input
-                  placeholder={sourceType === "claude-jsonl" ? "/path/to/session.jsonl(.gz) or /path/to/sessions-dir" : "/path/to/sessions.db"}
+                  placeholder={sourceType === "claude-jsonl" ? "/path/to/session.jsonl(.7z/.gz) or /path/to/sessions-dir" : "/path/to/sessions.db"}
                   value={filePath}
                   onChange={(e) => setFilePath(e.target.value)}
                   className="flex-1"
@@ -757,8 +757,8 @@ export function LocalFileImport() {
                 {sourceType === "claude-jsonl" && (
                   <>
                     <p>Claude 原生: ~/.claude/projects/&lt;hash&gt;/&lt;id&gt;.jsonl</p>
-                    <p>cpx proxy 捕获: ~/.cannbot-insight/proxy/cpx-&lt;session-id&gt;.jsonl.gz（明文 .jsonl 与压缩 .jsonl.gz 均可，cpx- 前缀自动剥）</p>
-                    <p>Or point to a directory to scan all .jsonl / .jsonl.gz files</p>
+                    <p>cpx proxy 捕获: ~/.cannbot-insight/proxy/cpx-&lt;session-id&gt;.jsonl.7z（明文 .jsonl 与压缩 .jsonl.7z/.gz 均可，cpx- 前缀自动剥）</p>
+                    <p>Or point to a directory to scan all .jsonl / .jsonl.7z / .jsonl.gz files</p>
                   </>
                 )}
                 <p className="text-blue-500 dark:text-blue-400">Click Browse to explore directories and select files interactively</p>
@@ -1190,7 +1190,7 @@ export function LocalFileImport() {
                   Loading...
                 </span>
               ) : (
-                sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz")) ? "Import" : "Load Sessions"
+                sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z")) ? "Import" : "Load Sessions"
               )}
             </Button>
           )}

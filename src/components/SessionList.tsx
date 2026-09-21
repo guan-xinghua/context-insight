@@ -49,6 +49,7 @@ interface SessionListItem {
   totalTokens: number;
   totalCost: number;
   totalLatencyMs: number;
+  llmActiveMs?: number | null;
   totalToolCallCount: number;
   totalSkillLoadCount: number;
   totalSubagentCount: number;
@@ -82,8 +83,8 @@ function formatCost(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-function formatDuration(ms: number): string {
-  if (ms <= 0) return '—';
+function formatDuration(ms: number | null): string {
+  if (ms == null || ms <= 0) return '—';
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   if (ms < 3600000) return `${(ms / 60000).toFixed(1)}min`;
@@ -459,15 +460,15 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="text-xs w-16"></TableHead>
+              <TableHead className="text-xs w-10 text-center"></TableHead>
               <TableHead className="text-xs">Query</TableHead>
               <TableHead className="text-xs">Type</TableHead>
               <TableHead className="text-xs whitespace-nowrap">Start → End</TableHead>
               <TableHead className="text-xs whitespace-nowrap">Import Time</TableHead>
-              <TableHead className="text-xs text-left whitespace-nowrap">Model</TableHead>
-              <TableHead className="text-xs">Tokens</TableHead>
-              <TableHead className="text-xs">Cost</TableHead>
-              <TableHead className="text-xs">Duration</TableHead>
+              <TableHead className="text-xs">Model</TableHead>
+              <TableHead className="text-xs text-right whitespace-nowrap">Tokens</TableHead>
+              <TableHead className="text-xs text-right whitespace-nowrap">Cost</TableHead>
+              <TableHead className="text-xs text-right whitespace-nowrap" title="模型推理总时长（assistant turn 在途窗口并集，并行去重叠）">LLM Active</TableHead>
               <TableHead className="text-xs w-8"></TableHead>
             </TableRow>
           </TableHeader>
@@ -484,7 +485,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
               const eStatus = exportStatus[item.sessionId] ?? 'idle'
               return (
                 <TableRow key={item.sessionId} className={selectedIds.has(item.sessionId) ? 'bg-blue-500/10' : ''}>
-                  <TableCell className="w-8 px-2">
+                  <TableCell className="w-8 px-2 text-center">
                     <Checkbox
                       checked={selectedIds.has(item.sessionId)}
                       onCheckedChange={() => handleToggle(item.sessionId)}
@@ -523,12 +524,12 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                     {formatTime(item.startTime)} → {formatTime(item.endTime)}
                   </TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{formatTime(item.importedAt)}</TableCell>
-                  <TableCell className="text-xs whitespace-nowrap pl-0">{item.model ?? '—'}</TableCell>
-                  <TableCell className="text-xs tabular-nums">{formatTokens(item.totalTokens)}</TableCell>
-                  <TableCell className="text-xs tabular-nums">{formatCost(item.totalCost)}</TableCell>
-                  <TableCell className="text-xs tabular-nums">{formatDuration(item.totalLatencyMs)}</TableCell>
+                  <TableCell className="text-xs"><span className="block truncate max-w-[180px]" title={item.model ?? undefined}>{item.model ?? '—'}</span></TableCell>
+                  <TableCell className="text-xs tabular-nums text-right">{formatTokens(item.totalTokens)}</TableCell>
+                  <TableCell className="text-xs tabular-nums text-right">{formatCost(item.totalCost)}</TableCell>
+                  <TableCell className="text-xs tabular-nums text-right">{formatDuration(item.llmActiveMs ?? null)}</TableCell>
                   <TableCell className="px-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-end gap-2">
                       <Button
                         variant="ghost"
                         size="icon"

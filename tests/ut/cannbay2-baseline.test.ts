@@ -43,6 +43,7 @@ git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 git('git push -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 
@@ -102,7 +103,7 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
     await importFixture(SID_A, 'v1');
     const up = await cannbay2.uploadCannbay2Session(prisma, SID_A, '提交人: 测试者\n内容描述: baseline 首任', undefined, 'contraction', true);
     expect(up.folder).toBe(`contraction/baseline/${SID_A}/`);
-    expect(tree(`contraction/baseline/${SID_A}/`)).toContain(`${SID_A}.jsonl.gz`);
+    expect(tree(`contraction/baseline/${SID_A}/`)).toContain(`${SID_A}.jsonl.7z`);
     // 普通位置无此会话（精确段匹配：所有路径段中 sid 只出现在 baseline 位置）
     expect(sessionPaths(SID_A).every(l => l.startsWith('contraction/baseline/'))).toBe(true);
 
@@ -121,9 +122,9 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
     expect(git('git rev-parse main', BARE).trim()).not.toBe(before);
 
     // 新 baseline 就位
-    expect(tree(`contraction/baseline/${SID_B}/`)).toContain(`${SID_B}.jsonl.gz`);
+    expect(tree(`contraction/baseline/${SID_B}/`)).toContain(`${SID_B}.jsonl.7z`);
     // 原 baseline 移回范式普通目录（会话不丢，位置换回）
-    expect(tree(`contraction/${SID_A}/`)).toContain(`${SID_A}.jsonl.gz`);
+    expect(tree(`contraction/${SID_A}/`)).toContain(`${SID_A}.jsonl.7z`);
     expect(tree(`contraction/baseline/${SID_A}/`)).toBe('');
     // sid 各自全仓唯一（位置前缀集合 = 单一目标位置）
     expect(sessionLocations(SID_A)).toEqual(new Set([`contraction/${SID_A}`]));
@@ -136,7 +137,7 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
   it('本会话已在 baseline 位重传 baseline → 覆盖自身（unchanged 语义不破坏）', async () => {
     const up = await cannbay2.uploadCannbay2Session(prisma, SID_B, '提交人: 测试者\n内容描述: 重传同内容 baseline', undefined, 'contraction', true);
     expect(up.unchanged).toBe(true);
-    expect(tree(`contraction/baseline/${SID_B}/`)).toContain(`${SID_B}.jsonl.gz`);
+    expect(tree(`contraction/baseline/${SID_B}/`)).toContain(`${SID_B}.jsonl.7z`);
   });
 
   it('baseline 会话导入：三段路径自动定位，turns 重建', async () => {
@@ -157,7 +158,7 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
     // SID_A 当前在普通位置（上轮交换移回）；重传勾选 baseline → 移入 baseline
     const up = await cannbay2.uploadCannbay2Session(prisma, SID_A, '提交人: 测试者\n内容描述: 移入 baseline', undefined, 'contraction', true);
     expect(up.folder).toBe(`contraction/baseline/${SID_A}/`);
-    expect(tree(`contraction/baseline/${SID_A}/`)).toContain(`${SID_A}.jsonl.gz`);
+    expect(tree(`contraction/baseline/${SID_A}/`)).toContain(`${SID_A}.jsonl.7z`);
     expect(sessionPaths(SID_A).every(l => l.startsWith('contraction/baseline/'))).toBe(true);
     // SID_B 被交换移回普通位置
     expect(sessionPaths(SID_B).every(l => l.startsWith(`contraction/${SID_B}/`))).toBe(true);
@@ -174,7 +175,7 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
   it('普通上传不受 baseline 影响（同范式非 baseline 落普通位置）', async () => {
     const up = await cannbay2.uploadCannbay2Session(prisma, SID_B, '提交人: 测试者\n内容描述: 普通上传', undefined, 'contraction');
     expect(up.folder).toBe(`contraction/${SID_B}/`);
-    expect(tree(`contraction/baseline/${SID_A}/`)).toContain(`${SID_A}.jsonl.gz`);
+    expect(tree(`contraction/baseline/${SID_A}/`)).toContain(`${SID_A}.jsonl.7z`);
     const entry = cannbay2.listCannbay2Sessions().find(s => s.sid === SID_B);
     expect(entry?.isBaseline).toBe(false);
   });

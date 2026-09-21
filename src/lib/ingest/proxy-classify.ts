@@ -79,8 +79,8 @@ export interface CcSessionMeta {
 }
 
 export function readCcSessionMeta(jsonlPath: string): CcSessionMeta | null {
-  // 兼容压缩形态（gzip at rest）：x.jsonl.gz → x.meta.json
-  const metaPath = jsonlPath.replace(/\.jsonl(\.gz)?$/, '.meta.json');
+  // 兼容压缩形态（7z at rest）：x.jsonl.7z/.jsonl.gz → x.meta.json
+  const metaPath = jsonlPath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
   try {
     if (!fs.existsSync(metaPath)) return null;
     const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as {

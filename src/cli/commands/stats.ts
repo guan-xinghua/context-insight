@@ -9,6 +9,7 @@
 import { Command } from 'commander';
 import { InsightClient } from '../client';
 import { formatTokens, formatCost, formatDuration } from '../utils/format';
+import { sessionDurationMs } from '@/lib/session-duration';
 import { formatHeader, formatLabel, formatDivider } from '../utils/colors';
 import type { ApiGlobalStatsResponse } from '../types';
 
@@ -22,8 +23,8 @@ function displayGlobalStats(stats: ApiGlobalStatsResponse): string {
   lines.push(formatLabel('Total Sessions', String(stats.totalSessions)));
   lines.push(formatLabel('Total Tokens', formatTokens(stats.totalTokens)));
   lines.push(formatLabel('Total Cost', formatCost(stats.totalCost)));
-  lines.push(formatLabel('Total Duration', formatDuration(stats.totalLatencyMs)));
-  lines.push(formatLabel('Avg Duration', formatDuration(stats.avgLatencyMs)));
+  lines.push(formatLabel('Total Duration', formatDuration(stats.totalDurationMs ?? stats.totalLatencyMs)));
+  lines.push(formatLabel('Avg Duration', formatDuration(stats.avgDurationMs ?? stats.avgLatencyMs)));
   lines.push('');
 
   if (stats.totalSessions > 0) {
@@ -68,7 +69,8 @@ export function statsCommand(): Command {
         lines.push(formatLabel('Cache Read', formatTokens(s.totalCacheReadTokens)));
         lines.push(formatLabel('Cache Write', formatTokens(s.totalCacheWriteTokens)));
         lines.push(formatLabel('Total Cost', formatCost(s.totalCost)));
-        lines.push(formatLabel('Duration', formatDuration(s.totalLatencyMs)));
+        lines.push(formatLabel('Duration', formatDuration(sessionDurationMs(s.startTime, s.endTime, s.totalLatencyMs))));
+        lines.push(formatLabel('LLM Active', formatDuration(s.llmActiveMs ?? null)));
         lines.push(formatLabel('Tool Calls', String(s.totalToolCallCount ?? 0)));
         lines.push(formatLabel('LLM Calls', String(s.totalLlmCallCount ?? 0)));
         lines.push(formatLabel('Skill Loads', String(s.totalSkillLoadCount ?? 0)));

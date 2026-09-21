@@ -13,6 +13,8 @@ import { ImportHistory } from '@/components/ImportHistory';
 import { VERSION_DISPLAY } from '@/lib/version';
 import { BRAND_NAME, BAY_VIEWER_NAME } from '@/lib/branding';
 import { prisma } from '@/lib/db';
+import { sessionDurationMs } from '@/lib/session-duration';
+import { getLlmActiveMsMap } from '@/lib/llm-active-map';
 import { EyeIcon, SettingsIcon } from 'lucide-react';
 import { countToolCallErrors } from '@/lib/tool-call-errors';
 
@@ -32,6 +34,12 @@ export default async function Home({
     _sum: { totalTokens: true, totalCost: true, totalLatencyMs: true },
     _avg: { totalLatencyMs: true },
   });
+  // Avg Duration 墙钟口径：Σ(endTime-startTime)÷N（endTime 缺失回落 totalLatencyMs）
+  const wallRows = await prisma.session.findMany({
+    select: { startTime: true, endTime: true, totalLatencyMs: true },
+  });
+  const totalDurationMs = wallRows.reduce((sum, s) => sum + sessionDurationMs(s.startTime, s.endTime, s.totalLatencyMs), 0);
+  const avgDurationMs = wallRows.length > 0 ? totalDurationMs / wallRows.length : 0;
 
   const conditions: Record<string, unknown>[] = [];
   if (params.user) conditions.push({ user: params.user });
@@ -108,6 +116,10 @@ export default async function Home({
 
   const totalErrors = sessionIds.reduce((sum, sid) => sum + (errorCountsBySession.get(sid)?.count ?? 0), 0);
 
+  // LLM Active（模型推理时间）：单查询批量取本页会话 turn 窗口算区间并集
+  // ——列表 Duration 语义，墙钟由 Start→End 列反映
+  const llmActive = await getLlmActiveMsMap(sessions.map(s => s.id));
+
   const items = sessions.map((s) => {
     const eInfo = errorCountsBySession.get(s.id)
     return {
@@ -120,6 +132,7 @@ export default async function Home({
       totalTokens: s.totalTokens,
       totalCost: s.totalCost,
       totalLatencyMs: s.totalLatencyMs,
+      llmActiveMs: llmActive.get(s.id) ?? null,
       totalToolCallCount: s.totalToolCallCount,
       totalSkillLoadCount: s.totalSkillLoadCount,
       totalSubagentCount: s.totalSubagentCount,
@@ -159,7 +172,7 @@ export default async function Home({
           totalSessions={totalSessions}
           totalTokens={aggregates._sum.totalTokens ?? 0}
           totalCost={aggregates._sum.totalCost ?? 0}
-          avgLatencyMs={aggregates._avg.totalLatencyMs ?? 0}
+          avgDurationMs={avgDurationMs}
           totalErrors={totalErrors}
         />
         <SessionList items={items} total={total} page={page} pageSize={pageSize} q={q} totalCount={totalSessions} />

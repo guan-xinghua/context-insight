@@ -68,6 +68,7 @@ export interface ApiSessionDetailResponse {
   totalCacheWriteTokens: number | null;
   totalCost: number | null;
   totalLatencyMs: number | null;
+  llmActiveMs?: number | null;
   totalToolCallCount: number | null;
   totalLlmCallCount: number | null;
   totalSkillLoadCount: number | null;
@@ -85,10 +86,14 @@ export interface ApiGlobalStatsResponse {
   totalCost: number;
   totalLatencyMs: number;
   avgLatencyMs: number;
+  totalDurationMs?: number;
+  avgDurationMs?: number;
 }
 
 export interface ApiSessionStatsResponse {
   taskId: string;
+  startTime: string | null;
+  endTime: string | null;
   totalTokens: number | null;
   totalInputTokens: number | null;
   totalOutputTokens: number | null;
@@ -97,6 +102,7 @@ export interface ApiSessionStatsResponse {
   totalCacheWriteTokens: number | null;
   totalCost: number | null;
   totalLatencyMs: number | null;
+  llmActiveMs?: number | null;
   totalToolCallCount: number | null;
   totalSkillLoadCount: number | null;
   totalSubagentCount: number | null;

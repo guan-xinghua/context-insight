@@ -15,7 +15,8 @@ import { useApi } from '@/cli/hooks/useApi';
 import { useKeyboard } from '@/cli/hooks/useKeyboard';
 import type { InsightClient } from '@/cli/client';
 import type { ApiSessionListItem } from '@/cli/types';
-import { formatTokens, formatCost, formatDuration, formatDate, truncate } from '@/cli/utils/format';
+import { formatTokens, formatCost, formatDuration, formatDate, truncate } from '@/cli/utils/format'
+import { sessionDurationMs } from '@/lib/session-duration';
 
 interface SessionListProps {
   client: InsightClient;
@@ -35,7 +36,7 @@ const SESSION_COLUMNS: DataTableColumn<ApiSessionListItem>[] = [
   { key: 'model', label: 'Model', width: 16 },
   { key: 'totalTokens', label: 'Tokens', width: 10, render: (row) => formatTokens(row.totalTokens) },
   { key: 'totalCost', label: 'Cost', width: 8, render: (row) => formatCost(row.totalCost) },
-  { key: 'totalLatencyMs', label: 'Duration', width: 10, render: (row) => formatDuration(row.totalLatencyMs) },
+  { key: 'durationMs', label: 'Duration', width: 10, render: (row) => formatDuration(sessionDurationMs(row.startTime, row.endTime, row.totalLatencyMs)) },
   { key: 'startTime', label: 'Start', width: 16, render: (row) => formatDate(row.startTime) },
   { key: 'user', label: 'User', width: 12 },
 ];

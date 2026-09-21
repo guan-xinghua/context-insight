@@ -12,13 +12,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import zlib from 'node:zlib';
 import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, type Cannbay2Remote, type Cannbay2SessionEntry, type Cannbay2Overview, type UploadResult, type RecordingClass } from './mirror';
 import { readCcSessionMeta } from '../ingest/proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { defaultCannbay2Remote } from './remote';
 import { governText } from './governance';
 import { exportSessionToClaudeJsonl, xCannbay } from './export';
+import { readCaptureText, ensure7z, compressCaptureFile, decompressToPlain } from '@/lib/compression';
 import { importSession } from '@/lib/ingest/data-service';
 import type { PrismaClient } from '@prisma/client';
 
@@ -92,15 +92,16 @@ interface DbTurnPayload {
 // taskId findFirst 会补到另一行上。
 async function patchXCannbayColumns(mainJsonl: string, sessionRowId: string, prisma: PrismaLike): Promise<void> {
   // 物化 stem 按记录类带后缀（capture=<sid>，native=<sid>.native）——与
-  // materializeSession 的 subagents 物化目录对齐；先剥 .gz 再剥 .jsonl（basename
-  // 后缀逐字匹配，一次传 .jsonl.gz 剥不掉）
-  const matStem = path.basename(mainJsonl.replace(/\.gz$/, ''), '.jsonl');
+  // materializeSession 的 subagents 物化目录对齐；先剥 .7z/.gz 再剥 .jsonl
+  // （basename 后缀逐字匹配，一次传 .jsonl.7z 剥不掉）
+  const matStem = path.basename(mainJsonl.replace(/\.(7z|gz)$/, ''), '.jsonl');
   const fileGroups: Array<{ subId: string | null; payloads: DbTurnPayload[] }> = [];
   const collect = (file: string, subId: string | null): void => {
-    // .jsonl.gz（物化压缩件）/ .jsonl（旧明文仓件）双形态
+    // .jsonl.7z（物化压缩件）/ .jsonl.gz（存量）/ .jsonl（旧明文仓件）三形态
     let text: string | null = null;
-    if (fs.existsSync(file)) text = fs.readFileSync(file, 'utf8');
-    else if (fs.existsSync(`${file}.gz`)) text = zlib.gunzipSync(fs.readFileSync(`${file}.gz`)).toString('utf8');
+    if (fs.existsSync(file)) text = readCaptureText(file);
+    else if (fs.existsSync(`${file}.7z`)) text = readCaptureText(`${file}.7z`);
+    else if (fs.existsSync(`${file}.gz`)) text = readCaptureText(`${file}.gz`);
     if (text == null) return;
     const payloads: DbTurnPayload[] = [];
     for (const ln of text.split('\n')) {
@@ -116,8 +117,8 @@ async function patchXCannbayColumns(mainJsonl: string, sessionRowId: string, pri
   const subagentsDir = path.join(path.dirname(mainJsonl), matStem, 'subagents');
   if (fs.existsSync(subagentsDir)) {
     for (const entry of fs.readdirSync(subagentsDir, { withFileTypes: true })) {
-      if (entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz'))) {
-        collect(path.join(subagentsDir, entry.name), entry.name.replace(/\.jsonl(\.gz)?$/, ''));
+      if (entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz') || entry.name.endsWith('.jsonl.7z'))) {
+        collect(path.join(subagentsDir, entry.name), entry.name.replace(/\.jsonl(\.7z|\.gz)?$/, ''));
       }
     }
   }
@@ -202,25 +203,28 @@ async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promi
   fs.rmSync(stagingDir, { recursive: true, force: true });
   fs.mkdirSync(sessionDir, { recursive: true });
 
-  // 原文件直传条件：sourcePath 是本机存在的 jsonl（明文或 .gz）且非 native
+  // 原文件直传条件：sourcePath 是本机存在的 jsonl（明文/.7z/.gz）且非 native
   // opencode（native opencode 的 sourcePath 是 .db / 目录约定）。proxy 捕获的
   // opencode 会话（framework=opencode + version 带 -proxy）是 jsonl，直传。
   // 源可以已是压缩态（cpx 退出即压，proxy/COMPRESSION-DESIGN.md）——staging
-  // 保持源形态拷贝，governStagedSession 统一解压到明文域治理后再压回。
+  // 统一 ensure7z 出仓（存量 gz 源借此迁移到新格式）。
   const sourceResolved = session.sourcePath
     ? (fs.existsSync(session.sourcePath) ? session.sourcePath
+      : fs.existsSync(`${session.sourcePath}.7z`) ? `${session.sourcePath}.7z`
       : fs.existsSync(`${session.sourcePath}.gz`) ? `${session.sourcePath}.gz` : null)
     : null;
   const hasJsonlSource = (session.framework !== 'opencode' || isProxyVersion(session.version))
     && !!sourceResolved
-    && (sourceResolved.endsWith('.jsonl') || sourceResolved.endsWith('.jsonl.gz'));
+    && (sourceResolved.endsWith('.jsonl') || sourceResolved.endsWith('.jsonl.7z') || sourceResolved.endsWith('.jsonl.gz'));
   if (hasJsonlSource) {
-    fs.copyFileSync(sourceResolved!, path.join(sessionDir, `${sid}${sourceResolved!.endsWith('.gz') ? '.jsonl.gz' : '.jsonl'}`));
+    const srcExt = sourceResolved!.endsWith('.7z') ? '.jsonl.7z' : sourceResolved!.endsWith('.gz') ? '.jsonl.gz' : '.jsonl';
+    fs.copyFileSync(sourceResolved!, path.join(sessionDir, `${sid}${srcExt}`));
+    ensure7z(path.join(sessionDir, `${sid}${srcExt}`));
     // writer 落盘约定（writer.ts）：主捕获带 cpx- 前缀、伴生 meta 与子代理目录
-    // 用裸 sid。sourcePath 可能是任一形态（直捕 cpx-<sid>.jsonl[.gz] / norm
-    // <sid>.jsonl[.gz]），统一剥前缀/后缀后定位伴生文件。注意 basename 的
-    // 后缀参数是逐字匹配——先剥 .gz 再剥 .jsonl，不能一次传 '.jsonl.gz'。
-    const fileSid = path.basename(sourceResolved!.replace(/\.gz$/, ''), '.jsonl').replace(/^cpx-/, '');
+    // 用裸 sid。sourcePath 可能是任一形态（直捕 cpx-<sid>.jsonl[.7z|.gz]），
+    // 统一剥前缀/后缀后定位伴生文件。注意 basename 的后缀参数是逐字匹配——
+    // 先剥 .7z/.gz 再剥 .jsonl，不能一次传 '.jsonl.7z'。
+    const fileSid = path.basename(sourceResolved!.replace(/\.(7z|gz)$/, ''), '.jsonl').replace(/^cpx-/, '');
     // 主会话 meta（cc-session-meta，若存在）随行上传 —— 文件级 producer/framework 声明。
     // 伴生 meta 命名随 writer 代际：旧代 = <sid>.meta.json（裸 sid）、现 writer =
     // cpx-<sid>.meta.json（captureStem 带前缀）—— 双候选都试。
@@ -248,15 +252,18 @@ async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promi
       );
     }
     // subagents 随行：裸 sid 目录（<proxy>/<sid>/subagents/，见上方 fileSid 注释）。
-    // 白名单拷贝：只带 .jsonl/.jsonl.gz/.json —— 捕获目录里的杂散文件
-    // （.txt/.log/.env…）不清洗也不该出公开仓
+    // 白名单拷贝：只带 .jsonl/.jsonl.7z/.jsonl.gz/.json —— 捕获目录里的杂散文件
+    // （.txt/.log/.env…）不清洗也不该出公开仓；拷入后 ensure7z 统一出仓形态
     const subagentsDir = path.join(path.dirname(sourceResolved!), fileSid, 'subagents');
     if (fs.existsSync(subagentsDir)) {
       const dest = path.join(sessionDir, 'subagents');
       fs.mkdirSync(dest, { recursive: true });
       for (const entry of fs.readdirSync(subagentsDir, { withFileTypes: true })) {
-        if (entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz') || entry.name.endsWith('.json'))) {
+        if (entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.7z') || entry.name.endsWith('.jsonl.gz') || entry.name.endsWith('.json'))) {
           fs.copyFileSync(path.join(subagentsDir, entry.name), path.join(dest, entry.name));
+          if (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz')) {
+            ensure7z(path.join(dest, entry.name));
+          }
         }
       }
     }
@@ -271,12 +278,12 @@ async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promi
 }
 
 // 治理 staging 内 sessions/<sid>/ 全部文件。
-// 快路径（直传）：全部 .jsonl 是 .gz 且伴生 meta 声明 producer=cpx +
+// 快路径（直传）：全部 .jsonl 是 .7z 且伴生 meta 声明 producer=cpx +
 // governed=true（cpx 压缩时打的信任标记，spec §4.4 —— 字节流已经 cpx 落盘
 // 咽喉 redactor 全量清洗，与治理正则 parity 锁定同源）。免解压重洗重压，
 // 仅保留白名单 + 大小限检。
 // 慢路径（兜底永在）：明文源 / 无标记 / 非 cpx producer（insight-export、
-// native claude 等）→ 解压 → 明文治理（清洗可审计）→ 压缩出仓。
+// native claude 等）→ 解压 → 明文治理（清洗可审计）→ 7z 压缩出仓。
 function governStagedSession(stagingDir: string, sid: string): void {
   const sessionDir = path.join(stagingDir, 'sessions', sid);
   const listFiles = (): string[] => {
@@ -288,14 +295,17 @@ function governStagedSession(stagingDir: string, sid: string): void {
     return out;
   };
   const files = listFiles();
-  const unexpected = files.filter(f => !f.endsWith('.jsonl.gz') && !f.endsWith('.jsonl') && !f.endsWith('.json'));
+  const unexpected = files.filter(f => !f.endsWith('.jsonl.7z') && !f.endsWith('.jsonl.gz') && !f.endsWith('.jsonl') && !f.endsWith('.json'));
   if (unexpected.length > 0) {
-    throw new GovernanceError(`上传熔断：staging 存在白名单外文件（仅允许 .jsonl/.jsonl.gz/.json）：${unexpected.join(', ')}`);
+    throw new GovernanceError(`上传熔断：staging 存在白名单外文件（仅允许 .jsonl/.jsonl.7z/.jsonl.gz/.json）：${unexpected.join(', ')}`);
   }
-  const jsonlFiles = files.filter(f => f.endsWith('.jsonl') || f.endsWith('.jsonl.gz'));
-  const meta = readCcSessionMeta(path.join(sessionDir, `${sid}.jsonl.gz`));
+  const jsonlFiles = files.filter(f => f.endsWith('.jsonl') || f.endsWith('.jsonl.7z') || f.endsWith('.jsonl.gz'));
+  // meta 伴生文件是 <sid>.meta.json（staging 必备）——此前误读 <sid>.jsonl.gz
+  // （gzip 二进制 JSON.parse 必败 → 快路径永假，governed 信任标记从未生效，
+  // 全量走慢路径解压重洗重压；与 cpx v0.1.4 同款 bug，insight 侧补修）
+  const meta = readCcSessionMeta(path.join(sessionDir, `${sid}.meta.json`));
   const fastPath = meta?.producer === 'cpx' && meta.governed === true
-    && jsonlFiles.length > 0 && jsonlFiles.every(f => f.endsWith('.jsonl.gz'));
+    && jsonlFiles.length > 0 && jsonlFiles.every(f => f.endsWith('.7z'));
   if (fastPath) {
     // 直传：大小限检按既有压缩字节
     let totalBytes = 0;
@@ -305,12 +315,10 @@ function governStagedSession(stagingDir: string, sid: string): void {
     }
     return;
   }
-  // ① 源若已压缩 → staging 内解压回明文（治理域）。.jsonl.gz 不以 .jsonl
+  // ① 源若已压缩 → staging 内解压回明文（治理域）。压缩态不以 .jsonl
   // 结尾——后续所有 endsWith('.jsonl') 分支都只作用于明文形态。
-  for (const rel of files.filter(f => f.endsWith('.jsonl.gz'))) {
-    const file = path.join(sessionDir, rel);
-    fs.writeFileSync(file.replace(/\.gz$/, ''), zlib.gunzipSync(fs.readFileSync(file)));
-    fs.rmSync(file);
+  for (const rel of files.filter(f => f.endsWith('.7z') || f.endsWith('.gz'))) {
+    decompressToPlain(path.join(sessionDir, rel));
   }
   // ② 明文治理（清洗 + 复检）—— 重新枚举：① 之后明文集合 = 全部 .jsonl
   const residues: string[] = [];
@@ -323,17 +331,15 @@ function governStagedSession(stagingDir: string, sid: string): void {
   if (residues.length > 0) {
     throw new GovernanceError(`上传熔断：清洗后仍检出疑似密钥残留，已拒绝上传。检出项（值已截断）：\n${residues.slice(0, 10).join('\n')}`);
   }
-  // ③ 治理通过 → 压缩出仓；大小检查按压缩后字节（atomgit 限的是传输形态）
+  // ③ 治理通过 → 7z 压缩出仓；大小检查按压缩后字节（atomgit 限的是传输形态）
   let totalBytes = 0;
   for (const rel of listFiles().filter(f => f.endsWith('.jsonl'))) {
     const file = path.join(sessionDir, rel);
-    const gzFile = `${file}.gz`;
-    fs.writeFileSync(gzFile, zlib.gzipSync(fs.readFileSync(file)));
-    fs.rmSync(file);
-    totalBytes += fs.statSync(gzFile).size;
+    const z7File = compressCaptureFile(file);
+    totalBytes += fs.statSync(z7File).size;
   }
   if (totalBytes > MAX_SESSION_BYTES.value) {
-    throw new GovernanceError(`Session "${sid}" exceeds single-file size limit (${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${(MAX_SESSION_BYTES.value / 1024 / 1024).toFixed(0)}MB，gzip 压缩后仍超限)`);
+    throw new GovernanceError(`Session "${sid}" exceeds single-file size limit (${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${(MAX_SESSION_BYTES.value / 1024 / 1024).toFixed(0)}MB，7z 压缩后仍超限)`);
   }
 }
 

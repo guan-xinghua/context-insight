@@ -25,11 +25,15 @@ export const CANNBAY2_PUSH_URL = process.env.CANNBAY2_PUSH_URL
   ?? Buffer.from(CANNBAY2_PUSH_URL_ENCODED, 'base64').toString();
 export const CANNBAY2_BRANCH = process.env.CANNBAY2_BRANCH ?? 'main';
 
-// LFS 模式（惰性读）：.jsonl.gz 以 LFS 指针出仓，实体进 LFS 存储——数据量
-// 不再计入 git 仓配额。请求体 config.lfs > env CANNBAY2_LFS > 默认关。
-function envLfs(): boolean {
-  const v = process.env.CANNBAY2_LFS;
-  return v === '1' || v === 'true' || v === 'on';
+// LFS 模式（惰性读）：.jsonl.7z/.jsonl.gz 以 LFS 指针出仓，实体进 LFS 存储——数据量
+// 不再计入 git 仓配额。三层决议（与 cpx 对齐）：env CANNBAY2_LFS 显式 1/true/on
+// 或 0/false/off > 请求体 config.lfs > 默认开（数据仓平台侧启用 LFS 后容量出配额
+// 是湖的常态诉求；env 置 0/false/off 一次性回退 blob 模式）。
+function envLfs(): boolean | undefined {
+  const v = process.env.CANNBAY2_LFS?.toLowerCase();
+  if (v === '1' || v === 'true' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'off') return false;
+  return undefined;
 }
 
 export interface PushAuth {
@@ -63,7 +67,7 @@ export interface Cannbay2Remote {
    * 新增范式 = 在数据仓新建顶层目录，insight 零范式知识。
    */
   paradigmRoots: boolean;
-  /** LFS 模式：.jsonl.gz 走 LFS 指针（config.lfs > env CANNBAY2_LFS；缺省 = 既有免疫行为） */
+  /** LFS 模式：.jsonl.7z/.jsonl.gz 走 LFS 指针（env CANNBAY2_LFS 显式值 > config.lfs > 默认开） */
   lfs?: boolean;
 }
 
@@ -195,7 +199,7 @@ export function resolveCannbay2Remote(input?: CannbayRemoteInput): Cannbay2Remot
     rootDir: normalizeDirectory(input?.directory),
     cacheDir,
     paradigmRoots: !hasAddress,
-    lfs: input?.lfs ?? envLfs(),
+    lfs: envLfs() ?? input?.lfs ?? true,
   };
 }
 

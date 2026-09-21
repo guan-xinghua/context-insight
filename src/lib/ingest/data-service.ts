@@ -450,9 +450,9 @@ export async function importSession(
       // input) reads zero records. Create a PLACEHOLDER session so it's
       // visible in the list; the merge path (refresh-session / re-import)
       // fills in turns as the file grows.
-      // .jsonl.gz 压缩态（gzip at rest）也算已存在占位；同 sid 双会话（方案一）
+      // .jsonl.7z/.jsonl.gz 压缩态（7z at rest）也算已存在占位；同 sid 双会话（方案一）
       // 按记录类匹配，避免占位判定打到另一行上
-      if (srcType === 'claude-jsonl' && (fs.existsSync(dbPath) || fs.existsSync(`${dbPath}.gz`))) {
+      if (srcType === 'claude-jsonl' && (fs.existsSync(dbPath) || fs.existsSync(`${dbPath}.7z`) || fs.existsSync(`${dbPath}.gz`))) {
         const placeholderRows = await client.session.findMany({ where: { taskId: sessionId } });
         const existing = placeholderRows.find(r => recordingClassOfSessionRow(r) === incomingRecordingClass);
         if (existing) return { sessionId: existing.id, imported: false, query: existing.query ?? null };
@@ -486,8 +486,8 @@ export async function importSession(
       const subagentFiles = listClaudeSubagentSessions(dbPath, sessionId);
       toolUseIdMapping = collectClaudeToolUseMappings(dbPath, sessionId);
       for (const sub of subagentFiles) {
-        // 兼容压缩形态（gzip at rest）：x.jsonl.gz → x.meta.json
-        const metaPath = sub.filePath.replace(/\.jsonl(\.gz)?$/, '.meta.json');
+        // 兼容压缩形态（7z at rest）：x.jsonl.7z/.jsonl.gz → x.meta.json
+        const metaPath = sub.filePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
         let subName: string | null = null;
         let subType: string | null = null;
         try {

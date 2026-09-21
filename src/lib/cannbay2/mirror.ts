@@ -661,7 +661,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
   if (!revParseMain(dir, remote)) throw new Error('cannbay2 mirror has no main branch');
   if (!/^[\w.-]+$/.test(sid)) throw new Error(`Invalid session id: "${sid}"`);
 
-  // LFS 模式：.jsonl.gz 仓内是指针 blob，cat-file 须带 --filters 让 smudge
+  // LFS 模式：.jsonl.7z/.jsonl.gz 仓内是指针 blob，cat-file 须带 --filters 让 smudge
   // 按需拉取 LFS 实体（本地 .git/lfs/objects 缓存，重复导入零下载）。
   // --filters 的属性解析读工作树 .gitattributes——读路径镜像默认无 checkout，
   // 需从 origin/main 物化一份（上传路径的 sparse 流程本就含 /.gitattributes）。
@@ -674,7 +674,9 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
     const gaPath = path.join(dir, '.gitattributes');
     let gaCur = '';
     try { gaCur = fs.readFileSync(gaPath, 'utf8'); } catch { /* 无文件 */ }
-    if (!/^\*\.gz\s+filter=lfs/m.test(gaCur)) {
+    // 判定对齐 ensureLfsGitattributes（*.7z 新形态 + *.gz 存量，缺任一即刷新）
+    const gaStale = !/^\*\.7z\s+filter=lfs/m.test(gaCur) || !/^\*\.gz\s+filter=lfs/m.test(gaCur);
+    if (gaStale) {
       try {
         fs.writeFileSync(gaPath, runGit(`git show origin/${remote.branch}:.gitattributes`, dir));
       } catch { /* 仓内无 .gitattributes → 无 lfs 声明，不可能存在指针件 */ }
@@ -698,20 +700,20 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
   }
   if (entries.length === 0) throw new Error(`Session folder not found in cannbay2: "${sid}"`);
 
-  // 物化目标按记录类区分（同 sid 双记录互不覆盖）：capture = <sid>.jsonl[.gz] +
-  // <sid>/subagents/（现状，兼容存量）；native = <sid>.native.jsonl[.gz] +
+  // 物化目标按记录类区分（同 sid 双记录互不覆盖）：capture = <sid>.jsonl[.7z|.gz] +
+  // <sid>/subagents/（现状，兼容存量）；native = <sid>.native.jsonl[.7z|.gz] +
   // <sid>.native/subagents/。sid 平铺会让第二份物化覆盖第一份，导入后行
   // sourcePath 指到别人内容、增量刷新读错源（e2e 现场）。
   const matStem = sessionFolderOf(sid, recording);
   const matDir = path.join(dir, 'materialized', matStem);
   fs.rmSync(matDir, { recursive: true, force: true });
   let mainJsonl: string | null = null;
-  // sessions/<folder>/<sid>.jsonl[.gz]|<sid>.meta.json → materialized/<matStem>.jsonl[.gz]|.meta.json
+  // sessions/<folder>/<sid>.jsonl[.7z|.gz]|<sid>.meta.json → materialized/<matStem>.jsonl[.7z|.gz]|.meta.json
   // sessions/<folder>/subagents/* → materialized/<matStem>/subagents/*
-  // .jsonl.gz 是压缩出仓形态（治理后 gzip，proxy/COMPRESSION-DESIGN.md）；
-  // 旧明文仓件照旧物化为 .jsonl —— 双形态并存，parseJsonlLines 透明解压。
+  // .jsonl.7z 是压缩出仓形态（治理后 7z，proxy/COMPRESSION-DESIGN.md）；
+  // 存量 .jsonl.gz 与旧明文仓件照旧物化 —— 三形态并存，parseJsonlLines 透明解压。
   const targetRelOf = (rel: string): string =>
-    rel === `${sid}.jsonl` || rel === `${sid}.jsonl.gz` || rel === `${sid}.meta.json` ? rel.replace(sid, matStem) : `${matStem}/${rel}`;
+    rel === `${sid}.jsonl` || rel === `${sid}.jsonl.7z` || rel === `${sid}.jsonl.gz` || rel === `${sid}.meta.json` ? rel.replace(sid, matStem) : `${matStem}/${rel}`;
 
   if (remote.lfs) {
     // LFS：指针 blob 实体在 LFS 存储，--filters smudge 逐文件拉取（不能批量）。
@@ -728,7 +730,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
         throw new Error(`git cat-file --filters failed for "${e.repoPath}" (${e.oid}): ${cat.error?.message ?? cat.stderr?.toString()}`);
       }
       fs.writeFileSync(target, cat.stdout);
-      if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
+      if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.7z` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
     }
   } else {
     // 批量物化：缺失 blob 先批量预取（一轮协商拉齐，替代逐文件懒取——实测
@@ -742,7 +744,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
       const target = path.join(dir, 'materialized', rel);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       planned.push({ oid: e.oid, target });
-      if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
+      if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.7z` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
     }
     materializeBlobsByBatch(dir, planned);
   }
@@ -782,16 +784,40 @@ export function hasGitLfs(): boolean {
   }
 }
 
+// cpx 私有 git-lfs 件（~/.cannbot-insight/bin/git-lfs，cpx lfs-setup 自举产物：
+// 系统 git-lfs 缺失时下载，零全局污染）。insight 复用同一份——两包数据目录
+// 同源，PATH 注入后 git 子进程（filter/钩子）自然命中。CANNBOT_PROXY_DIR 重定向
+// 优先（与 cpx lfs-setup 同语义，测试隔离用）。'.cannbot-insight' 引号字面量
+// 由 pack-context 规则表品牌翻转（context 变体 → ~/.context-insight/bin）。
+function privateLfsBinDir(): string {
+  return path.join(path.dirname(process.env.CANNBOT_PROXY_DIR ?? path.join(os.homedir(), '.cannbot-insight', 'proxy')), 'bin');
+}
+
+/** 私有件存在且系统无 git-lfs 时前置 bin 目录到本进程 PATH（幂等；不碰
+ *  gitconfig / 用户 shell 配置——仅本进程树，镜像 git 子进程自然继承）。 */
+function ensurePrivateLfsOnPath(): void {
+  const binDir = privateLfsBinDir();
+  const priv = path.join(binDir, 'git-lfs');
+  if (!fs.existsSync(priv)) return;
+  if ((process.env.PATH ?? '').split(path.delimiter).includes(binDir)) return;
+  process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ''}`;
+}
+
 // git-lfs pre-push 钩子（与 `git lfs install` 写入的同款）：push 时上传
 // LFS 对象。手工写入而非调 `git lfs install`——后者会顺带改全局 gitconfig，
 // 库代码不该碰用户全局配置。
 const LFS_PRE_PUSH_HOOK = '#!/bin/sh\ncommand -v git-lfs >/dev/null 2>&1 || { echo "git-lfs not installed"; exit 2; }\ngit lfs pre-push "$@"\n';
 
 /** 镜像内 LFS 就绪：fail-fast git-lfs 在机检查 + 仓级 filter 配置 + pre-push
- *  钩子。幂等；不触碰全局配置（仓级配置优先级高于全局，双保险）。 */
+ *  钩子。幂等；不触碰全局配置（仓级配置优先级高于全局，双保险）。
+ *  git-lfs 解析链：系统件 > cpx 私有件（~/.cannbot-insight/bin，PATH 注入）。 */
 export function ensureLfsReady(dir: string): void {
+  ensurePrivateLfsOnPath();
   if (!hasGitLfs()) {
-    throw new Error('LFS 模式需要 git-lfs（`git lfs version` 不可用）：请安装 git-lfs 并确保其在 PATH 中（https://git-lfs.github.com），或在设置中关闭 LFS 走普通 git 存储');
+    throw new Error('LFS 模式需要 git-lfs（`git lfs version` 不可用），三条出路任选：'
+      + ' ① 系统安装 git-lfs 并确保在 PATH（https://git-lfs.github.com）；'
+      + ' ② 跑一次 `cpx lfs-setup` 自举私有件到 ~/.cannbot-insight/bin（insight 自动复用，零全局污染）；'
+      + ' ③ 设置 env CANNBAY2_LFS=0 关闭 LFS 走普通 git 存储');
   }
   runGit('git config filter.lfs.process "git-lfs filter-process"', dir, 10_000, { raw: true });
   runGit('git config filter.lfs.smudge "git-lfs smudge -- %f"', dir, 10_000, { raw: true });
@@ -804,15 +830,27 @@ export function ensureLfsReady(dir: string): void {
   }
 }
 
-// LFS 模式下确保 .gitattributes 声明 *.gz 走 LFS（缺行补一行，与默认模式
-// 的"剔除 lfs 行"互为镜像操作；模板仓自带该行则零改动）
-function ensureLfsGitattributes(dir: string): void {
+// LFS 模式下确保 .gitattributes 声明 *.7z / *.gz 走 LFS（缺行补行，与默认模式
+// 的"剔除 lfs 行"互为镜像操作；*.gz 行必须保留——湖内存量 gz blob 的指针化
+// 依赖它；模板仓自带则零改动。与 cpx mirror.ts 同构——parity IT 锁定）。
+// 导出供 IT 直测（纯 fs + git add，不依赖 git-lfs 真机件——LFS 全链路 IT
+// 无 git-lfs 机器整组 skip，本函数的补行/去重逻辑须在无 git-lfs 环境可回归）
+export function ensureLfsGitattributes(dir: string): void {
   const gaPath = path.join(dir, '.gitattributes');
-  const want = '*.gz filter=lfs diff=lfs merge=lfs -text';
+  const wanted = ['*.7z filter=lfs diff=lfs merge=lfs -text', '*.gz filter=lfs diff=lfs merge=lfs -text'];
   let cur = '';
   try { cur = fs.readFileSync(gaPath, 'utf8'); } catch { /* 无文件 */ }
-  if (!/^\*\.gz\s+filter=lfs/m.test(cur)) {
-    fs.writeFileSync(gaPath, cur ? cur.replace(/\n*$/, '\n') + want + '\n' : `${want}\n`);
+  let changed = false;
+  let out = cur.replace(/\n*$/, cur ? '\n' : '');
+  for (const want of wanted) {
+    const pat = want.split(' ')[0].replace(/[.*]/g, c => `\\${c}`);
+    if (!new RegExp(`^${pat}\\s+filter=lfs`, 'm').test(out)) {
+      out += `${want}\n`;
+      changed = true;
+    }
+  }
+  if (changed) {
+    fs.writeFileSync(gaPath, out);
     runGit('git add .gitattributes', dir);
   }
 }

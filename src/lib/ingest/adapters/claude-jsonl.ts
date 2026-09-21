@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { readCaptureBuffer, readCaptureText as readArchivedText } from '@/lib/compression';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
 
 // Shared scan helpers (claude-format concepts, also reused by the proxy
@@ -286,22 +286,30 @@ function mapUsage(usage: ClaudeUsage | undefined, costUsd?: number): TokenUsage 
 }
 
 function deriveSessionId(filePath: string): string {
-  // .jsonl.gz（gzip at rest）与 .jsonl 双形态取 stem；proxy 捕获文件的
-  // cpx- 前缀剥掉——目录扫描与 cpx 退出自动导入（传真实 sid）必须落同一
-  // taskId，否则同一会话以 cpx-<sid>/<sid> 双身份重复入库
-  return path.basename(filePath).replace(/\.jsonl(\.gz)?$/, '').replace(/^cpx-/, '');
+  // .jsonl.7z / .jsonl.gz（压缩态）与 .jsonl（明文）三形态取 stem；proxy 捕获
+  // 文件的 cpx- 前缀剥掉——目录扫描与 cpx 退出自动导入（传真实 sid）必须落
+  // 同一 taskId，否则同一会话以 cpx-<sid>/<sid> 双身份重复入库
+  return path.basename(filePath).replace(/\.jsonl(\.7z|\.gz)?$/, '').replace(/^cpx-/, '');
 }
 
-// 捕获文件行流（gzip at rest，docs 见 proxy/COMPRESSION-DESIGN.md）：
-// .jsonl.gz → 透明 gunzip；.jsonl 直读；sourcePath 指向明文但盘上已压缩
-// （cpx 退出压缩后 sourcePath 未更新形态）或反之（resume scratch 态）时
+// 捕获文件行流（7z at rest，docs 见 proxy/COMPRESSION-DESIGN.md）：
+// .jsonl.7z / .jsonl.gz → 透明解压；.jsonl 直读；sourcePath 指向明文但盘上已
+// 压缩（cpx 退出压缩后 sourcePath 未更新形态）或反之（resume scratch 态）时
 // 双向互找。压缩是传输编码，行流内容与明文形态逐字节一致。
 function resolveCaptureForm(filePath: string): string {
   if (!fs.existsSync(filePath)) {
-    if (filePath.endsWith('.jsonl') && fs.existsSync(`${filePath}.gz`)) return `${filePath}.gz`;
-    if (filePath.endsWith('.jsonl.gz') && fs.existsSync(filePath.replace(/\.gz$/, ''))) return filePath.replace(/\.gz$/, '');
+    if (filePath.endsWith('.jsonl')) {
+      if (fs.existsSync(`${filePath}.7z`)) return `${filePath}.7z`;
+      if (fs.existsSync(`${filePath}.gz`)) return `${filePath}.gz`;
+    } else if (/\.jsonl\.(7z|gz)$/.test(filePath) && fs.existsSync(filePath.replace(/\.(7z|gz)$/, ''))) {
+      return filePath.replace(/\.(7z|gz)$/, '');
+    }
   }
   return filePath;
+}
+
+function readCaptureText(filePath: string): string {
+  return readArchivedText(resolveCaptureForm(filePath));
 }
 
 // V8 单字符串上限（0x1FFFFFE8 ≈ 512MiB）：解压后整体 toString 必炸——
@@ -310,9 +318,7 @@ function resolveCaptureForm(filePath: string): string {
 // 按字节扫描 \n 逐行解码（0x0a 不出现在 UTF-8 多字节序列内，切片安全），
 // 读/解压/单行超限错误一律上抛；仅单行 JSON 解析失败跳过（内容级容错）。
 export function parseJsonlLines(filePath: string): ClaudeJsonlLine[] {
-  const resolved = resolveCaptureForm(filePath);
-  const raw = fs.readFileSync(resolved);
-  const buf = resolved.endsWith('.gz') ? zlib.gunzipSync(raw) : raw;
+  const buf = readCaptureBuffer(resolveCaptureForm(filePath));
   const result: ClaudeJsonlLine[] = [];
   let start = 0;
   const flush = (end: number): void => {
@@ -358,7 +364,7 @@ function collectJsonlFiles(dirPath: string): string[] {
       if (entry.isDirectory()) {
         if (entry.name === 'subagents') continue;
         results.push(...collectJsonlFiles(full));
-      } else if (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz')) {
+      } else if (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz') || entry.name.endsWith('.jsonl.7z')) {
         results.push(full);
       }
     }
@@ -372,7 +378,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
   const stat = fs.statSync(dirPath);
   let files: string[];
 
-  if (stat.isFile() && (dirPath.endsWith('.jsonl') || dirPath.endsWith('.jsonl.gz'))) {
+  if (stat.isFile() && (dirPath.endsWith('.jsonl') || dirPath.endsWith('.jsonl.gz') || dirPath.endsWith('.jsonl.7z'))) {
     files = [dirPath];
   } else if (stat.isDirectory()) {
     files = collectJsonlFiles(dirPath);
@@ -452,8 +458,8 @@ export function listSessions(dirPath: string): SessionListItem[] {
 }
 
 function findSessionFile(dirPath: string, sessionId: string): string | null {
-  // 双形态候选：.jsonl.gz（gzip at rest）> .jsonl（明文）
-  for (const candidate of [`${sessionId}.jsonl.gz`, `${sessionId}.jsonl`]) {
+  // 三形态候选：.jsonl.7z（7z at rest）> .jsonl.gz（存量）> .jsonl（明文）
+  for (const candidate of [`${sessionId}.jsonl.7z`, `${sessionId}.jsonl.gz`, `${sessionId}.jsonl`]) {
     const directPath = path.join(dirPath, candidate);
     if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) return directPath;
   }
@@ -481,8 +487,12 @@ export function listSubagentSessions(dirPath: string, sessionId: string): { id: 
   // statSync ENOENT 抛出会把导入整链炸成 500
   let resolved = dirPath;
   if (!fs.existsSync(resolved)) {
-    if (dirPath.endsWith('.jsonl') && fs.existsSync(`${dirPath}.gz`)) resolved = `${dirPath}.gz`;
-    else if (dirPath.endsWith('.jsonl.gz') && fs.existsSync(dirPath.replace(/\.gz$/, ''))) resolved = dirPath.replace(/\.gz$/, '');
+    if (dirPath.endsWith('.jsonl')) {
+      if (fs.existsSync(`${dirPath}.7z`)) resolved = `${dirPath}.7z`;
+      else if (fs.existsSync(`${dirPath}.gz`)) resolved = `${dirPath}.gz`;
+    } else if (/\.jsonl\.(7z|gz)$/.test(dirPath) && fs.existsSync(dirPath.replace(/\.(7z|gz)$/, ''))) {
+      resolved = dirPath.replace(/\.(7z|gz)$/, '');
+    }
   }
   const isFile = fs.existsSync(resolved) && fs.statSync(resolved).isFile();
   const parentDir = isFile ? path.dirname(resolved) : resolved;
@@ -495,7 +505,7 @@ export function listSubagentSessions(dirPath: string, sessionId: string): { id: 
     // 子代理目录，回退按 stem 再找一次——否则子代理全部漏并（0 turns）。
     // stem/判断一律用 resolved（双形态解析后的真实路径）——stat 原始 dirPath 在
     // .jsonl-on-disk-as-.jsonl.gz 场景自己抛 ENOENT，把导入整链炸成 500
-    const stem = path.basename(isFile ? resolved : parentDir).replace(/\.jsonl(\.gz)?$/, '');
+    const stem = path.basename(isFile ? resolved : parentDir).replace(/\.jsonl(\.7z|\.gz)?$/, '');
     if (stem && stem !== sessionId) {
       subagentsDir = path.join(parentDir, stem, 'subagents');
     }
@@ -506,10 +516,10 @@ export function listSubagentSessions(dirPath: string, sessionId: string): { id: 
   try {
     const entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
     for (const entry of entries) {
-      // .jsonl.gz（gzip at rest）与 .jsonl（legacy 明文）双形态；id 一律取去
+      // .jsonl.7z/.jsonl.gz（压缩态）与 .jsonl（legacy 明文）三形态；id 一律取去
       // 后缀 stem，filePath 保持真实盘上路径（readCaptureText/parseJsonlLines
       // 透明解压）
-      const m = entry.name.match(/^(.+)\.jsonl(\.gz)?$/);
+      const m = entry.name.match(/^(.+)\.jsonl(\.7z|\.gz)?$/);
       if (entry.isFile() && m) {
         results.push({ id: m[1], filePath: path.join(subagentsDir, entry.name) });
       }
@@ -524,7 +534,7 @@ export function collectSubagentToolUseMappings(dirPath: string, sessionId: strin
   const mapping = new Map<string, string>();
   const subagentFiles = listSubagentSessions(dirPath, sessionId);
   for (const sub of subagentFiles) {
-    const metaPath = sub.filePath.replace(/\.jsonl(\.gz)?$/, '.meta.json');
+    const metaPath = sub.filePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
     try {
       if (fs.existsSync(metaPath)) {
         const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
@@ -860,9 +870,15 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
   // 压缩（或反之）不能在此被 existsSync 守卫拦截
   let resolvedInput = filePath;
   if (!fs.existsSync(resolvedInput)) {
-    if (filePath.endsWith('.jsonl') && fs.existsSync(`${filePath}.gz`)) resolvedInput = `${filePath}.gz`;
-    else if (filePath.endsWith('.jsonl.gz') && fs.existsSync(filePath.replace(/\.gz$/, ''))) resolvedInput = filePath.replace(/\.gz$/, '');
-    else return [];
+    if (filePath.endsWith('.jsonl')) {
+      if (fs.existsSync(`${filePath}.7z`)) resolvedInput = `${filePath}.7z`;
+      else if (fs.existsSync(`${filePath}.gz`)) resolvedInput = `${filePath}.gz`;
+      else return [];
+    } else if (/\.jsonl\.(7z|gz)$/.test(filePath) && fs.existsSync(filePath.replace(/\.(7z|gz)$/, ''))) {
+      resolvedInput = filePath.replace(/\.(7z|gz)$/, '');
+    } else {
+      return [];
+    }
   }
 
   const stat = fs.statSync(resolvedInput);

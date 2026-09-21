@@ -90,6 +90,9 @@ fi
 # `./start.sh` (integrated) and `../cpx/install.sh` (standalone, capture works
 # without insight) share one code path. Non-fatal: if it fails, insight still
 # starts (just without a fresh cpx wrapper).
+# CPX_SKIP_LFS_SETUP=1：insight 启动是"等 Web UI 起来"的关键路径，跳过
+# postinstall 的 git-lfs 自举预取（GitHub 直连受限时会阻塞 ~2min）——自举
+# 推迟到首次上传时自动发生；独立 install.sh / npm 安装路径仍保留预取。
 PROXY_INSTALL="$SCRIPT_DIR/../cpx/install.sh"
 if [ -f "$PROXY_INSTALL" ]; then
   echo "[setup] Setting up proxy (cpx)..."
@@ -97,7 +100,7 @@ if [ -f "$PROXY_INSTALL" ]; then
   if [ "$UPDATE" = true ]; then PROXY_INSTALL_ARGS+=("-u"); fi
   mkdir -p "$SCRIPT_DIR/tmp"
   PROXY_LOG="$SCRIPT_DIR/tmp/cpx-install.log"
-  if bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
+  if CPX_SKIP_LFS_SETUP=1 bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
     echo "[setup] cpx ready ✓ (log: tmp/cpx-install.log)"
   else
     echo "[setup] proxy install failed (non-fatal):"
@@ -191,15 +194,20 @@ port_busy() {
 # 的命令行也含该字样，只凭 pgrep 会把编辑器一并 SIGTERM）。别人的 Next
 # 项目（cwd 不在包内）与无关进程不碰。/proc 读取失败（macOS）按不认定
 # 处理——端口清理交由下方 -k 的忙端口回退。
+#
+# 击杀升级（SIGTERM → 3s 宽限 → SIGKILL）：next-server 对 SIGTERM 走
+# graceful close——释放 LISTEN 但等存量 keep-alive 连接收尾，而浏览器在
+# 等响应 → 双等死锁：进程活着、连接永驻不响应，浏览器复用旧连接一直
+# 转圈（实测 2026-09-20，新连接打到新实例正常、旧连接挂死）。宽限后
+# 必须对残存者 SIGKILL 补刀。
 kill_all_insight() {
-  local pid cmd cwd killed=""
+  local pid cmd cwd killed="" pids=""
   for pid in $(pgrep -f 'next-server|next start|npx next' 2>/dev/null || true); do
     cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
     case "$cwd" in
       "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
         echo "[start] -k: stopping insight instance (PID $pid)..."
-        kill "$pid" 2>/dev/null || true
-        killed=1
+        pids="$pids $pid"
         ;;
     esac
   done
@@ -212,7 +220,27 @@ kill_all_insight() {
     cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
     if [ "$cwd" = "$SCRIPT_DIR/smart-agent" ]; then
       echo "[start] -k: stopping smart-agent (PID $pid)..."
-      kill "$pid" 2>/dev/null || true
+      pids="$pids $pid"
+    fi
+  done
+  if [ -z "$pids" ]; then
+    echo "[start] -k: no existing insight instance found"
+    return 0
+  fi
+  for pid in $pids; do
+    kill "$pid" 2>/dev/null || true
+    killed=1
+  done
+  for _ in 1 2 3 4 5 6; do
+    local alive=""
+    for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive=1; done
+    [ -z "$alive" ] && break
+    sleep 0.5
+  done
+  for pid in $pids; do
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "[start] -k: SIGTERM 未收尾，SIGKILL 补刀 (PID $pid)..."
+      kill -9 "$pid" 2>/dev/null || true
       killed=1
     fi
   done

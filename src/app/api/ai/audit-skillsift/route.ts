@@ -120,7 +120,7 @@ export async function POST(req: Request) {
 
     // 喂法按 sourcePath 形态分流（framework 与捕获格式正交，见 session-format.ts）：
     // .db → --db（直读 opencode 原生 sessions.db）；
-    // .jsonl / .jsonl.gz（proxy 捕获、cannbay 导入的 insight-export 再导出）→
+    // .jsonl / .jsonl.7z / .jsonl.gz（proxy 捕获、cannbay 导入的 insight-export 再导出）→
     //   --transcript（结构化 records JSON）——framework=opencode 但 sourcePath 是
     //   jsonl 的会话走 --db 会被 sift 当 sqlite 打开直接 OpencodeDbError。
     const useTranscript = !/\.db$/i.test(session.sourcePath ?? "")

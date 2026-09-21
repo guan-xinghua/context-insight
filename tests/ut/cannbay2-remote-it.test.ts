@@ -76,6 +76,7 @@ seedBare(BARE_B, 'srb_7_sessions');
 }
 
 process.env.CANNBAY2_REMOTE_URL = BARE_A;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE_A;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 

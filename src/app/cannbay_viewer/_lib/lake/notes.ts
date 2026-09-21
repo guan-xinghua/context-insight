@@ -12,7 +12,7 @@
 //   {"ts","type":"scorecard","totalScore","dimensions":[{dimensionId,name,score}],"computedAt"}
 // 记录类型可扩展（后续评价维度/对比结论等直接加 type）——解析端未知 type 跳过，
 // 旧版 viewer 不炸（与 cannbay-schema-spec 声明式分发同思路）。.notes 前缀与
-// 捕获文件 <sid>.jsonl[.gz] 命名空间区分。读 = git show 按需拉单个 blob
+// 捕获文件 <sid>.jsonl[.7z|.gz] 命名空间区分。读 = git show 按需拉单个 blob
 // （partial clone）；追加 = temp index plumbing（read-tree → hash-object →
 // update-index → write-tree → commit-tree → push）全程不 checkout——窄检出会把
 // 会话目录里的大捕获 blob 一并物化，违背按需原则。跨机/跨进程竞态由 push 被拒

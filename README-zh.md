@@ -6,7 +6,7 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 ## 功能介绍
 
-导入 SQLite（opencode.db）或 JSONL（Claude 原生 / cpx proxy 捕获，明文与 `.jsonl.gz` 均可，`cpx-` 前缀自动处理），进入 session 详情页的多个分析 Tab：
+导入 SQLite（opencode.db）或 JSONL（Claude 原生 / cpx proxy 捕获，明文与 `.jsonl.7z`、存量 `.jsonl.gz` 均可，`cpx-` 前缀自动处理），进入 session 详情页的多个分析 Tab：
 
 - **Token 与费用** — 每轮 token 五项拆解，按模型上下文窗口显示占比，估算费用
 - **上下文增长** — 逐 subagent 的上下文增长曲线与动画回放，`/compact` 压缩点标注
@@ -65,7 +65,7 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/`（目录自动扫描）
 
-Web UI 还支持：导出 session 为独立 SQLite 或 Markdown；上传 CANNBay 数据集仓（范式目录 + 算子生成结果标注 + 可选 baseline，上传前强制密钥治理）；从 CANNBay 列表按需导入。数据湖远端、认证与分支可在设置页配置（凭据仅存浏览器 localStorage）。LLM 接入面板内置常见提供商 Base URL 速查。数据仓在平台侧启用 LFS 后可设 env `CANNBAY2_LFS=1`（或请求体 config `lfs`）切换 LFS 指针出仓——容量脱离 git 仓配额，导入链路透明支持（meta 仍是普通 blob，会话实体按需从 LFS 存储拉取）。
+Web UI 还支持：导出 session 为独立 SQLite 或 Markdown；上传 CANNBay 数据集仓（范式目录 + 算子生成结果标注 + 可选 baseline，上传前强制密钥治理）；从 CANNBay 列表按需导入。数据湖远端、认证与分支可在设置页配置（凭据仅存浏览器 localStorage）。LLM 接入面板内置常见提供商 Base URL 速查。数据仓在平台侧启用 LFS 后可设 env `CANNBAY2_LFS=1`（或请求体 config `lfs`）切换 LFS 指针出仓——容量脱离 git 仓配额，导入链路透明支持（meta 仍是普通 blob，会话实体按需从 LFS 存储拉取）；`.gitattributes` 同时声明 `*.7z` 与 `*.gz`（存量 gz 件照走 LFS）。
 
 ### 方式二：CLI 上传 + Web 分析
 

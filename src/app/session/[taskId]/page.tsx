@@ -66,6 +66,7 @@ interface SessionData {
   totalCacheWriteTokens: number
   totalCost: number
   totalLatencyMs: number
+  llmActiveMs?: number | null
   totalToolCallCount: number
   totalLlmCallCount: number
   totalSkillLoadCount: number
@@ -1105,6 +1106,14 @@ export default function SessionDetailPage({
                   const end = s.endTime ? new Date(s.endTime).getTime() : start
                   return formatLatency(end - start)
                 })()}
+              </span>
+            </CardContent>
+          </Card>
+          <Card size="sm" className="flex-1">
+            <CardContent className="flex items-center gap-2 py-2">
+              <span className="text-xs text-muted-foreground">LLM Active</span>
+              <span className="text-sm font-medium tabular-nums">
+                {s.llmActiveMs != null ? formatLatency(s.llmActiveMs) : '—'}
               </span>
             </CardContent>
           </Card>

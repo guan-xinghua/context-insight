@@ -23,7 +23,7 @@ export interface CannbayRemoteInput {
   token?: string
   branch?: string
   directory?: string
-  /** LFS 模式（数据仓须启用 LFS）：.jsonl.gz 走 LFS 指针出仓，容量脱离 git 仓配额 */
+  /** LFS 模式（数据仓须启用 LFS）：.jsonl.7z/.jsonl.gz 走 LFS 指针出仓，容量脱离 git 仓配额 */
   lfs?: boolean
 }
 

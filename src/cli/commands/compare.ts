@@ -10,6 +10,7 @@ import { Command } from 'commander';
 import { InsightClient } from '../client';
 import { renderTable, TableColumn } from '../utils/table';
 import { formatTokens, formatCost, formatDuration } from '../utils/format';
+import { sessionDurationMs } from '@/lib/session-duration';
 import { formatHeader, formatDivider } from '../utils/colors';
 import type { ApiSessionDetailResponse } from '../types';
 
@@ -35,7 +36,8 @@ function buildCompareRows(s1: ApiSessionDetailResponse, s2: ApiSessionDetailResp
     { metric: 'Input Tokens', session1: formatTokens(s1.totalInputTokens), session2: formatTokens(s2.totalInputTokens) },
     { metric: 'Output Tokens', session1: formatTokens(s1.totalOutputTokens), session2: formatTokens(s2.totalOutputTokens) },
     { metric: 'Cost', session1: formatCost(s1.totalCost), session2: formatCost(s2.totalCost) },
-    { metric: 'Duration', session1: formatDuration(s1.totalLatencyMs), session2: formatDuration(s2.totalLatencyMs) },
+    { metric: 'Duration', session1: formatDuration(sessionDurationMs(s1.startTime, s1.endTime, s1.totalLatencyMs)), session2: formatDuration(sessionDurationMs(s2.startTime, s2.endTime, s2.totalLatencyMs)) },
+    { metric: 'LLM Active', session1: formatDuration(s1.llmActiveMs ?? null), session2: formatDuration(s2.llmActiveMs ?? null) },
     { metric: 'Tool Calls', session1: String(s1.totalToolCallCount ?? 0), session2: String(s2.totalToolCallCount ?? 0) },
     { metric: 'LLM Calls', session1: String(s1.totalLlmCallCount ?? 0), session2: String(s2.totalLlmCallCount ?? 0) },
     { metric: 'Subagents', session1: String(s1.totalSubagentCount ?? 0), session2: String(s2.totalSubagentCount ?? 0) },

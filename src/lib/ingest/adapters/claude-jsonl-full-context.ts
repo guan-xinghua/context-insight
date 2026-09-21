@@ -41,12 +41,18 @@ export interface FullContext {
 }
 
 // 整文件解析结果缓存：readFullContext / readTurnRequestParams 每次调用都
-// gunzip + 逐行 JSON.parse 整个捕获文件（Turn 详情 API 每次点击各调一次，
+// 解压 + 逐行 JSON.parse 整个捕获文件（Turn 详情 API 每次点击各调一次，
 // 数 MB 会话 = 每击两遍全量解析）。键含 mtime+size——捕获 resume / 追加
 // 写入后自动失效，跨请求复用安全（读侧扩展层，产物确定性）。
 function statKey(filePath: string): string | null {
   try {
-    const st = fs.statSync(filePath.endsWith('.gz') ? filePath : (fs.existsSync(`${filePath}.gz`) ? `${filePath}.gz` : filePath));
+    // 三形态：路径本身 / 同 stem .7z（新）/ 同 stem .gz（存量）
+    let probed = filePath;
+    if (!/\.(7z|gz)$/.test(filePath)) {
+      if (fs.existsSync(`${filePath}.7z`)) probed = `${filePath}.7z`;
+      else if (fs.existsSync(`${filePath}.gz`)) probed = `${filePath}.gz`;
+    }
+    const st = fs.statSync(probed);
     return `${filePath}:${st.mtimeMs}:${st.size}`;
   } catch {
     try {

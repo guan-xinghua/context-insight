@@ -23,6 +23,11 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig: NextConfig = {
   ...(distDir ? { distDir } : {}),
   turbopack: { root: projectRoot },
+  // 7zip-bin 带平台二进制（linux/x64/7za 等），其 index.js 用 __dirname 定位
+  // 二进制——被打包器内联会把 __dirname 编译成构建期常量（如 /ROOT/...），
+  // 运行机上不存在 → spawn ENOENT → 7z 读侧静默产出空会话（parseJsonlLines
+  // 吞错）。external 化保运行时从真实 node_modules require，__dirname 保真。
+  serverExternalPackages: ["7zip-bin"],
   // 发布态现场 build 跳过类型检查：现有代码存在 pre-existing 类型错位
   // （proxy 扩展层 wire-rounds usage 字段命名 input_tokens vs input），
   // next dev 不做全类型检查故未暴露；修它需配 IT（超发布特性范围）。

@@ -6,12 +6,26 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import { prisma } from '../setup';
 import { DELETE } from '@/app/api/ingest/delete-session/route';
 
 const createdSessionIds: string[] = [];
+
+// 本文件全部 seed 前缀：beforeAll/afterAll 按前缀自愈——vitest 中途被杀
+// （Ctrl+C/超时强杀）时 afterEach 不执行，seed 会泄漏进共享 dev.db 并出现在
+// 用户 UI（batch-del-* 空会话事故）；前缀清理保证下次跑测试自动清掉残留
+const SEED_PREFIXES = ['batch-del-', 'collide-', 'partial-', 'dual-del-', 'cascade-single-', 'cascade-batch-'];
+
+async function healSeededLeaks() {
+  await prisma.session.deleteMany({
+    where: { OR: SEED_PREFIXES.map(p => ({ taskId: { startsWith: p } })) },
+  }).catch(() => {});
+}
+
+beforeAll(healSeededLeaks);
+afterAll(healSeededLeaks);
 
 // DB 级 IT：多会话 seed + DELETE 路由级联，本体 <1s；满载并行下测试库
 // SQLite 锁竞争偶发超默认 5s（全量单跑正常、偶发超时实测），15s 为容错上限

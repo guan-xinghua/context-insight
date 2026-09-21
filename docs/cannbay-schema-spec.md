@@ -31,10 +31,10 @@
 
 ```
 <paradigm>/<sid>/            # 范式目录（顶层目录即范式注册表，默认仓上传必选）
-  <sid>.jsonl.gz           # 主会话行流（信封 + x_cannbay；gzip at rest，旧件明文 .jsonl 永续可读）
+  <sid>.jsonl.7z           # 主会话行流（信封 + x_cannbay；7z at rest，存量 .jsonl.gz 与旧件明文 .jsonl 永续可读）
   <sid>.meta.json          # 主会话元数据（cc-session-meta，永远明文）
   subagents/
-    <subId>.jsonl.gz       # 子代理行流（同上行格式）
+    <subId>.jsonl.7z       # 子代理行流（同上行格式；存量 .gz 同理永续可读）
     <subId>.meta.json      # 子代理关联元数据（cc-subagent-meta，明文）
 <paradigm>/baseline/<sid>/   # 范式基准会话（workflow 评分基准；位置即身份：
   …                          # baseline/ 下唯一 <sid>/ 即该范式当前基准，无标记文件）
@@ -50,7 +50,7 @@ sessions/<sid>/             # 存量区（范式目录上线前的布局，只�
 交换（新会话进 baseline、原基准移回范式普通目录）——结构即状态，无声明
 文件。自定义数据湖远端不启用范式目录（维持 `directory` 单根机制）。
 
-压缩（gzip at rest，见 `proxy/COMPRESSION-DESIGN.md`）是**传输编码**：解压后
+压缩（7z at rest，见 `proxy/COMPRESSION-DESIGN.md`；存量 gz 同理）是**传输编码**：解压后
 行流与明文形态逐字节一致，信封与 `x_cannbay` 契约不变；治理（密钥清洗/复检）
 只对明文域做，治理通过后才压缩出仓。
 

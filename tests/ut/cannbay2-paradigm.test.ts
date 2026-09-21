@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import zlib from 'node:zlib';
+import { readCaptureText } from '../../src/lib/compression.ts';
 import { PrismaClient } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { importSession } from '../../src/lib/ingest/data-service.ts';
@@ -48,6 +48,7 @@ git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 git('git push -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 
@@ -129,7 +130,7 @@ describe('范式上传：上传选范式 → <paradigm>/<sid>/ → 列表/导入
     await importFixture(SID_P1, 'v1');
     const up = await cannbay2.uploadCannbay2Session(prisma, SID_P1, '提交人: 测试者\n内容描述: 范式上传', undefined, 'contraction');
     expect(up.folder).toBe(`contraction/${SID_P1}/`);
-    expect(bareTree(`contraction/${SID_P1}/`)).toContain(`${SID_P1}.jsonl.gz`);
+    expect(bareTree(`contraction/${SID_P1}/`)).toContain(`${SID_P1}.jsonl.7z`);
     expect(bareTree('sessions/')).not.toContain(SID_P1);
     // commit subject 服务端注入范式行（人类可读；列表 paradigm 以目录为准）
     const subject = git('git log -1 --pretty=%B main', BARE);
@@ -168,7 +169,7 @@ describe('范式上传：上传选范式 → <paradigm>/<sid>/ → 列表/导入
     const after = git('git rev-parse main', BARE).trim();
     expect(after).not.toBe(before);
     // 旧目录删除、新目录就位
-    expect(bareTree(`reduction/${SID_P1}/`)).toContain(`${SID_P1}.jsonl.gz`);
+    expect(bareTree(`reduction/${SID_P1}/`)).toContain(`${SID_P1}.jsonl.7z`);
     expect(bareTree(`contraction/${SID_P1}/`)).toBe('');
     // sid 全仓唯一（只在一个根下出现）
     const all = bareTree('').split('\n').filter(l => l.includes(`/${SID_P1}/`));
@@ -179,7 +180,7 @@ describe('范式上传：上传选范式 → <paradigm>/<sid>/ → 列表/导入
     const entry = cannbay2.listCannbay2Sessions().find(s => s.sid === SID_P1);
     expect(entry!.paradigm).toBe('reduction');
     const mat = mirror.materializeSession(SID_P1);
-    const text = mat.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(mat)).toString('utf8') : fs.readFileSync(mat, 'utf8');
+    const text = readCaptureText(mat);
     expect(text).toContain('范式上传 v1');
   });
 });

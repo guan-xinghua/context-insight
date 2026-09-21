@@ -46,12 +46,12 @@ export async function POST(request: NextRequest) {
     // both surface as imported:false downstream, and the UI used to label
     // every imported:false as "Already exists" — misleading when the capture
     // file was deleted or the path is wrong.
-    // 双形态放行：明文/.gz 互找（readCaptureText 同款解析）——盘上只有
-    // x.jsonl.gz 时手输 x.jsonl 不能在此被 404 拦截
+    // 三形态放行：明文/.7z/.gz 互找（readCaptureText 同款解析）——盘上只有
+    // x.jsonl.7z（或存量 .gz）时手输 x.jsonl 不能在此被 404 拦截
     const fileExists = (p: string): boolean =>
       fs.existsSync(p)
-      || (p.endsWith('.jsonl') && fs.existsSync(`${p}.gz`))
-      || (p.endsWith('.jsonl.gz') && fs.existsSync(p.replace(/\.gz$/, '')));
+      || (p.endsWith('.jsonl') && (fs.existsSync(`${p}.7z`) || fs.existsSync(`${p}.gz`)))
+      || (/\.jsonl\.(7z|gz)$/.test(p) && fs.existsSync(p.replace(/\.(7z|gz)$/, '')));
     if (!fileExists(filePath)) {
       return NextResponse.json(
         { error: `File not found: ${filePath}`, reason: 'file-not-found' },

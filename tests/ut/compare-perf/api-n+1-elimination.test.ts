@@ -294,8 +294,9 @@ describe("compare-perf — session API firstPrompt query optimization", () => {
     expect(subAgents[0].firstPrompt).not.toBeNull()
 
     // Headline: 1 root findFirst + 1 sub findMany (not N per-subagent serial).
+    // llmActiveMs 区间并集另加 1 次 assistant findMany（单次，非 N+1）。
     expect(counts.turnFindFirst).toBe(1)
-    expect(counts.turnFindMany).toBe(1)
+    expect(counts.turnFindMany).toBe(2)
   })
 
   it("session API response shape is preserved (agents[].firstPrompt, skills, totals)", async () => {

@@ -52,6 +52,7 @@ git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 git('git push -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 

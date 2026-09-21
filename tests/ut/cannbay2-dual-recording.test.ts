@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import zlib from 'node:zlib';
+import { readCaptureText } from '../../src/lib/compression.ts';
 import { PrismaClient } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { importSession } from '../../src/lib/ingest/data-service.ts';
@@ -48,6 +48,7 @@ git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 git('git push -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 
@@ -187,11 +188,9 @@ describe('同 sid 双记录·cannbay 侧（sid × 记录类 全仓唯一）', ()
     const capSrc = byFw.get('claude-code-proxy')!.sourcePath!;
     const natSrc = byFw.get('claude-code')!.sourcePath!;
     expect(capSrc).not.toBe(natSrc);
-    expect(capSrc.endsWith(`${SID}.jsonl`) || capSrc.endsWith(`${SID}.jsonl.gz`)).toBe(true);
-    expect(natSrc.endsWith(`${SID}.native.jsonl`) || natSrc.endsWith(`${SID}.native.jsonl.gz`)).toBe(true);
-    const readText = (p: string): string => p.endsWith('.gz')
-      ? zlib.gunzipSync(fs.readFileSync(p)).toString('utf8')
-      : fs.readFileSync(p, 'utf8');
+    expect(capSrc.endsWith(`${SID}.jsonl`) || capSrc.endsWith(`${SID}.jsonl.7z`)).toBe(true);
+    expect(natSrc.endsWith(`${SID}.native.jsonl`) || natSrc.endsWith(`${SID}.native.jsonl.7z`)).toBe(true);
+    const readText = (p: string): string => readCaptureText(p);
     expect(readText(capSrc)).toContain('wire-q1');
     expect(readText(natSrc)).toContain('native-q1');
   });
@@ -233,18 +232,23 @@ describe('同 sid 双记录·cannbay 侧（sid × 记录类 全仓唯一）', ()
 
     // 原生行上传（会走 staleLocs/bareDirHoldsNativeRecording 的 meta 读取）
     // 不执行注入（哨兵文件不出现）、不抛异常——非法 root 的 loc 被过滤
-    const nat = writeNativeFixture(SID_X);
-    await importSession(nat, SID_X, prisma, nat, 'claude-jsonl');
-    const res = await route.POST(makeRequest({
-      action: 'upload', taskId: SID_X, framework: 'claude-code',
-      description: '提交人: 测试者\n内容描述: 注入面 IT',
-      category: PARADIGM,
-    }));
-    expect(res.status).toBe(200);
-    expect(fs.existsSync(path.join(CACHE, 'pwn'))).toBe(false);
-    // 物化（import 路径）同样不触发注入
-    const mat = mirror.materializeSession(SID_X, undefined, 'native');
-    expect(mat).toBeTruthy();
+    try {
+      const nat = writeNativeFixture(SID_X);
+      await importSession(nat, SID_X, prisma, nat, 'claude-jsonl');
+      const res = await route.POST(makeRequest({
+        action: 'upload', taskId: SID_X, framework: 'claude-code',
+        description: '提交人: 测试者\n内容描述: 注入面 IT',
+        category: PARADIGM,
+      }));
+      expect(res.status).toBe(200);
+      expect(fs.existsSync(path.join(CACHE, 'pwn'))).toBe(false);
+      // 物化（import 路径）同样不触发注入
+      const mat = mirror.materializeSession(SID_X, undefined, 'native');
+      expect(mat).toBeTruthy();
+    } finally {
+      // SID_X 落库必清——此前漏清理导致 cc-dual-evil-* 每次运行泄漏进共享 dev.db
+      await prisma.session.deleteMany({ where: { taskId: SID_X } }).catch(() => {});
+    }
   });
 
   it('⑥ 存量迁移：insight 导出件裸目录在原生重传时清除；捕获形态裸目录（cpx / 早期捕获行）不动', async () => {

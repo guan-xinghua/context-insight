@@ -89,10 +89,12 @@ describe('OverviewTab', () => {
 
   it('renders metric cards', () => {
     const { getPlainText } = renderTui(<OverviewTab session={mockSession} turns={mockTurns} />);
-    const output = getPlainText();
-    expect(output).toContain('Tokens');
+    const output = getPlainText().replace(/\s+/g, ' ');
+    // 8 张卡在窄终端下列宽受限，长标签会折行（Tokens→Token+s），用值与不折行标签断言
+    expect(output).toContain('5.0K');        // Tokens 值
     expect(output).toContain('Cost');
-    expect(output).toContain('Duration');
+    expect(output).toContain('5m0s');        // Duration 值（300000ms）
+    expect(output).toContain('LLM Active');
   });
 
   it('renders token breakdown', () => {

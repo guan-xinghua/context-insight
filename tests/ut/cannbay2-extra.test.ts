@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import zlib from 'node:zlib';
+import { readCaptureText } from '../../src/lib/compression.ts';
 import { PrismaClient } from '@prisma/client';
 import { importSession } from '../../src/lib/ingest/data-service.ts';
 
@@ -43,6 +43,7 @@ git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 git('git push -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 
@@ -233,7 +234,7 @@ describe('cannbay2 重复上传覆盖语义：改内容后重传同 sid → 新 
 
     // 物化回读：远端内容是 v2，v1 已被替换
     const mainJsonl = mirror.materializeSession(SID_OVR);
-    const text = mainJsonl.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(mainJsonl)).toString('utf8') : fs.readFileSync(mainJsonl, 'utf8');
+    const text = readCaptureText(mainJsonl);
     expect(text).toContain(`version 2 query ${tag}`);
     expect(text).not.toContain(`version 1 query ${tag}`);
   });
@@ -272,7 +273,7 @@ describe('cannbay2 并发上传串行（withWriteLock mutex：sparse/commit/push
     expect(sessions.some(s => s.sid === SID_B)).toBe(true);
 
     // 物化互不串台：A 文件夹只有 A 内容，B 文件夹只有 B 内容
-    const gunz = (p: string) => p.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(p)).toString('utf8') : fs.readFileSync(p, 'utf8');
+    const gunz = (p: string) => readCaptureText(p);
     const textA = gunz(mirror.materializeSession(SID_A));
     const textB = gunz(mirror.materializeSession(SID_B));
     expect(textA).toContain(`concurrent A query ${tagA}`);

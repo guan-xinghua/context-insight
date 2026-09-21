@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { sessionDurationMs, computeLlmActiveMs } from '@/lib/session-duration';
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,6 +21,13 @@ export async function GET(request: NextRequest) {
         _sum: { totalTokens: true, totalCost: true, totalLatencyMs: true },
         _avg: { totalLatencyMs: true },
       });
+      // Avg Duration 墙钟口径：Σ(endTime-startTime)÷N（endTime 缺失回落 totalLatencyMs），
+      // 不能用 _avg totalLatencyMs（并行 subagent 双计会膨胀，可超墙钟）
+      const wallRows = await prisma.session.findMany({
+        select: { startTime: true, endTime: true, totalLatencyMs: true },
+      });
+      const durations = wallRows.map(s => sessionDurationMs(s.startTime, s.endTime, s.totalLatencyMs));
+      const totalDurationMs = durations.reduce((a, b) => a + b, 0);
 
       return NextResponse.json({
         totalSessions,
@@ -27,12 +35,17 @@ export async function GET(request: NextRequest) {
         totalCost: aggregates._sum.totalCost ?? 0,
         totalLatencyMs: aggregates._sum.totalLatencyMs ?? 0,
         avgLatencyMs: aggregates._avg.totalLatencyMs ?? 0,
+        totalDurationMs,
+        avgDurationMs: wallRows.length > 0 ? totalDurationMs / wallRows.length : 0,
       });
     }
 
     const session = await prisma.session.findFirst({
       where: { taskId, ...(searchParams.get('framework') ? { framework: searchParams.get('framework')! } : {}) },
       select: {
+        id: true,
+        startTime: true,
+        endTime: true,
         totalTokens: true,
         totalCost: true,
         totalLatencyMs: true,
@@ -57,6 +70,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       taskId,
+      startTime: session.startTime,
+      endTime: session.endTime,
       totalTokens: session.totalTokens,
       totalInputTokens: session.totalInputTokens,
       totalOutputTokens: session.totalOutputTokens,
@@ -65,6 +80,10 @@ export async function GET(request: NextRequest) {
       totalCacheWriteTokens: session.totalCacheWriteTokens,
       totalCost: session.totalCost,
       totalLatencyMs: session.totalLatencyMs,
+      llmActiveMs: computeLlmActiveMs(await prisma.turn.findMany({
+        where: { sessionId: session.id, role: 'assistant' },
+        select: { createdAt_ts: true, completedAt: true, latencyMs: true },
+      })),
       totalToolCallCount: session.totalToolCallCount,
       totalSkillLoadCount: session.totalSkillLoadCount,
       totalSubagentCount: session.totalSubagentCount,

@@ -20,6 +20,7 @@ import { makeBareLake } from './helpers/makeLake';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cannbay-viewer-runs-'));
 process.env.CANNBAY2_REMOTE_URL = path.join(TMP, 'lake.git');
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY_VIEWER_CACHE_DIR = path.join(TMP, 'cache');
 process.env.SCORING_DATA_DIR = path.join(TMP, 'scorecards');
 

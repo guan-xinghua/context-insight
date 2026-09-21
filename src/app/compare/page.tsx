@@ -32,6 +32,9 @@ interface SessionData {
   totalCacheWriteTokens: number
   totalCost: number
   totalLatencyMs: number
+  llmActiveMs?: number | null
+  startTime: string | null
+  endTime: string | null
   totalLlmCallCount: number
   totalToolCallCount: number
   totalSubagentCount: number

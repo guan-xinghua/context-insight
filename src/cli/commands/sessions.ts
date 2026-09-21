@@ -10,6 +10,7 @@ import { Command } from 'commander';
 import { InsightClient } from '../client';
 import { renderTable, TableColumn } from '../utils/table';
 import { formatTokens, formatCost, formatDuration, formatDate } from '../utils/format';
+import { sessionDurationMs } from '@/lib/session-duration';
 import { formatHeader, theme } from '../utils/colors';
 import type { ApiSessionListItem } from '../types';
 
@@ -30,7 +31,7 @@ function renderSessionRow(row: ApiSessionListItem, key: string): string {
   switch (key) {
     case 'tokens': return formatTokens(row.totalTokens);
     case 'cost': return formatCost(row.totalCost);
-    case 'duration': return formatDuration(row.totalLatencyMs);
+    case 'duration': return formatDuration(sessionDurationMs(row.startTime, row.endTime, row.totalLatencyMs));
     case 'startTime': return formatDate(row.startTime);
     case 'tools': return String(row.totalToolCallCount ?? 0);
     case 'subs': return String(row.totalSubagentCount ?? 0);

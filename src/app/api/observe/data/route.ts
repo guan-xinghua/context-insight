@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getLlmActiveMsMap } from '@/lib/llm-active-map';
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,6 +59,10 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // LLM Active（模型推理时间）：单查询批量取本页会话 turn 窗口算区间并集
+    // ——列表 Duration 语义，墙钟由 Start→End 列反映
+    const llmActive = await getLlmActiveMsMap(sessions.map(s => s.id));
+
     const items = sessions.map((s) => ({
       sessionId: s.id,
       taskId: s.taskId,
@@ -68,6 +73,7 @@ export async function GET(request: NextRequest) {
       totalTokens: s.totalTokens,
       totalCost: s.totalCost,
       totalLatencyMs: s.totalLatencyMs,
+      llmActiveMs: llmActive.get(s.id) ?? null,
       totalToolCallCount: s.totalToolCallCount,
       totalSkillLoadCount: s.totalSkillLoadCount,
       totalSubagentCount: s.totalSubagentCount,

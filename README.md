@@ -6,7 +6,7 @@ Session-level observability for LLM coding agents: import agent session logs and
 
 ## Features
 
-Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; plaintext and `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
+Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
 
 - **Tokens & Cost** — 5-item per-turn token breakdown vs the model's context window, plus cost estimation
 - **Context Growth** — Per-subagent context growth curves with animated replay; `/compact` markers
@@ -65,7 +65,7 @@ Log file locations:
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/` (directory auto-scan)
 
-The Web UI also supports: exporting sessions to standalone SQLite or Markdown; uploading to the CANNBay dataset repo (paradigm directory + operator-generation outcome annotation + optional baseline, with mandatory secret governance before push); on-demand import from the CANNBay list. The data-lake remote, auth, and branch are configurable in Settings (credentials stay in browser localStorage). The LLM provider panel embeds a known-provider Base URL quick reference. When the data repo has LFS enabled on the platform, set env `CANNBAY2_LFS=1` (or request config `lfs`) to store `.jsonl.gz` sessions as LFS pointers — capacity escapes the git repo quota, and the import path handles it transparently (meta stays a plain blob; session payloads are fetched from LFS storage on demand).
+The Web UI also supports: exporting sessions to standalone SQLite or Markdown; uploading to the CANNBay dataset repo (paradigm directory + operator-generation outcome annotation + optional baseline, with mandatory secret governance before push); on-demand import from the CANNBay list. The data-lake remote, auth, and branch are configurable in Settings (credentials stay in browser localStorage). The LLM provider panel embeds a known-provider Base URL quick reference. When the data repo has LFS enabled on the platform, set env `CANNBAY2_LFS=1` (or request config `lfs`) to store `.jsonl.7z` sessions as LFS pointers — capacity escapes the git repo quota, and the import path handles it transparently (meta stays a plain blob; session payloads are fetched from LFS storage on demand).
 
 ### Option 2: CLI Upload + Web Analysis
 

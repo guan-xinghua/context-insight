@@ -22,7 +22,7 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { readCaptureText } from '../../src/lib/compression.ts';
 import { importSession } from '../../src/lib/ingest/data-service';
 
 // ── 本地 bare 远端：带 lfs 行的 .gitattributes + 孤儿指针会话 ──
@@ -48,13 +48,13 @@ execSync(`git init --bare -b main "${BARE}"`, { stdio: 'pipe' });
 git('git config uploadpack.allowFilter true', BARE);
 git('git config uploadpack.allowAnySHA1InWant true', BARE);
 execSync(`git clone --quiet "${BARE}" "${SEED}"`, { stdio: 'pipe' });
-fs.writeFileSync(path.join(SEED, '.gitattributes'), '*.gz filter=lfs diff=lfs merge=lfs -text\n');
+fs.writeFileSync(path.join(SEED, '.gitattributes'), '*.7z filter=lfs diff=lfs merge=lfs -text\n*.gz filter=lfs diff=lfs merge=lfs -text\n');
 fs.mkdirSync(path.join(SEED, 'others'), { recursive: true });
 fs.writeFileSync(path.join(SEED, 'others', '.gitkeep'), '');
 // 孤儿指针会话（同路径将被重传自愈）
 fs.mkdirSync(path.join(SEED, 'others', POISON_SID, 'subagents'), { recursive: true });
-fs.writeFileSync(path.join(SEED, 'others', POISON_SID, `${POISON_SID}.jsonl.gz`), POINTER_BLOB);
-fs.writeFileSync(path.join(SEED, 'others', POISON_SID, 'subagents', 'sub-poison.jsonl.gz'), POINTER_BLOB);
+fs.writeFileSync(path.join(SEED, 'others', POISON_SID, `${POISON_SID}.jsonl.7z`), POINTER_BLOB);
+fs.writeFileSync(path.join(SEED, 'others', POISON_SID, 'subagents', 'sub-poison.jsonl.7z'), POINTER_BLOB);
 git('git add .', SEED);
 git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 // --no-verify：装了 git-lfs 的机器上新克隆自带 lfs pre-push 钩子，seed 推
@@ -63,6 +63,7 @@ git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
 git('git push --no-verify -q origin main', SEED);
 
 process.env.CANNBAY2_REMOTE_URL = BARE;
+process.env.CANNBAY2_LFS = '0';
 process.env.CANNBAY2_PUSH_URL = BARE;
 process.env.CANNBAY2_CACHE_DIR = CACHE;
 
@@ -150,11 +151,12 @@ describe('cannbay2 LFS 免疫：恶意 filter 配置 + 远端孤儿指针', () =
       const result = await cannbay2.uploadCannbay2Session(prisma, NEW_SID, '提交人: 测试 内容描述: lfs immunity', undefined, 'others');
       expect(result.unchanged).toBe(false);
 
-      const blob = remoteShow(`others/${NEW_SID}/${NEW_SID}.jsonl.gz`);
-      expect(blob[0]).toBe(0x1f); // gzip magic（不是指针文本）
-      expect(blob.subarray(0, 2).equals(Buffer.from([0x1f, 0x8b]))).toBe(true);
-      const text = zlib.gunzipSync(blob).toString('utf8');
-      expect(text).toContain('lfs immunity fixture');
+      const blob = remoteShow(`others/${NEW_SID}/${NEW_SID}.jsonl.7z`);
+      // 7z magic（不是指针文本）：37 7A BC AF 27 1C
+      expect(blob.subarray(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]))).toBe(true);
+      const tmp = path.join(os.tmpdir(), `lfs-imm-7z-${NEW_SID}.7z`);
+      fs.writeFileSync(tmp, blob);
+      expect(readCaptureText(tmp)).toContain('lfs immunity fixture');
 
       const ga = remoteShow('.gitattributes').toString('utf8');
       expect(ga).not.toContain('filter=lfs');
@@ -165,16 +167,18 @@ describe('cannbay2 LFS 免疫：恶意 filter 配置 + 远端孤儿指针', () =
 
   it('污染自愈：重传被指针占据的会话 → 远端同路径覆盖为真实 gzip', async () => {
     // 对照：污染确实存在（seed 后远端是指针）
-    expect(remoteShow(`others/${POISON_SID}/${POISON_SID}.jsonl.gz`).toString('utf8')).toContain('git-lfs');
+    expect(remoteShow(`others/${POISON_SID}/${POISON_SID}.jsonl.7z`).toString('utf8')).toContain('git-lfs');
 
     setHostile();
     try {
       const result = await cannbay2.uploadCannbay2Session(prisma, POISON_SID, '提交人: 测试 内容描述: heal poisoned session', undefined, 'others');
       expect(result.unchanged).toBe(false);
 
-      const healed = remoteShow(`others/${POISON_SID}/${POISON_SID}.jsonl.gz`);
-      expect(healed.subarray(0, 2).equals(Buffer.from([0x1f, 0x8b]))).toBe(true);
-      expect(zlib.gunzipSync(healed).toString('utf8')).toContain('lfs immunity fixture');
+      const healed = remoteShow(`others/${POISON_SID}/${POISON_SID}.jsonl.7z`);
+      expect(healed.subarray(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]))).toBe(true);
+      const tmp = path.join(os.tmpdir(), `lfs-imm-healed-${POISON_SID}.7z`);
+      fs.writeFileSync(tmp, healed);
+      expect(readCaptureText(tmp)).toContain('lfs immunity fixture');
     } finally {
       clearHostile();
     }

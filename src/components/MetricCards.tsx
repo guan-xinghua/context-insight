@@ -13,7 +13,7 @@ interface MetricCardsProps {
   totalSessions: number;
   totalTokens: number;
   totalCost: number;
-  avgLatencyMs: number;
+  avgDurationMs: number;
   totalErrors?: number;
 }
 
@@ -33,7 +33,7 @@ function formatLatency(ms: number): string {
   return `${ms}ms`;
 }
 
-export function MetricCards({ totalSessions, totalTokens, totalCost, avgLatencyMs, totalErrors }: MetricCardsProps) {
+export function MetricCards({ totalSessions, totalTokens, totalCost, avgDurationMs, totalErrors }: MetricCardsProps) {
   return (
     <div className={cn("grid gap-4", totalErrors !== undefined ? "grid-cols-5" : "grid-cols-4")}>
       <Card size="sm">
@@ -65,7 +65,7 @@ export function MetricCards({ totalSessions, totalTokens, totalCost, avgLatencyM
           <CardTitle>Avg Duration</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold">{formatLatency(avgLatencyMs)}</p>
+          <p className="text-2xl font-bold">{formatLatency(avgDurationMs)}</p>
         </CardContent>
       </Card>
       {totalErrors !== undefined && (

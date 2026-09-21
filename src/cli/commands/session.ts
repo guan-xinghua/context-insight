@@ -10,6 +10,7 @@ import { Command } from 'commander';
 import { InsightClient } from '../client';
 import { renderTable, TableColumn } from '../utils/table';
 import { formatTokens, formatCost, formatDuration, formatDate } from '../utils/format';
+import { sessionDurationMs } from '@/lib/session-duration';
 import { formatHeader, formatLabel, formatDivider } from '../utils/colors';
 import type { ApiSessionDetailResponse } from '../types';
 
@@ -27,7 +28,8 @@ function displayDetail(session: ApiSessionDetailResponse): string {
   lines.push(formatLabel('Query', session.query ?? '—'));
   lines.push(formatLabel('Start', formatDate(session.startTime)));
   lines.push(formatLabel('End', formatDate(session.endTime)));
-  lines.push(formatLabel('Duration', formatDuration(session.totalLatencyMs)));
+  lines.push(formatLabel('Duration', formatDuration(sessionDurationMs(session.startTime, session.endTime, session.totalLatencyMs))));
+  lines.push(formatLabel('LLM Active', formatDuration(session.llmActiveMs ?? null)));
   lines.push('');
 
   lines.push(formatHeader('Token Usage'));

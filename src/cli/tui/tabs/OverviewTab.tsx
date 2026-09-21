@@ -10,6 +10,7 @@ import { Box, Text } from 'ink';
 import { MetricCards } from '@/cli/tui/components/MetricCards';
 import type { ApiSessionDetailResponse, ApiTurnItem } from '@/cli/types';
 import { formatTokens, formatCost, formatDuration, formatDate } from '@/cli/utils/format';
+import { sessionDurationMs } from '@/lib/session-duration';
 
 interface OverviewTabProps {
   session: ApiSessionDetailResponse;
@@ -52,7 +53,8 @@ export function OverviewTab({ session, turns }: OverviewTabProps) {
           { label: 'Tokens', value: formatTokens(session.totalTokens), color: 'cyan' },
           { label: 'Cache Read', value: formatTokens(session.totalCacheReadTokens), color: 'yellow' },
           { label: 'Cost', value: formatCost(session.totalCost), color: 'yellow' },
-          { label: 'Duration', value: formatDuration(session.totalLatencyMs), color: 'green' },
+          { label: 'Duration', value: formatDuration(sessionDurationMs(session.startTime, session.endTime, session.totalLatencyMs)), color: 'green' },
+          { label: 'LLM Active', value: formatDuration(session.llmActiveMs ?? null), color: 'green' },
           { label: 'LLM Calls', value: String(session.totalLlmCallCount ?? 0), color: 'blue' },
           { label: 'Tools', value: String(session.totalToolCallCount ?? 0), color: 'magenta' },
           { label: 'Skills', value: String(session.totalSkillLoadCount ?? 0), color: 'green' },

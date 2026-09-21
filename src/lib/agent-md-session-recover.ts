@@ -96,7 +96,7 @@ function stripRuntimeTail(system: string): string {
 
 /** 读子代理 meta.json 的 agentType（meta 与 jsonl 同目录、恒明文；x_cannbay 优先、legacy 兜底）。 */
 function readMetaAgentType(subFilePath: string): string | null {
-  const metaPath = subFilePath.replace(/\.jsonl(\.gz)?$/, '.meta.json');
+  const metaPath = subFilePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as {
       agentType?: unknown;

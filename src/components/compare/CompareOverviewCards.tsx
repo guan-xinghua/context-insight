@@ -10,6 +10,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { sessionDurationMs } from "@/lib/session-duration"
 
 interface SkillData {
   skillName: string
@@ -24,6 +25,9 @@ interface SessionCompareData {
   totalTokens: number
   totalCost: number
   totalLatencyMs: number
+  llmActiveMs?: number | null
+  startTime: string | null
+  endTime: string | null
   totalLlmCallCount: number
   totalToolCallCount: number
   totalSubagentCount: number
@@ -72,7 +76,8 @@ export function CompareOverviewCards({ sessionA, sessionB }: { sessionA: Session
     { label: "Model", valueA: sessionA.model ?? "—", valueB: sessionB.model ?? "—", lowerIsBetter: false, format: v => String(v) },
     { label: "Total Tokens", valueA: sessionA.totalTokens, valueB: sessionB.totalTokens, lowerIsBetter: true, format: v => formatTokens(numberOrStr(v)) },
     { label: "Total Cost", valueA: sessionA.totalCost, valueB: sessionB.totalCost, lowerIsBetter: true, format: v => formatCost(numberOrStr(v)) },
-    { label: "Latency", valueA: sessionA.totalLatencyMs, valueB: sessionB.totalLatencyMs, lowerIsBetter: true, format: v => formatDuration(numberOrStr(v)) },
+    { label: "Duration", valueA: sessionDurationMs(sessionA.startTime, sessionA.endTime, sessionA.totalLatencyMs), valueB: sessionDurationMs(sessionB.startTime, sessionB.endTime, sessionB.totalLatencyMs), lowerIsBetter: true, format: v => formatDuration(numberOrStr(v)) },
+    { label: "LLM Active", valueA: sessionA.llmActiveMs ?? 0, valueB: sessionB.llmActiveMs ?? 0, lowerIsBetter: true, format: v => formatDuration(numberOrStr(v)) },
     { label: "LLM Calls", valueA: sessionA.totalLlmCallCount, valueB: sessionB.totalLlmCallCount, lowerIsBetter: true, format: v => String(numberOrStr(v)) },
     { label: "Tool Calls", valueA: sessionA.totalToolCallCount, valueB: sessionB.totalToolCallCount, lowerIsBetter: false, format: v => String(numberOrStr(v)) },
     { label: "Subagents", valueA: sessionA.totalSubagentCount, valueB: sessionB.totalSubagentCount, lowerIsBetter: false, format: v => String(numberOrStr(v)) },

@@ -15,6 +15,7 @@ import { useKeyboard } from '@/cli/hooks/useKeyboard';
 import type { InsightClient } from '@/cli/client';
 import type { ApiSessionDetailResponse } from '@/cli/types';
 import { formatTokens, formatCost, formatDuration } from '@/cli/utils/format';
+import { sessionDurationMs } from '@/lib/session-duration';
 
 interface CompareViewProps {
   client: InsightClient;
@@ -76,7 +77,8 @@ function buildCompareRows(s1: ApiSessionDetailResponse, s2: ApiSessionDetailResp
     { key: 'outputTokens', label: 'Output Tokens', v1: s1.totalOutputTokens, v2: s2.totalOutputTokens, fmt: formatTokens },
     { key: 'reasoningTokens', label: 'Reasoning', v1: s1.totalReasoningTokens, v2: s2.totalReasoningTokens, fmt: formatTokens },
     { key: 'cost', label: 'Cost', v1: s1.totalCost, v2: s2.totalCost, fmt: formatCost },
-    { key: 'duration', label: 'Duration', v1: s1.totalLatencyMs, v2: s2.totalLatencyMs, fmt: formatDuration },
+    { key: 'duration', label: 'Duration', v1: sessionDurationMs(s1.startTime, s1.endTime, s1.totalLatencyMs), v2: sessionDurationMs(s2.startTime, s2.endTime, s2.totalLatencyMs), fmt: formatDuration },
+    { key: 'llmActive', label: 'LLM Active', v1: s1.llmActiveMs ?? null, v2: s2.llmActiveMs ?? null, fmt: formatDuration },
     { key: 'tools', label: 'Tool Calls', v1: s1.totalToolCallCount, v2: s2.totalToolCallCount, fmt: String },
     { key: 'skills', label: 'Skill Loads', v1: s1.totalSkillLoadCount, v2: s2.totalSkillLoadCount, fmt: String },
     { key: 'subagents', label: 'Subagents', v1: s1.totalSubagentCount, v2: s2.totalSubagentCount, fmt: String },
