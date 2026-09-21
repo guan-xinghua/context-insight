@@ -57,6 +57,9 @@ interface SessionData {
   sourcePath: string | null
   startTime: string
   endTime: string | null
+  wallMs: number | null
+  activeMs: number | null
+  inactiveMs: number | null
   user: string | null
   totalTokens: number
   totalInputTokens: number
@@ -457,6 +460,25 @@ function formatLatency(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
   return `${(ms / 60000).toFixed(1)}min`
+}
+
+type WallUnit = "s" | "min" | "h" | "d"
+
+function wallUnitFor(ms: number): WallUnit {
+  if (ms < 60_000) return "s"
+  if (ms < 3_600_000) return "min"
+  if (ms < 604_800_000) return "h"
+  return "d"
+}
+
+function formatWallSplit(wallMs: number, activeMs: number): { wall: string; active: string; inactive: string } {
+  const unit = wallUnitFor(wallMs)
+  const div = unit === "s" ? 1_000 : unit === "min" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000
+  const r = (x: number) => Math.round((x / div) * 10) / 10
+  const wall = r(wallMs)
+  const active = r(activeMs)
+  const inactive = Math.round((wall - active) * 10) / 10
+  return { wall: `${wall.toFixed(1)}${unit}`, active: `${active.toFixed(1)}${unit}`, inactive: `${inactive.toFixed(1)}${unit}` }
 }
 
 function formatTimestamp(ts: string | null): string {
@@ -1098,15 +1120,38 @@ export default function SessionDetailPage({
             </CardContent>
           </Card>
           <Card size="sm" className="flex-1">
-            <CardContent className="flex items-center gap-2 py-2">
-              <span className="text-xs text-muted-foreground">Wall Clock</span>
-              <span className="text-sm font-medium tabular-nums">
-                {(() => {
-                  const start = s.startTime ? new Date(s.startTime).getTime() : 0
-                  const end = s.endTime ? new Date(s.endTime).getTime() : start
-                  return formatLatency(end - start)
-                })()}
-              </span>
+            <CardContent className="py-2">
+              {s.activeMs !== null && s.inactiveMs !== null && s.wallMs !== null ? (
+                (() => {
+                  const split = formatWallSplit(s.wallMs, s.activeMs)
+                  return (
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="text-xs text-muted-foreground">Wall Clock</span>
+                        <span className="text-sm font-medium tabular-nums">{split.wall}</span>
+                      </div>
+                      <div
+                        className="flex flex-col gap-0.5 text-xs tabular-nums whitespace-nowrap"
+                        title={`活跃 + 非活跃 = Wall Clock（API 调用进行中计为活跃；间隔 >5min 的空档计为非活跃）`}
+                      >
+                        <span className="font-medium text-green-600 dark:text-green-400">活跃 {split.active}</span>
+                        <span className="text-muted-foreground">非活跃 {split.inactive}</span>
+                      </div>
+                    </div>
+                  )
+                })()
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Wall Clock</span>
+                  <span className="text-sm font-medium tabular-nums">
+                    {(() => {
+                      const start = s.startTime ? new Date(s.startTime).getTime() : 0
+                      const end = s.endTime ? new Date(s.endTime).getTime() : start
+                      return formatLatency(end - start)
+                    })()}
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card size="sm" className="flex-1">

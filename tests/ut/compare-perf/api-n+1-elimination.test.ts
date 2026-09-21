@@ -293,10 +293,11 @@ describe("compare-perf — session API firstPrompt query optimization", () => {
     expect(subAgents.length).toBeGreaterThan(0)
     expect(subAgents[0].firstPrompt).not.toBeNull()
 
-    // Headline: 1 root findFirst + 1 sub findMany (not N per-subagent serial).
-    // llmActiveMs 区间并集另加 1 次 assistant findMany（单次，非 N+1）。
+    // Headline: 1 root findFirst + 3 findMany（subagent prompts + Wall Clock 活跃
+    // 拆分的全 turn 时间戳 + llmActiveMs 的 assistant 窗口——各选精简字段，
+    // 不取 content；均单次，非 N+1）.
     expect(counts.turnFindFirst).toBe(1)
-    expect(counts.turnFindMany).toBe(2)
+    expect(counts.turnFindMany).toBe(3)
   })
 
   it("session API response shape is preserved (agents[].firstPrompt, skills, totals)", async () => {

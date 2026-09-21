@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getLlmActiveMsMap } from '@/lib/llm-active-map';
+import { getActiveSplitMap } from '@/lib/active-time-map';
 
 export async function GET(request: NextRequest) {
   try {
@@ -62,6 +63,8 @@ export async function GET(request: NextRequest) {
     // LLM Active（模型推理时间）：单查询批量取本页会话 turn 窗口算区间并集
     // ——列表 Duration 语义，墙钟由 Start→End 列反映
     const llmActive = await getLlmActiveMsMap(sessions.map(s => s.id));
+    // 活跃 / 墙钟（事件聚类口径，与详情页 Wall Clock 拆分同源）
+    const activeSplit = await getActiveSplitMap(sessions);
 
     const items = sessions.map((s) => ({
       sessionId: s.id,
@@ -74,6 +77,8 @@ export async function GET(request: NextRequest) {
       totalCost: s.totalCost,
       totalLatencyMs: s.totalLatencyMs,
       llmActiveMs: llmActive.get(s.id) ?? null,
+      activeMs: activeSplit.get(s.id)?.activeMs ?? null,
+      wallMs: activeSplit.get(s.id)?.wallMs ?? null,
       totalToolCallCount: s.totalToolCallCount,
       totalSkillLoadCount: s.totalSkillLoadCount,
       totalSubagentCount: s.totalSubagentCount,

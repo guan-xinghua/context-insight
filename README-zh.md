@@ -10,6 +10,7 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 - **Token 与费用** — 每轮 token 五项拆解，按模型上下文窗口显示占比，估算费用
 - **上下文增长** — 逐 subagent 的上下文增长曲线与动画回放，`/compact` 压缩点标注
+- **活跃 / 墙钟** — 会话详情 Wall Clock 拆分（活跃 + 非活跃 = 墙钟）与首页、CANNBay Viewer 的 Active / Wall 列：事件聚类口径（间隔 >5min 计非活跃、API 调用进行中计活跃）；上传时把 activeMs 快照写进数据湖 meta，未导入行同样可见
 - **上下文治理** — 查看每轮 LLM 输入构成：可见消息 + 稳定 System 开销
 - **Subagent 追踪** — 识别子代理会话与 dispatch→response 链路，时间线内联展示
 - **Turn 快速跳转** — Turns 时间线输入 `#459` 回车直达该轮

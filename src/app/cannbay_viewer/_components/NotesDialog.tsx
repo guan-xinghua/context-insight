@@ -138,7 +138,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
             <div className="mb-1.5 text-xs font-medium text-neutral-500">会话信息</div>
             <InfoRow label="工具" value={`${item.framework ?? '未知'}${item.ccVersion ? ` · ${item.ccVersion}` : ''}`} />
             <InfoRow label="开始" value={<>{formatDateTime(item.startTime)}{item.startTimeApprox && <span className="ml-1 text-neutral-400" title="未导入本地库，取数据仓提交时间（近似）">≈</span>}</>} />
-            <InfoRow label="耗时" value={formatDuration(item.durationMs)} />
+            <InfoRow label="Active / Wall" value={<>{item.activeKnown ? formatDuration(item.durationMs) : <span className="text-neutral-400">—</span>}{item.wallMs != null && <span className="text-neutral-400"> / {formatDuration(item.wallMs)}</span>}</>} />
             <InfoRow label="Token" value={formatTokens(item.totalTokens)} />
             <InfoRow label="质量" value={formatScore(item.totalScore)} />
             <div className="flex items-center gap-2 text-xs">

@@ -336,3 +336,40 @@ describe('cannbay2 100MB 超限熔断（MAX_SESSION_BYTES）', () => {
     expect(after).toBe(before); // 熔断后远端无新 commit
   }, 60000);
 });
+
+// ─────────────────────────────────────────────────────────────────────
+describe('cannbay2 上传指标快照：activeMs 活跃时长（与 Wall Clock 拆分同口径）', () => {
+  const SID_ACT = 'cc-extra-activems';
+  EXTRA_SIDS.push(SID_ACT);
+
+  it('上传 → meta 快照含 activeMs（聚类活跃）与 durationMs（墙钟）', async () => {
+    const base = Date.UTC(2026, 8, 14, 2, 0, 0); // 10:00 +08
+    // 真实 cpx 捕获形态：assistant 行带 duration_ms（无此字段会走 turn-split
+    // 的「到下一事件」兜底 fabrication，语义失真）
+    const tsLine = (i: number, role: 'user' | 'assistant', content: string, iso: string, durMs?: number) => JSON.stringify({
+      type: role,
+      message: { id: `msg_${sid()}_${i}`, role, content, model: 'test-model', usage: { input_tokens: 10, output_tokens: 5 } },
+      timestamp: iso,
+      ...(durMs != null ? { duration_ms: durMs } : {}),
+      source: 'claude-proxy',
+      x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} },
+    });
+    // 两簇各 4min（46min 空档 >5min 切段）→ 活跃 8min；墙钟 54min
+    const f = writeJsonlFixture(SID_ACT, [
+      tsLine(0, 'user', 'q1', new Date(base).toISOString()),
+      tsLine(1, 'assistant', 'a1', new Date(base + 4 * 60_000).toISOString(), 4 * 60_000),
+      tsLine(2, 'user', 'q2', new Date(base + 50 * 60_000).toISOString()),
+      tsLine(3, 'assistant', 'a2', new Date(base + 54 * 60_000).toISOString(), 4 * 60_000),
+    ]);
+    await importSession(f, SID_ACT, prisma, f, 'claude-jsonl');
+
+    const up = await cannbay2.uploadCannbay2Session(prisma, SID_ACT, '提交人: t\n内容描述: activeMs 快照', undefined, 'others');
+    expect(up.unchanged).toBe(false);
+
+    const metaPath = path.join(mirror.cannbay2CacheDir(), 'others', SID_ACT, `${SID_ACT}.meta.json`);
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    const d = meta.x_cannbay.data;
+    expect(d.durationMs).toBe(54 * 60_000); // 墙钟快照（endTime − startTime）
+    expect(d.activeMs).toBe(8 * 60_000);    // 活跃快照：两簇各 4min
+  }, 60_000);
+});

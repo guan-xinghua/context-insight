@@ -335,6 +335,8 @@ export interface LakeSession {
   /** 上传时刻写进 meta 的指标快照（spec §4.4 可选字段）；存量旧 meta 为 null */
   startTime: string | null;
   durationMs: number | null;
+  /** 活跃时长快照（spec §4.4 可选字段，同上传时刻写入）；旧 meta 为 null */
+  activeMs: number | null;
   totalTokens: number | null;
   /** 会话主模型（首条 assistant 轮），同指标快照一道写入 meta */
   model: string | null;
@@ -354,6 +356,7 @@ interface SessionMeta {
   opGen: 'success' | 'failure' | null;
   startTime: string | null;
   durationMs: number | null;
+  activeMs: number | null;
   totalTokens: number | null;
   model: string | null;
 }
@@ -394,7 +397,7 @@ function parseSessionMetas(buf: Buffer, wanted: Array<{ folder: string; oid: str
     const body = text(headerEnd + 1, headerEnd + 1 + size);
     offset = headerEnd + 1 + size + 1;
     try {
-      const meta = JSON.parse(body) as { x_cannbay?: { data?: { framework?: unknown; ccVersion?: unknown; producer?: unknown; workflow?: unknown; opGen?: unknown; startTime?: unknown; durationMs?: unknown; totalTokens?: unknown; model?: unknown } } };
+      const meta = JSON.parse(body) as { x_cannbay?: { data?: { framework?: unknown; ccVersion?: unknown; producer?: unknown; workflow?: unknown; opGen?: unknown; startTime?: unknown; durationMs?: unknown; activeMs?: unknown; totalTokens?: unknown; model?: unknown } } };
       const d = meta.x_cannbay?.data;
       out.set(w.folder, {
         framework: typeof d?.framework === 'string' ? d.framework : null,
@@ -408,6 +411,7 @@ function parseSessionMetas(buf: Buffer, wanted: Array<{ folder: string; oid: str
         startTime: typeof d?.startTime === 'string' ? d.startTime : null,
         model: typeof d?.model === 'string' && d.model ? d.model : null,
         durationMs: typeof d?.durationMs === 'number' && Number.isFinite(d.durationMs) ? d.durationMs : null,
+        activeMs: typeof d?.activeMs === 'number' && Number.isFinite(d.activeMs) ? d.activeMs : null,
         totalTokens: typeof d?.totalTokens === 'number' && Number.isFinite(d.totalTokens) ? d.totalTokens : null,
       });
     } catch { /* 截断/畸形 meta → null，不拖垮整个列表 */ }
@@ -532,6 +536,7 @@ export async function readLakeSessions(dir: string, remote: LakeRemote): Promise
       opGen: meta?.opGen ?? null,
       startTime: meta?.startTime ?? null,
       durationMs: meta?.durationMs ?? null,
+      activeMs: meta?.activeMs ?? null,
       totalTokens: meta?.totalTokens ?? null,
       model: meta?.model ?? null,
       paradigm: loc.root,

@@ -15,6 +15,7 @@ import os from 'node:os';
 import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, type Cannbay2Remote, type Cannbay2SessionEntry, type Cannbay2Overview, type UploadResult, type RecordingClass } from './mirror';
 import { readCcSessionMeta } from '../ingest/proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
+import { computeSessionActiveSplit } from '../active-time';
 import { defaultCannbay2Remote } from './remote';
 import { governText } from './governance';
 import { exportSessionToClaudeJsonl, xCannbay } from './export';
@@ -377,13 +378,15 @@ function validateCategory(remote: Cannbay2Remote, category?: string): string | u
 
 // 上传时补丁 meta（cc-session-meta 可选字段，spec §4.4"加可选字段不升版本"）：
 // ① opGen——算子生成结果标注（人工勾选），列表"算子生成"列消费；
-// ② 会话指标快照 startTime/endTime/durationMs/totalTokens + 主模型 model——
-//   上传时刻从 DB 会话行取值，与导入后列表展示同源同值，cannbay viewer
-//   未导入行也能显示
-//   开始/耗时/Token（含算子生成耗时优化图），无需先导入 insight。
+// ② 会话指标快照 startTime/endTime/durationMs/activeMs/totalTokens + 主模型
+//   model——上传时刻从 DB 会话行取值，与导入后列表展示同源同值，cannbay
+//   viewer 未导入行也能显示
+//   开始/耗时/Token（含算子生成耗时优化图），无需先导入 insight。耗时快照
+//   优先 activeMs（活跃口径，与会话详情 Wall Clock 拆分同源），durationMs
+//   （墙钟）保留供回落。
 // 三条 staging 路径（cpx 伴生 meta 拷贝 / 合成 insight-upload / DB 导出
 // insight-export）都落同一 meta 文件——此处一个补丁点全覆盖。
-function annotateSessionMeta(stagingDir: string, sid: string, session: SessionRow, opGen?: 'success' | 'failure'): void {
+async function annotateSessionMeta(stagingDir: string, sid: string, session: SessionRow, prisma: PrismaLike, opGen?: 'success' | 'failure'): Promise<void> {
   const metaPath = path.join(stagingDir, 'sessions', sid, `${sid}.meta.json`);
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
@@ -399,6 +402,20 @@ function annotateSessionMeta(stagingDir: string, sid: string, session: SessionRo
         xb.data.durationMs = end.getTime() - start.getTime();
       }
     }
+    // 活跃时长快照：与会话详情 Wall Clock 拆分同口径（wire 调用区间展开 +
+    // 5min 阈值聚类）；无 turns 留空，读方回落墙钟
+    try {
+      const split = await computeSessionActiveSplit(
+        () => prisma.turn.findMany({
+          where: { sessionId: session.id },
+          select: { createdAt_ts: true, createdAt: true, latencyMs: true, role: true },
+        }),
+        start ? start.getTime() : 0,
+        end ? end.getTime() : null,
+        isProxyVersion(session.version),
+      );
+      if (split != null) xb.data.activeMs = split.activeMs;
+    } catch { /* turns 查询失败：跳过 activeMs，不阻断上传 */ }
     if (Number.isFinite(session.totalTokens)) xb.data.totalTokens = session.totalTokens;
     if (typeof session.model === 'string' && session.model) xb.data.model = session.model;
     fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2) + '\n');
@@ -443,7 +460,7 @@ export async function uploadCannbay2Session(
 
   const { stagingDir, sid } = await stageSessionFiles(session, prisma);
   try {
-    annotateSessionMeta(stagingDir, sid, session, opGen);
+    await annotateSessionMeta(stagingDir, sid, session, prisma, opGen);
     governStagedSession(stagingDir, sid);
     // 范式行由服务端从结构化字段注入（git log 人类可读；列表 paradigm 以目录
     // 为准）。必须放在空行后的 body：git %s 会把 subject 折叠成单行，混进

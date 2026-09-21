@@ -14,6 +14,7 @@ import { VERSION_DISPLAY } from '@/lib/version';
 import { BRAND_NAME, BAY_VIEWER_NAME } from '@/lib/branding';
 import { prisma } from '@/lib/db';
 import { sessionDurationMs } from '@/lib/session-duration';
+import { getActiveSplitMap } from '@/lib/active-time-map';
 import { getLlmActiveMsMap } from '@/lib/llm-active-map';
 import { EyeIcon, SettingsIcon } from 'lucide-react';
 import { countToolCallErrors } from '@/lib/tool-call-errors';
@@ -119,6 +120,8 @@ export default async function Home({
   // LLM Active（模型推理时间）：单查询批量取本页会话 turn 窗口算区间并集
   // ——列表 Duration 语义，墙钟由 Start→End 列反映
   const llmActive = await getLlmActiveMsMap(sessions.map(s => s.id));
+  // 活跃 / 墙钟（事件聚类口径，与详情页 Wall Clock 拆分同源）：同样单查询批量
+  const activeSplit = await getActiveSplitMap(sessions);
 
   const items = sessions.map((s) => {
     const eInfo = errorCountsBySession.get(s.id)
@@ -133,6 +136,8 @@ export default async function Home({
       totalCost: s.totalCost,
       totalLatencyMs: s.totalLatencyMs,
       llmActiveMs: llmActive.get(s.id) ?? null,
+      activeMs: activeSplit.get(s.id)?.activeMs ?? null,
+      wallMs: activeSplit.get(s.id)?.wallMs ?? null,
       totalToolCallCount: s.totalToolCallCount,
       totalSkillLoadCount: s.totalSkillLoadCount,
       totalSubagentCount: s.totalSubagentCount,

@@ -9,6 +9,7 @@ Session-level observability for LLM coding agents: import agent session logs and
 Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
 
 - **Tokens & Cost** — 5-item per-turn token breakdown vs the model's context window, plus cost estimation
+- **Active / Wall time** — session detail Wall Clock split (active + inactive = wall) and Active / Wall columns on the homepage & CANNBay Viewer: event-clustering semantics (gaps >5min count as inactive, in-flight API calls count as active); uploads snapshot `activeMs` into lake meta so non-imported rows stay visible
 - **Context Growth** — Per-subagent context growth curves with animated replay; `/compact` markers
 - **Context Governance** — Per-turn LLM input composition: visible messages + stable System overhead
 - **Subagent Tracking** — Subagent sessions and dispatch→response bridges, inline in the timeline

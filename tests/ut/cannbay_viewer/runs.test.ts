@@ -41,6 +41,8 @@ const DB_SEED = [
   { taskId: 'fb-cccc3333', startTime: '2026-09-13T11:00:00+08:00', endTime: '2026-09-13T11:10:00+08:00', totalTokens: 3_000, framework: 'claude-code-proxy', version: '1.2.3', model: 'fb-model' },
   // 半导：lake 双记录、DB 仅 native 一行——capture 行必须保持未导入
   { taskId: 'half-dddd4444', startTime: '2026-09-13T12:00:00+08:00', endTime: '2026-09-13T12:30:00+08:00', totalTokens: 9_000, framework: 'opencode', version: '1.18.30', model: 'half-model' },
+  // 活跃口径夹具：墙钟 60min，turns 两簇各 10min（中间 40min 空档）→ 活跃 20min
+  { taskId: 'act-eeee5555', startTime: '2026-09-14T09:00:00+08:00', endTime: '2026-09-14T10:00:00+08:00', totalTokens: 6_000, framework: 'claude-code-proxy', version: '1.0.0-claude-proxy', model: 'act-model' },
 ];
 
 beforeAll(async () => {
@@ -103,6 +105,16 @@ beforeAll(async () => {
         { sid: 'half-dddd4444', paradigm: 'dualdb', recording: 'native', framework: 'opencode', ccVersion: '1.18.30' },
       ],
     },
+    {
+      time: '2026-09-14T10:00:00+08:00',
+      message: '提交人: ji9 内容描述: 活跃耗时口径夹具 备注: 无',
+      sessions: [
+        // 已导入（DB_SEED）：turns 两簇各 10min → 耗时列显示活跃 20min（非墙钟 60min）
+        { sid: 'act-eeee5555', paradigm: 'activetime', framework: 'claude-code-proxy', ccVersion: '1.0.0' },
+        // 未导入：meta 快照带 activeMs=25min（优先于派生墙钟 durationMs=30min）
+        { sid: 'act-ffff6666', paradigm: 'activetime', framework: 'claude-code', ccVersion: '1.2.3', startTime: '2026-09-14T09:00:00+08:00', endTime: '2026-09-14T09:30:00+08:00', activeMs: 25 * 60_000, totalTokens: 5_000 },
+      ],
+    },
   ]);
 
   // 测试库 seed：全会话独立清理（并行套件共享 dev.db，只动自己的 taskId）
@@ -122,6 +134,18 @@ beforeAll(async () => {
       select: { id: true },
     });
     seededIds.push(row.id);
+    // 活跃口径夹具的 turns：两簇各 10min（assistant 区间 [t−10min, t] 展开），
+    // 中间 40min 空档 >5min 阈值切段
+    if (s.taskId === 'act-eeee5555') {
+      await prisma.turn.createMany({
+        data: [
+          { sessionId: row.id, turnIndex: 0, role: 'user', createdAt_ts: new Date('2026-09-14T09:00:00+08:00') },
+          { sessionId: row.id, turnIndex: 1, role: 'assistant', createdAt_ts: new Date('2026-09-14T09:10:00+08:00'), latencyMs: 10 * 60_000 },
+          { sessionId: row.id, turnIndex: 2, role: 'user', createdAt_ts: new Date('2026-09-14T09:50:00+08:00') },
+          { sessionId: row.id, turnIndex: 3, role: 'assistant', createdAt_ts: new Date('2026-09-14T10:00:00+08:00'), latencyMs: 10 * 60_000 },
+        ],
+      });
+    }
     // 评分卡缓存 seed（与旧 tests/data fixture 同值：high 82.5 / baseline 70 / low 61.2）
     const dims: Scorecard['dimensions'] = s.taskId === 'ele-aaaa1111'
       ? [
@@ -355,5 +379,39 @@ describe('insightSessionUrl', () => {
     expect(insightSessionUrl('abc 123', 'claude-code'))
       .toBe('/session/abc%20123?framework=claude-code');
     expect(insightSessionUrl('xyz', null)).toBe('/session/xyz');
+  });
+});
+
+describe('listRuns（耗时列活跃口径）', () => {
+  it('已导入行按 turns 聚类现算活跃时长（非墙钟）；未导入行优先 meta activeMs 快照', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'activetime' });
+    expect(r.total).toBe(2);
+    const bySid = new Map(r.items.map(x => [x.sid, x]));
+
+    // 已导入：墙钟 60min（09:00→10:00），turns 两簇各 10min（中间 40min 空档
+    // >5min 阈值切段）→ 耗时列显示活跃 20min，wallMs 保留墙钟 60min
+    const eeee = bySid.get('act-eeee5555');
+    expect(eeee?.imported).toBe(true);
+    expect(eeee?.durationMs).toBe(20 * 60_000);
+    expect(eeee?.activeKnown).toBe(true);
+    expect(eeee?.wallMs).toBe(60 * 60_000);
+
+    // 未导入：meta 快照 activeMs=25min 优先于派生墙钟 durationMs=30min（wallMs）
+    const ffff = bySid.get('act-ffff6666');
+    expect(ffff?.imported).toBe(false);
+    expect(ffff?.durationMs).toBe(25 * 60_000);
+    expect(ffff?.activeKnown).toBe(true);
+    expect(ffff?.wallMs).toBe(30 * 60_000);
+  });
+
+  it('已导入但无 turns（存量夹具）→ 活跃不可算：activeKnown=false，durationMs 回落墙钟（渲染 — / wall）', async () => {
+    const { listRuns } = await import('../../../src/app/cannbay_viewer/_lib/runs');
+    const r = await listRuns({ paradigm: 'elementwise' });
+    const aaaa = r.items.find(x => x.sid === 'ele-aaaa1111');
+    expect(aaaa?.imported).toBe(true);
+    expect(aaaa?.durationMs).toBe(30 * 60_000);
+    expect(aaaa?.activeKnown).toBe(false);
+    expect(aaaa?.wallMs).toBe(30 * 60_000);
   });
 });

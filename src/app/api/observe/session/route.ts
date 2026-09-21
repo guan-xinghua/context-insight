@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { computeSessionActiveSplit } from '@/lib/active-time';
+import { isProxyVersion } from '@/lib/shared/session-format';
 import { computeLlmActiveMs } from '@/lib/session-duration';
 
 export async function GET(request: NextRequest) {
@@ -142,6 +144,18 @@ export async function GET(request: NextRequest) {
       invocationCount: s.invocationCount,
     }));
 
+    // wire 捕获（-proxy version）的 Turn.latencyMs 是真实 API 调用时长
+    // （duration_ms）——按 [t-latency, t] 展开成活跃区间，慢调用不被阈值切走。
+    // native 行的 latencyMs = completed-created（可横跨空闲段），不能展开。
+    const activeSplit = await computeSessionActiveSplit(
+      () => prisma.turn.findMany({
+        where: { sessionId: session.id },
+        select: { createdAt_ts: true, createdAt: true, latencyMs: true, role: true },
+      }),
+      session.startTime.getTime(),
+      session.endTime ? session.endTime.getTime() : null,
+      isProxyVersion(session.version)
+    );
     // LLM 活跃时间：assistant turn 在途窗口区间并集（root + subagent 合并去重叠）。
     // proxy 行 completedAt 缺失，computeLlmActiveMs 用 createdAt - latencyMs 推窗口起点。
     const llmTurns = await prisma.turn.findMany({
@@ -164,6 +178,10 @@ export async function GET(request: NextRequest) {
       summaryFiles: session.summaryFiles,
       startTime: session.startTime,
       endTime: session.endTime,
+      wallMs: activeSplit?.wallMs ?? null,
+      activeMs: activeSplit?.activeMs ?? null,
+      inactiveMs: activeSplit?.inactiveMs ?? null,
+      activeClusterCount: activeSplit?.clusterCount ?? null,
       totalTokens: session.totalTokens,
       totalInputTokens: session.totalInputTokens,
       totalOutputTokens: session.totalOutputTokens,

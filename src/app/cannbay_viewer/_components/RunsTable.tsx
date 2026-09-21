@@ -28,6 +28,8 @@ export interface RunItemView {
   startTime: string | null;
   startTimeApprox: boolean;
   durationMs: number | null;
+  activeKnown: boolean;
+  wallMs: number | null;
   totalTokens: number | null;
   model: string | null;
   imported: boolean;
@@ -115,8 +117,9 @@ export function RunsTable({
     return [...items].sort((a, b) => (sortDesc ? val(b) - val(a) : val(a) - val(b)));
   }, [items, sortKey, sortDesc]);
 
-  const th = (key: SortKey, label: string) => (
+  const th = (key: SortKey, label: string, title?: string) => (
     <th
+      title={title}
       className={`cursor-pointer select-none whitespace-nowrap px-3 py-2 font-medium ${sortKey === key ? 'text-neutral-900' : 'text-neutral-500'}`}
       onClick={() => {
         if (sortKey === key) setSortDesc(!sortDesc);
@@ -138,7 +141,7 @@ export function RunsTable({
             <th className="px-3 py-2 font-medium text-neutral-500">工具</th>
             <th className="px-3 py-2 font-medium text-neutral-500">模型类型</th>
             {th('startTime', '开始时间')}
-            {th('durationMs', '耗时')}
+            {th('durationMs', 'Active / Wall', '活跃时长 / 墙钟（斜杠后为墙钟）：间隔 >5min 的空档计非活跃，API 调用进行中计活跃；活跃未知（未导入旧快照/无 turns）显示 — / 墙钟')}
             {th('totalTokens', 'Token')}
             {th('totalScore', '质量')}
             <th className="px-3 py-2 font-medium text-neutral-500">vs Baseline</th>
@@ -199,7 +202,14 @@ export function RunsTable({
               <td className="whitespace-nowrap px-3 py-2 tabular-nums text-neutral-700">
                 {formatDateTime(r.startTime)}{r.startTimeApprox && <span className="ml-1 text-neutral-400" title="未导入本地库，取数据仓提交时间（近似）">≈</span>}
               </td>
-              <td className="whitespace-nowrap px-3 py-2 tabular-nums text-neutral-700">{formatDuration(r.durationMs)}</td>
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums">
+                <span className={r.activeKnown ? 'text-neutral-700' : 'text-neutral-400'}>
+                  {r.activeKnown ? formatDuration(r.durationMs) : '—'}
+                </span>
+                {r.wallMs != null && (
+                  <span className="text-neutral-400"> / {formatDuration(r.wallMs)}</span>
+                )}
+              </td>
               <td className="whitespace-nowrap px-3 py-2 tabular-nums text-neutral-700">{formatTokens(r.totalTokens)}</td>
               <td className="whitespace-nowrap px-3 py-2 tabular-nums">
                 <span className={r.totalScore == null ? 'text-neutral-400' : r.totalScore >= 60 ? 'font-medium text-emerald-700' : 'font-medium text-amber-700'}>

@@ -30,6 +30,8 @@ export interface LakeSeedSession {
   /** 上传时刻指标快照（spec §4.4 可选字段）：两者齐备时派生 durationMs */
   startTime?: string;
   endTime?: string;
+  /** 活跃时长快照（spec §4.4 可选字段）：显式指定时写入，覆盖派生值语义 */
+  activeMs?: number;
   totalTokens?: number;
   /** 会话主模型（同指标快照一道写 meta） */
   model?: string;
@@ -99,6 +101,7 @@ export function makeBareLake(bareDir: string, commits: LakeSeedCommit[]): void {
         const d = Date.parse(s.endTime) - Date.parse(s.startTime ?? '');
         if (s.startTime && Number.isFinite(d) && d > 0) data.durationMs = d;
       }
+      if (s.activeMs != null) data.activeMs = s.activeMs;
       if (s.totalTokens != null) data.totalTokens = s.totalTokens;
       if (s.model) data.model = s.model;
       fs.writeFileSync(path.join(dir, `${s.sid}.meta.json`), JSON.stringify({

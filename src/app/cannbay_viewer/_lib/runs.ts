@@ -10,7 +10,7 @@
 // 范式视图与运行清单。混合口径：清单来自镜像，指标优先本地库，未导入运行
 // 指标列空、开始时间退化为数据仓最后触碰 commit 时间（近似）。
 // 过程内 TTL 缓存（镜像列表 60s / 本地会话 30s / 评分卡 300s）。
-import { getScorecard, listInsightSessions, mapBounded, type InsightScorecard, type InsightSession } from './insight-data';
+import { getActiveDurationMs, getScorecard, listInsightSessions, mapBounded, type InsightScorecard, type InsightSession } from './insight-data';
 import { readLakeSessions, readParadigmDirs, resolveLakeRemote, revParseMain, ensureMirrorAsync } from './lake/mirror';
 import { parseSubmitInfo } from './lake/notes';
 import type { LakeSession } from './lake/mirror';
@@ -41,7 +41,12 @@ export interface RunItem {
   opGen: 'success' | 'failure' | null;
   startTime: string | null;
   startTimeApprox: boolean;
+  /** 活跃时长（事件聚类口径）：已导入现算，未导入取 meta activeMs 快照；不可算时回落 wallMs */
   durationMs: number | null;
+  /** durationMs 是否为真实活跃值：false = 活跃不可得（回落墙钟，渲染 — / wall） */
+  activeKnown: boolean;
+  /** 墙钟（endTime − startTime）：已导入取 DB，未导入取 meta durationMs 快照 */
+  wallMs: number | null;
   totalTokens: number | null;
   /** 会话主模型：已导入取 DB Session.model，未导入取 meta 快照 */
   model: string | null;
@@ -157,6 +162,7 @@ export function invalidateCaches(): void {
   lakeCachePromise = null;
   insightCache = null;
   scorecardCache.clear();
+  activeCache.clear();
 }
 
 async function getInsightSessions(): Promise<Map<string, InsightSession[]> | null> {
@@ -203,6 +209,25 @@ async function fetchScorecard(taskId: string, framework?: string | null): Promis
     return null; // 查询失败不缓存（TTL 内下次请求立即重试），本次降级为未评分
   }
   scorecardCache.set(cacheKey, { at: now, value });
+  return value;
+}
+
+// 活跃时长缓存（与会话详情 Wall Clock 拆分同口径）：lean turn 查询 +
+// 聚类，清单每次请求最多 MAX_ITEMS 条已导入行——TTL 内复用
+const activeCache = new Map<string, CacheEntry<number | null>>();
+
+async function fetchActiveDurationMs(taskId: string, framework: string | null): Promise<number | null> {
+  const cacheKey = framework ? `${taskId}@${framework}` : taskId;
+  const now = Date.now();
+  const hit = activeCache.get(cacheKey);
+  if (hit && now - hit.at < SCORECARD_TTL_MS) return hit.value;
+  let value: number | null;
+  try {
+    value = await getActiveDurationMs(taskId, framework);
+  } catch {
+    return null; // 查询失败不缓存，本次回落墙钟
+  }
+  activeCache.set(cacheKey, { at: now, value });
   return value;
 }
 
@@ -260,6 +285,8 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         startTime: insight.startTime ?? (s.commitTime || null),
         startTimeApprox: !insight.startTime,
         durationMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null,
+        activeKnown: false,
+        wallMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null,
         totalTokens: insight.totalTokens,
         model: insight.model,
         imported: true,
@@ -282,10 +309,13 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         author: parseSubmitInfo(s.commitSubject).author,
         opGen: s.opGen,
         // 未导入行：优先用上传时刻写进 meta 的指标快照（精确）；存量旧 meta
-        // 无快照时退化为 commit 时间（≈近似），耗时/Token 为空
+        // 无快照时退化为 commit 时间（≈近似），耗时/Token 为空。耗时优先
+        // activeMs 快照（活跃口径），旧 meta 回落墙钟 durationMs
         startTime: s.startTime ?? (s.commitTime || null),
         startTimeApprox: s.startTime == null,
-        durationMs: s.durationMs,
+        durationMs: s.activeMs ?? s.durationMs,
+        activeKnown: s.activeMs != null,
+        wallMs: s.durationMs,
         totalTokens: s.totalTokens,
         model: s.model,
         imported: false,
@@ -297,8 +327,10 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
     }
   }
 
-  // 评分卡：仅对排序后前 MAX_ITEMS 条已导入运行拉取（有界并发，未缓存会话
-  // 现算确定性层）
+  // 评分卡 + 活跃时长：仅对排序后前 MAX_ITEMS 条已导入运行拉取（有界并发）。
+  // 耗时列统一活跃时长口径：已导入行按 turns 聚类现算（无 turns 回落墙钟），
+  // 未导入行用上传时刻写进 meta 的 activeMs 快照（旧 meta 无此字段回落墙钟
+  // durationMs）——算子生成耗时优化图同源切换
   rows.sort(byStartTimeDesc);
   const scoreTargets = rows.filter(r => r.imported).slice(0, MAX_ITEMS);
   await mapBounded(scoreTargets, SCORE_FETCH_LIMIT, async (r) => {
@@ -308,6 +340,11 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
     r.baselineDelta = r.totalScore != null && baselineScore != null
       ? Math.round((r.totalScore - baselineScore) * 10) / 10
       : null;
+    const activeMs = await fetchActiveDurationMs(r.sid, r.framework);
+    if (activeMs != null) {
+      r.durationMs = activeMs;
+      r.activeKnown = true;
+    }
     return null;
   });
 

@@ -12,6 +12,8 @@
 import { prisma } from '@/lib/db';
 import { runScorecard, scorecardStore, type Scorecard } from '@/lib/scoring';
 import { importCannbay2Session } from '@/lib/cannbay2';
+import { computeSessionActiveSplit } from '@/lib/active-time';
+import { isProxyVersion } from '@/lib/shared/session-format';
 
 export interface InsightSession {
   taskId: string;
@@ -57,6 +59,27 @@ export async function listInsightSessions(): Promise<Map<string, InsightSession[
   } catch {
     return null;
   }
+}
+
+// 单会话活跃时长（毫秒）：与会话详情页 Wall Clock 拆分同口径（事件聚类 +
+// wire 调用区间展开）。无 turns / 会话未找到返回 null（调用方回落墙钟）；
+// 查询失败上抛由调用方降级不缓存。
+export async function getActiveDurationMs(taskId: string, framework?: string | null): Promise<number | null> {
+  let session = framework
+    ? await prisma.session.findFirst({ where: { taskId, framework }, select: { id: true, startTime: true, endTime: true, version: true } })
+    : null;
+  if (!session) session = await prisma.session.findFirst({ where: { taskId }, select: { id: true, startTime: true, endTime: true, version: true } });
+  if (!session) return null;
+  const split = await computeSessionActiveSplit(
+    () => prisma.turn.findMany({
+      where: { sessionId: session!.id },
+      select: { createdAt_ts: true, createdAt: true, latencyMs: true, role: true },
+    }),
+    session.startTime.getTime(),
+    session.endTime ? session.endTime.getTime() : null,
+    isProxyVersion(session.version)
+  );
+  return split?.activeMs ?? null;
 }
 
 // 单会话评分卡：缓存命中零等待；首次现算确定性层（零 LLM），与 observe/session/

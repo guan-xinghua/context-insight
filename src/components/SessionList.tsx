@@ -50,6 +50,8 @@ interface SessionListItem {
   totalCost: number;
   totalLatencyMs: number;
   llmActiveMs?: number | null;
+  activeMs?: number | null;
+  wallMs?: number | null;
   totalToolCallCount: number;
   totalSkillLoadCount: number;
   totalSubagentCount: number;
@@ -468,7 +470,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
               <TableHead className="text-xs">Model</TableHead>
               <TableHead className="text-xs text-right whitespace-nowrap">Tokens</TableHead>
               <TableHead className="text-xs text-right whitespace-nowrap">Cost</TableHead>
-              <TableHead className="text-xs text-right whitespace-nowrap" title="模型推理总时长（assistant turn 在途窗口并集，并行去重叠）">LLM Active</TableHead>
+              <TableHead className="text-xs text-right whitespace-nowrap" title="活跃 / 墙钟（斜杠后为墙钟）：间隔 >5min 的空档计非活跃，API 调用进行中计活跃">Active / Wall</TableHead>
               <TableHead className="text-xs w-8"></TableHead>
             </TableRow>
           </TableHeader>
@@ -524,10 +526,15 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                     {formatTime(item.startTime)} → {formatTime(item.endTime)}
                   </TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{formatTime(item.importedAt)}</TableCell>
-                  <TableCell className="text-xs"><span className="block truncate max-w-[180px]" title={item.model ?? undefined}>{item.model ?? '—'}</span></TableCell>
+                  <TableCell className="text-xs"><span className="block truncate max-w-[110px]" title={item.model ?? undefined}>{item.model ?? '—'}</span></TableCell>
                   <TableCell className="text-xs tabular-nums text-right">{formatTokens(item.totalTokens)}</TableCell>
                   <TableCell className="text-xs tabular-nums text-right">{formatCost(item.totalCost)}</TableCell>
-                  <TableCell className="text-xs tabular-nums text-right">{formatDuration(item.llmActiveMs ?? null)}</TableCell>
+                  <TableCell className="text-xs tabular-nums text-right whitespace-nowrap">
+                    {formatDuration(item.activeMs ?? null)}
+                    {item.wallMs != null && item.activeMs != null && (
+                      <span className="text-muted-foreground"> / {formatDuration(item.wallMs)}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="px-2">
                     <div className="flex items-center justify-end gap-2">
                       <Button
