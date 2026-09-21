@@ -131,6 +131,54 @@ function fmtOffset(base: number, ts: string): string {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
 }
 
+// ── 横轴 agent 名宽度:拉丁 1 / CJK 2 计单位;- 与空格后断行,≤2 行,超宽 … ────
+const AXIS_NAME_MAX_UNITS = 12
+const AXIS_NAME_MAX_LINES = 2
+
+function textUnits(s: string): number {
+  let u = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    u += (c >= 0x2e80 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xff00 && c <= 0xffef) ? 2 : 1
+  }
+  return u
+}
+
+function truncateUnits(s: string, maxUnits: number): string {
+  if (textUnits(s) <= maxUnits) return s
+  const chars = [...s]
+  let u = 0
+  let cut = 0
+  for (let i = 0; i < chars.length; i++) {
+    const cu = textUnits(chars[i])
+    if (u + cu > maxUnits - 1) break
+    u += cu
+    cut = i + 1
+  }
+  return chars.slice(0, cut).join("") + "…"
+}
+
+function wrapAxisName(name: string): string[] {
+  const pieces = name.split(/(?<=[- ])/)
+  const lines: string[] = []
+  let cur = ""
+  for (const p of pieces) {
+    if (cur && textUnits(cur + p) > AXIS_NAME_MAX_UNITS) {
+      lines.push(cur)
+      cur = p
+    } else {
+      cur += p
+    }
+  }
+  if (cur) lines.push(cur)
+  const out = lines.slice(0, AXIS_NAME_MAX_LINES).map(l => truncateUnits(l, AXIS_NAME_MAX_UNITS))
+  if (lines.length > AXIS_NAME_MAX_LINES) {
+    const t = truncateUnits(out[out.length - 1], AXIS_NAME_MAX_UNITS - 1)
+    out[out.length - 1] = t.endsWith("…") ? t : `${t}…`
+  }
+  return out
+}
+
 // ── Wall-clock timeline slices: each task owns start→next-start ───────────────
 function computeWallSlices(subtasks: ExecItem[]): number[] {
   const starts = subtasks.map(r => new Date(r.createdAt).getTime())
@@ -386,20 +434,51 @@ function TokenBar({ input, cacheRead, cacheWrite, output, reasoning }: {
   )
 }
 
+// ── 横轴标签:#N(与 Task Detail 交叉引用)+ agent 名(按 agent 固定色,≤2 行) ──
+function AxisLabels({ sub, x, barW, baseY, onJumpToSubagent, keyPrefix }: {
+  sub: ExecItem[]
+  x: (i: number) => number
+  barW: number
+  baseY: number
+  onJumpToSubagent?: (agentSessionId: string) => void
+  keyPrefix: string
+}) {
+  return (
+    <>
+      {sub.map((r, i) => {
+        const jump = onJumpToSubagent && r.agentSessionId
+          ? () => onJumpToSubagent(r.agentSessionId!)
+          : undefined
+        const name = r.subagentName ?? r.agentName ?? "—"
+        return (
+          <g key={`${keyPrefix}${i}`} onClick={jump} style={jump ? { cursor: "pointer" } : undefined}>
+            <title>{`#${i + 1} ${name}（${r.agentName ?? "?"}）— 点击跳转 Turns`}</title>
+            <text x={x(i) + barW / 2} y={baseY + 18} textAnchor="middle" fontSize="8" className="fill-muted-foreground">{`#${i + 1}`}</text>
+            {wrapAxisName(name).map((ln, li) => (
+              <text key={li} x={x(i) + barW / 2} y={baseY + 30 + li * 9} textAnchor="middle" fontSize="8" fontWeight="600" fill={agentColor(r.agentName)}>{ln}</text>
+            ))}
+          </g>
+        )
+      })}
+    </>
+  )
+}
+
 // ── charts: task duration (stacked 总耗时=LLM+LLM外) + stacked tokens ───────
 function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSubagent?: (agentSessionId: string) => void }) {
   const { sub, slices } = model
   const n = sub.length
 
-  const barW = 26
-  const gap = 8
-  const padL = 44, padR = 12, padT = 16, padB = 56
+  // 列距留足横轴 agent 名(≤2 行)空间,避免相邻标签重叠
+  const barW = 30
+  const gap = 28
+  const padL = 44, padR = 12, padT = 16, padB = 48
   const W = Math.max(600, padL + padR + n * (barW + gap))
   const chartH = 180
   // Panel 1 + Panel 2 share one SVG; height must cover both (Panel 2 is
   // translated below Panel 1, so it was being clipped when height == p1H only).
   const p1H = padT + chartH + padB
-  const p2PadT = 16, p2PadB = 40
+  const p2PadT = 16, p2PadB = 48
   const p2H = p2PadT + chartH + p2PadB
 
   // 总耗时(wall) = start→next 切片; LLM 耗时 = min(latency, wall)(逐任务钳制); LLM 外 = 总-LLM
@@ -426,7 +505,21 @@ function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSu
     <div className="space-y-4">
       {/* Task Duration chart — 总耗时 = LLM 耗时 + LLM 外耗时 (stacked) */}
       <div className="rounded border p-3 bg-muted/5">
-        <h4 className="text-sm font-semibold text-muted-foreground mb-1.5">Task Duration</h4>
+        <div className="flex items-center gap-4 mb-1.5">
+          <h4 className="text-sm font-semibold text-muted-foreground">Task Duration</h4>
+          {/* legend 放卡片头右上(HTML):不占 svg 底部,避免与横轴 agent 名冲突;宽图滚动时也始终可见 */}
+          <div className="ml-auto flex items-center gap-3">
+            {[
+              { l: "LLM 耗时", c: DUR_LLM },
+              { l: "LLM 外耗时", c: DUR_NONLLM },
+            ].map(s => (
+              <span key={s.l} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: s.c }} />
+                {s.l}
+              </span>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <svg viewBox={`0 0 ${W} ${p1H}`} width={W} height={p1H} className="block" style={{ minWidth: "100%" }}>
             {[0, 0.25, 0.5, 0.75, 1].map(f => {
@@ -461,30 +554,29 @@ function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSu
                 </g>
               )
             })}
-            <g>
-              <rect x={padL} y={padT + chartH + 6} width={9} height={9} fill={DUR_LLM} />
-              <text x={padL + 13} y={padT + chartH + 14} fontSize="9" className="fill-muted-foreground">LLM 耗时</text>
-              <rect x={padL + 90} y={padT + chartH + 6} width={9} height={9} fill={DUR_NONLLM} />
-              <text x={padL + 103} y={padT + chartH + 14} fontSize="9" className="fill-muted-foreground">LLM 外耗时</text>
-            </g>
-            {sub.map((r, i) => (
-              <text
-                key={`dl${i}`} x={x(i) + barW / 2} y={padT + chartH + 30} textAnchor="middle" fontSize="8"
-                className="fill-muted-foreground"
-                onClick={onJumpToSubagent && r.agentSessionId ? () => onJumpToSubagent(r.agentSessionId!) : undefined}
-                style={onJumpToSubagent && r.agentSessionId ? { cursor: "pointer" } : undefined}
-              >
-                <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"} — 点击跳转 Turns`}</title>
-                {`#${i + 1}`}
-              </text>
-            ))}
+            <AxisLabels sub={sub} x={x} barW={barW} baseY={padT + chartH} onJumpToSubagent={onJumpToSubagent} keyPrefix="dl" />
           </svg>
         </div>
       </div>
 
       {/* Token consumption chart (stacked) */}
       <div className="rounded border p-3 bg-muted/5">
-        <h4 className="text-sm font-semibold text-muted-foreground mb-1.5">Token consumption</h4>
+        <div className="flex items-center gap-4 mb-1.5">
+          <h4 className="text-sm font-semibold text-muted-foreground">Token consumption</h4>
+          <div className="ml-auto flex items-center gap-3">
+            {[
+              { l: "Input", c: TOKEN_COLORS.input },
+              { l: "Cache Read", c: TOKEN_COLORS.cacheRead },
+              { l: "Cache Write", c: TOKEN_COLORS.cacheWrite },
+              { l: "Output", c: TOKEN_COLORS.output },
+            ].map(s => (
+              <span key={s.l} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: s.c }} />
+                {s.l}
+              </span>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <svg viewBox={`0 0 ${W} ${p2H}`} width={W} height={p2H} className="block" style={{ minWidth: "100%" }}>
             {(() => {
@@ -527,28 +619,7 @@ function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSu
                       </g>
                     )
                   })}
-                  {[
-                    { l: "Input", c: TOKEN_COLORS.input },
-                    { l: "Cache Read", c: TOKEN_COLORS.cacheRead },
-                    { l: "Cache Write", c: TOKEN_COLORS.cacheWrite },
-                    { l: "Output", c: TOKEN_COLORS.output },
-                  ].map((s, idx) => (
-                    <g key={`tl${idx}`}>
-                      <rect x={padL + idx * 100} y={baseY + 6} width={9} height={9} fill={s.c} />
-                      <text x={padL + idx * 100 + 13} y={baseY + 14} fontSize="9" className="fill-muted-foreground">{s.l}</text>
-                    </g>
-                  ))}
-                  {sub.map((r, i) => (
-                    <text
-                      key={`tlx${i}`} x={x(i) + barW / 2} y={baseY + 30} textAnchor="middle" fontSize="8"
-                      className="fill-muted-foreground"
-                      onClick={onJumpToSubagent && r.agentSessionId ? () => onJumpToSubagent(r.agentSessionId!) : undefined}
-                      style={onJumpToSubagent && r.agentSessionId ? { cursor: "pointer" } : undefined}
-                    >
-                      <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"} — 点击跳转 Turns`}</title>
-                      {`#${i + 1}`}
-                    </text>
-                  ))}
+                  <AxisLabels sub={sub} x={x} barW={barW} baseY={baseY} onJumpToSubagent={onJumpToSubagent} keyPrefix="tlx" />
                 </>
               )
             })()}
