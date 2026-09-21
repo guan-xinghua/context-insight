@@ -117,6 +117,7 @@ interface TurnRowItem {
   createdAt: string | null
   completedAt: string | null
   model: string | null
+  finishReason: string | null
   toolCalls: Array<{ toolCallId: string; toolName: string; argsJson?: string | null; resultJson?: string | null; state: string; durationMs: number }>
   skillEvents: Array<{ skillName: string; eventType: string; success: boolean; errorMessage: string | null }>
 }
@@ -1133,7 +1134,7 @@ export default function SessionDetailPage({
           </Card>
           {(() => {
             const allErrors = turns
-              .map(t => ({ turn: t, errors: summarizeToolCallErrors(t.toolCalls, t.skillEvents) }))
+              .map(t => ({ turn: t, errors: summarizeToolCallErrors(t.toolCalls, t.skillEvents, t.finishReason) }))
               .filter(({ errors }) => errors.total > 0)
             const totalErrorCount = allErrors.reduce((s, { errors }) => s + errors.total, 0)
             if (totalErrorCount === 0) return null
@@ -1249,7 +1250,7 @@ export default function SessionDetailPage({
 
         {(() => {
           const errorTurns = turns
-            .map(t => ({ turn: t, errors: summarizeToolCallErrors(t.toolCalls, t.skillEvents) }))
+            .map(t => ({ turn: t, errors: summarizeToolCallErrors(t.toolCalls, t.skillEvents, t.finishReason) }))
             .filter(({ errors }) => errors.total > 0)
 
           if (errorTurns.length === 0) return <div />
@@ -1281,6 +1282,7 @@ export default function SessionDetailPage({
                         {errors.cancelled > 0 && <Badge variant="orange" className="text-xs">{errors.cancelled} cancelled</Badge>}
                         {errors.failed > 0 && <Badge variant="red" className="text-xs">{errors.failed} failed</Badge>}
                         {errors.skillFail > 0 && <Badge variant="red" className="text-xs">{errors.skillFail} skill_fail</Badge>}
+                        {errors.truncated > 0 && <Badge variant="red" className="text-xs">⛔ max_tokens 截断</Badge>}
                         {t.model && <span className="text-muted-foreground ml-auto">{t.model}</span>}
                       </div>
                       {t.contentSummary && (
@@ -1288,8 +1290,8 @@ export default function SessionDetailPage({
                       )}
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
                         {errors.details.map((d, i) => (
-                          <span key={i} className={d.type === "failed" ? "text-red-500 dark:text-red-400" : d.type === "cancelled" ? "text-orange-500" : "text-red-500"}>
-                            {d.type === "skill_fail" ? "⚡" : "🔧"} {d.toolName}
+                          <span key={i} className={d.type === "cancelled" ? "text-orange-500" : "text-red-500 dark:text-red-400"}>
+                            {d.type === "skill_fail" ? "⚡" : d.type === "truncated" ? "⛔" : "🔧"} {d.toolName}
                           </span>
                         ))}
                         {t.toolCalls.filter(tc => {

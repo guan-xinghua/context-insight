@@ -28,12 +28,17 @@ export interface ErrorSummary {
   cancelled: number
   failed: number
   skillFail: number
+  truncated: number
   details: Array<{ toolName: string; type: string }>
 }
 
+/** Completion reasons which indicate that the model output was cut short. */
+const TRUNCATED_FINISH_REASONS = new Set(['length', 'max_tokens'])
+
 export function summarizeToolCallErrors(
   toolCalls: ToolCallErrorItem[],
-  skillEvents?: SkillEventErrorItem[]
+  skillEvents?: SkillEventErrorItem[],
+  finishReason?: string | null,
 ): ErrorSummary {
   let failed = 0
   let cancelledCount = 0
@@ -61,11 +66,15 @@ export function summarizeToolCallErrors(
     }
   }
 
+  const truncated = finishReason != null && TRUNCATED_FINISH_REASONS.has(finishReason) ? 1 : 0
+  if (truncated) details.push({ toolName: `stop_reason=${finishReason}`, type: 'truncated' })
+
   return {
-    total: cancelledCount + failed + skillFail,
+    total: cancelledCount + failed + skillFail + truncated,
     cancelled: cancelledCount,
     failed,
     skillFail,
+    truncated,
     details,
   }
 }
