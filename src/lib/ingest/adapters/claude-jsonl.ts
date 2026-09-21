@@ -292,40 +292,46 @@ function deriveSessionId(filePath: string): string {
   return path.basename(filePath).replace(/\.jsonl(\.gz)?$/, '').replace(/^cpx-/, '');
 }
 
-// 捕获文件文本读取（gzip at rest，docs 见 proxy/COMPRESSION-DESIGN.md）：
+// 捕获文件行流（gzip at rest，docs 见 proxy/COMPRESSION-DESIGN.md）：
 // .jsonl.gz → 透明 gunzip；.jsonl 直读；sourcePath 指向明文但盘上已压缩
 // （cpx 退出压缩后 sourcePath 未更新形态）或反之（resume scratch 态）时
 // 双向互找。压缩是传输编码，行流内容与明文形态逐字节一致。
-function readCaptureText(filePath: string): string {
-  let resolved = filePath;
-  if (!fs.existsSync(resolved)) {
-    if (filePath.endsWith('.jsonl') && fs.existsSync(`${filePath}.gz`)) resolved = `${filePath}.gz`;
-    else if (filePath.endsWith('.jsonl.gz') && fs.existsSync(filePath.replace(/\.gz$/, ''))) resolved = filePath.replace(/\.gz$/, '');
+function resolveCaptureForm(filePath: string): string {
+  if (!fs.existsSync(filePath)) {
+    if (filePath.endsWith('.jsonl') && fs.existsSync(`${filePath}.gz`)) return `${filePath}.gz`;
+    if (filePath.endsWith('.jsonl.gz') && fs.existsSync(filePath.replace(/\.gz$/, ''))) return filePath.replace(/\.gz$/, '');
   }
-  const buf = fs.readFileSync(resolved);
-  return resolved.endsWith('.gz') ? zlib.gunzipSync(buf).toString('utf-8') : buf.toString('utf-8');
+  return filePath;
 }
 
+// V8 单字符串上限（0x1FFFFFE8 ≈ 512MiB）：解压后整体 toString 必炸——
+// 现场 631MB wire 捕获（3.5 天会话）导入即 RangeError，且旧实现的
+// catch { return [] } 把崩溃吞成「空文件」→ 占位行假成功。现在 Buffer 上
+// 按字节扫描 \n 逐行解码（0x0a 不出现在 UTF-8 多字节序列内，切片安全），
+// 读/解压/单行超限错误一律上抛；仅单行 JSON 解析失败跳过（内容级容错）。
 export function parseJsonlLines(filePath: string): ClaudeJsonlLine[] {
-  try {
-    const content = readCaptureText(filePath);
-    if (!content.trim()) return [];
-    const lines = content.split('\n').filter(l => {
-      const t = l.trim();
-      return t && !t.startsWith('//');
-    });
-    const result: ClaudeJsonlLine[] = [];
-    for (const line of lines) {
+  const resolved = resolveCaptureForm(filePath);
+  const raw = fs.readFileSync(resolved);
+  const buf = resolved.endsWith('.gz') ? zlib.gunzipSync(raw) : raw;
+  const result: ClaudeJsonlLine[] = [];
+  let start = 0;
+  const flush = (end: number): void => {
+    if (end <= start) return;
+    const t = buf.toString('utf-8', start, end).trim();
+    if (t && !t.startsWith('//')) {
       try {
-        result.push(JSON.parse(line) as ClaudeJsonlLine);
+        result.push(JSON.parse(t) as ClaudeJsonlLine);
       } catch {
         console.warn(`claude-jsonl: skipping malformed JSON line in ${filePath}`);
       }
     }
-    return result;
-  } catch {
-    return [];
+    start = end + 1;
+  };
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x0a) flush(i);
   }
+  flush(buf.length);
+  return result;
 }
 
 function collectAllToolResults(lines: ClaudeJsonlLine[]): Map<string, string> {
@@ -377,11 +383,28 @@ export function listSessions(dirPath: string): SessionListItem[] {
   const result: SessionListItem[] = [];
   for (const file of files) {
     const sessionId = deriveSessionId(file);
-    const lines = parseJsonlLines(file);
+    // 目录扫描会撞上外来/半写坏的捕获件：逐件降级跳过，不炸整个列表
+    // （parseJsonlLines 已不吞读取错误，降级责任在消费点）
+    let lines: ClaudeJsonlLine[];
+    try {
+      lines = parseJsonlLines(file);
+    } catch (e) {
+      console.warn(`claude-jsonl: skipping unreadable capture in listSessions: ${file} (${e instanceof Error ? e.message : String(e)})`);
+      continue;
+    }
     if (lines.length === 0) continue;
 
     let firstQuery: string | null = null;
     let modelName: string | null = null;
+    // 最频次模型——以 groupAssistantLines 组（= 导入后的 turn）为单位计数，
+    // 与 computeSessionAggregates 同口径：原生会话一个 turn 有多条流式分段
+    // 行（同 message.id 各带 model），行级计数会把多行 turn 加权放大；
+    // 并列取先出现
+    const modelCounts = new Map<string, number>();
+    for (const g of groupAssistantLines(lines)) {
+      const m = g.lines.find(l => l.message?.model)?.message?.model;
+      if (m) modelCounts.set(m, (modelCounts.get(m) ?? 0) + 1);
+    }
     let createdAt: string;
     let endedAt: string | null = null;
     let totalTokens = 0;
@@ -403,15 +426,15 @@ export function listSessions(dirPath: string): SessionListItem[] {
           if (stripped) firstQuery = stripped.substring(0, 200);
         }
       }
-      if (line.type === 'assistant' && line.message?.model) {
-        if (!modelName) {
-          modelName = line.message.model;
-        }
-      }
       if (line.type === 'assistant' && line.message?.usage) {
         const u = line.message.usage;
         totalTokens += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
       }
+    }
+
+    let modelMaxCount = 0;
+    for (const [m, c] of modelCounts) {
+      if (c > modelMaxCount) { modelMaxCount = c; modelName = m; }
     }
 
     result.push({
@@ -536,7 +559,7 @@ export function extractVersion(filePath: string): string | null {
   return extractVersionFromLines(lines);
 }
 
-interface AssistantGroup {
+export interface AssistantGroup {
   lines: ClaudeJsonlLine[];
   startLineIndex: number;
 }
@@ -548,7 +571,7 @@ const NON_BREAKING_TYPES = new Set([
   'file-history-snapshot', 'last-prompt', 'system',
 ]);
 
-function groupAssistantLines(lines: ClaudeJsonlLine[]): AssistantGroup[] {
+export function groupAssistantLines(lines: ClaudeJsonlLine[]): AssistantGroup[] {
   const groups: AssistantGroup[] = [];
   let current: AssistantGroup | null = null;
   let currentMsgIds: Set<string> | null = null;

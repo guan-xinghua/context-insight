@@ -100,7 +100,14 @@ export function readFullContext(filePath: string): FullContext | null {
 }
 
 function readFullContextUncached(filePath: string): FullContext | null {
-  const lines = parseJsonlLines(filePath);
+  // 富化层：源文件缺失/损坏降级为 null（parseJsonlLines 已不吞读取错误，
+  // 降级责任在消费点），不影响主数据
+  let lines: ClaudeJsonlLine[];
+  try {
+    lines = parseJsonlLines(filePath);
+  } catch {
+    return null;
+  }
   if (lines.length === 0) return null;
 
   // 扩展字段（proxy 捕获）：第一条带 tools 的 assistant 行。
@@ -156,7 +163,12 @@ export function readTurnRequestParams(filePath: string, turnIndex: number): Turn
 }
 
 function readTurnRequestParamsUncached(filePath: string, turnIndex: number): TurnRequestParams | null {
-  const lines = parseJsonlLines(filePath);
+  let lines: ClaudeJsonlLine[];
+  try {
+    lines = parseJsonlLines(filePath);
+  } catch {
+    return null;
+  }
   // turnIndex 指向 DB 里的 turn 序号，proxy jsonl 里 assistant 行按出现顺序
   // 对应 turnIndex（assistant 行 = 每个 wire 轮的响应）。roundIndex 也从 0 起，
   // 逐轮 +1，与 turnIndex 对齐 —— 直接按 assistant 行计数定位。
@@ -187,7 +199,12 @@ function readTurnRequestParamsUncached(filePath: string, turnIndex: number): Tur
 export function readAvailableSkills(
   filePath: string
 ): { skills: Array<{ name: string; description: string; origin: string | null }>; format: 'claude-list' | 'opencode-xml' } | null {
-  const lines = parseJsonlLines(filePath);
+  let lines: ClaudeJsonlLine[];
+  try {
+    lines = parseJsonlLines(filePath);
+  } catch {
+    return null;
+  }
   const candidates: string[] = [];
   for (const line of lines) {
     const xb = (line as { x_cannbay?: { data?: { system?: unknown } } }).x_cannbay;

@@ -183,7 +183,67 @@ describe('GET /api/observe/session/wire-rounds — direct-from-file round view',
 
   it('404 when the session is unknown', async () => {
     const { GET } = await import('@/app/api/observe/session/wire-rounds/route');
-    const res = await GET(new NextRequest('http://localhost/api/observe/session/wire-rounds?taskId=no-such-sid'));
+    const res = await GET(new NextRequest(`http://localhost/api/observe/session/wire-rounds?taskId=no-such-sid`));
     expect(res.status).toBe(404);
   });
+});
+
+describe('POST /api/ingest/import-file — 读取崩溃不再假成功', () => {
+  // parseJsonlLines 旧实现 catch { return [] } 把损坏/超限捕获吞成空文件 →
+  // 占位路径返回 imported:true（现场：631MB 捕获导入只剩 0 turns 空壳行，
+  // cpx 侧打出 ✅ imported）。新语义：读取层错误 500 上抛 + 不建任何行
+  it('损坏的 .gz 捕获 → 500 且不创建占位 session', async () => {
+    const corrupt = path.join(__dirname, './data/claude-sessions/corrupt-capture-it.jsonl.gz')
+    fs.writeFileSync(corrupt, Buffer.from('not gzip payload'))
+    try {
+      const sid = 'corrupt-capture-it'
+      await prisma.session.deleteMany({ where: { taskId: sid } })
+      const res = await POST(req({ source: 'claude-jsonl', sessionId: sid, filePath: corrupt }))
+      expect(res.status).toBe(500)
+      const data = await res.json()
+      expect(String(data.error)).toBeTruthy()
+      expect(await prisma.session.findFirst({ where: { taskId: sid } })).toBeNull()
+    } finally {
+      fs.unlinkSync(corrupt)
+    }
+  })
+})
+
+describe('POST /api/ingest/import-file — Session.model 最频次提取', () => {
+  // 旧口径取首条 assistant 模型：混合模型长会话被首条边缘样本代表（现场
+  // 3.5 天会话首响 glm-4.7 ×1、主力 claude-sonnet-5 ×1710 → 列表显示
+  // glm-4.7）。新口径最频次；并列取先出现（单模型会话行为不变）
+  const mixed = path.join(__dirname, './data/claude-sessions/model-freq-it.jsonl')
+  const ts = (i: number) => new Date(Date.UTC(2026, 8, 20, 10, 0, i)).toISOString()
+  const turn = (i: number, model: string, text: string) => [
+    { type: 'user', message: { role: 'user', content: `q${i}` }, timestamp: ts(i * 2) },
+    { type: 'assistant', message: { id: `m${i}`, role: 'assistant', content: [{ type: 'text', text }], model }, timestamp: ts(i * 2 + 1) },
+  ]
+
+  afterEach(async () => {
+    try { fs.unlinkSync(mixed) } catch { /* */ }
+    await prisma.session.deleteMany({ where: { taskId: { in: ['model-freq-it', 'model-freq-tie-it'] } } })
+  })
+
+  it('混合模型 → 最频次胜出（非首条）；并列 → 先出现', async () => {
+    fs.writeFileSync(mixed, [
+      ...turn(0, 'glm-4.7', 'a'),
+      ...turn(1, 'claude-sonnet-5', 'b'),
+      ...turn(2, 'claude-sonnet-5', 'c'),
+    ].map(l => JSON.stringify(l)).join('\n') + '\n')
+    const res = await POST(req({ source: 'claude-jsonl', sessionId: 'model-freq-it', filePath: mixed }))
+    expect(res.status).toBe(200)
+    const s = await prisma.session.findFirst({ where: { taskId: 'model-freq-it' } })
+    expect(s!.model).toBe('claude-sonnet-5')
+
+    fs.writeFileSync(mixed, [
+      ...turn(0, 'glm-4.7', 'a'),
+      ...turn(1, 'glm-5.2', 'b'),
+    ].map(l => JSON.stringify(l)).join('\n') + '\n')
+    await prisma.session.deleteMany({ where: { taskId: 'model-freq-tie-it' } })
+    const res2 = await POST(req({ source: 'claude-jsonl', sessionId: 'model-freq-tie-it', filePath: mixed }))
+    expect(res2.status).toBe(200)
+    const s2 = await prisma.session.findFirst({ where: { taskId: 'model-freq-tie-it' } })
+    expect(s2!.model).toBe('glm-4.7')
+  })
 });

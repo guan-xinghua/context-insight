@@ -57,7 +57,12 @@ function isAgentHeading(systemBody: string, agentName: string): boolean {
 
 /** 从子代理 jsonl 首条带 system 的 assistant 行提取 system 文本（x_cannbay 优先，legacy 兜底）。 */
 function extractSystemFromSubagentJsonl(filePath: string): string | null {
-  const lines = parseJsonlLines(filePath);
+  let lines: ReturnType<typeof parseJsonlLines>;
+  try {
+    lines = parseJsonlLines(filePath);
+  } catch {
+    return null;
+  }
   for (const line of lines) {
     if (line.type !== 'assistant') continue;
     const l = line as {

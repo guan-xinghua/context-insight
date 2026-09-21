@@ -73,7 +73,13 @@ function contentBlocks(content: unknown): Array<Record<string, unknown>> {
 const approxTokens = (chars: number): number => Math.ceil(chars / 4);
 
 function buildWireChars(sourcePath: string): WireSummary | null {
-  const lines = parseJsonlLines(sourcePath);
+  // 评分取数：源文件缺失/损坏降级为 null（parseJsonlLines 已不吞读取错误）
+  let lines: ReturnType<typeof parseJsonlLines>;
+  try {
+    lines = parseJsonlLines(sourcePath);
+  } catch {
+    return null;
+  }
   if (lines.length === 0) return null;
 
   const history: Array<{ role: string; chars: number; fp: string }> = [];
@@ -184,7 +190,10 @@ function buildWireChars(sourcePath: string): WireSummary | null {
 // ── 结束原因（D1.stopReason 前置门的原料）───────────────────────────
 function detectFinishReason(sourcePath: string | null, turns: ScoreTurn[]): CollectedData['finishReason'] {
   if (sourcePath) {
-    const lines = parseJsonlLines(sourcePath);
+    let lines: ReturnType<typeof parseJsonlLines> = [];
+    try {
+      lines = parseJsonlLines(sourcePath);
+    } catch { /* 源不可读 → 走下方 turns 兜底（与旧行为一致） */ }
     let lastStop: string | null = null;
     for (const line of lines) {
       if (line.type === 'assistant' && line.message) {

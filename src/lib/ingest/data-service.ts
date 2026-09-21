@@ -302,12 +302,19 @@ export function computeSessionAggregates(
     }
   }
 
+  // 最频次模型（并列取先出现——确定性；单模型会话与旧「取首条」行为一致，
+  // 混合模型长会话不再被首条边缘样本代表，现场：3.5 天会话首响 glm-4.7 ×1、
+  // 主力 claude-sonnet-5 ×1710）
   let model: string | null = null;
+  const modelCounts = new Map<string, number>();
   for (const turn of turns) {
     if (turn.role === 'assistant' && turn.model) {
-      model = turn.model;
-      break;
+      modelCounts.set(turn.model, (modelCounts.get(turn.model) ?? 0) + 1);
     }
+  }
+  let modelMaxCount = 0;
+  for (const [m, c] of modelCounts) {
+    if (c > modelMaxCount) { modelMaxCount = c; model = m; }
   }
 
   for (const turn of turns) {

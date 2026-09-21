@@ -63,6 +63,33 @@ describe('claude-jsonl adapter', () => {
       expect(simpleSession?.modelName).toBe('claude-haiku-3-20250415');
     });
 
+    // 最频次模型以 groupAssistantLines 组（= 导入后的 turn）为单位：原生会话
+    // 一个 turn 有多条流式分段行（同 message.id 各带 model），行级计数会把
+    // 多行 turn 加权放大（PR review：glm turn 1 行 vs claude turn 5 行 →
+    // 预览显示 claude、导入后详情却显示 glm，两口径打架）
+    it('modelName 按 turn（message.id 组）计数，多分段行不加权', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-freq-turn-'));
+      try {
+        const f = path.join(dir, 'freq-turn.jsonl');
+        const ts = (i: number) => new Date(Date.UTC(2026, 8, 20, 10, 0, i)).toISOString();
+        const seg = (id: string, model: string, i: number) => ({ type: 'assistant', message: { id, role: 'assistant', content: [{ type: 'text', text: 'x' }], model }, timestamp: ts(i) });
+        fs.writeFileSync(f, [
+          { type: 'user', message: { role: 'user', content: 'q' }, timestamp: ts(0) },
+          // glm 的 1 个 turn = 5 条同 message.id 分段行（行级会数成 5）
+          seg('msg_g', 'glm-5.2', 1), seg('msg_g', 'glm-5.2', 2), seg('msg_g', 'glm-5.2', 3), seg('msg_g', 'glm-5.2', 4), seg('msg_g', 'glm-5.2', 5),
+          { type: 'user', message: { role: 'user', content: 'q2' }, timestamp: ts(6) },
+          // claude 的 2 个 turn = 各 1 行（turn 级 2 > 1 胜出）
+          seg('msg_c1', 'claude-sonnet-5', 7),
+          { type: 'user', message: { role: 'user', content: 'q3' }, timestamp: ts(8) },
+          seg('msg_c2', 'claude-sonnet-5', 9),
+        ].map(l => JSON.stringify(l)).join('\n') + '\n');
+        const sessions = listSessions(dir);
+        expect(sessions[0].modelName).toBe('claude-sonnet-5');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('handles nonexistent directory gracefully', () => {
       const sessions = listSessions('/nonexistent/path/that/does/not/exist');
       expect(sessions).toEqual([]);

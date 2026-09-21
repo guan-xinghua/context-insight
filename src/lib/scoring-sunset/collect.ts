@@ -138,7 +138,13 @@ function contentBlocks(content: unknown): Array<Record<string, unknown>> {
 }
 
 function buildWireChars(sourcePath: string): WireCharsSummary | null {
-  const lines = parseJsonlLines(sourcePath);
+  // 评分取数：源文件缺失/损坏降级为 null（parseJsonlLines 已不吞读取错误）
+  let lines: ReturnType<typeof parseJsonlLines>;
+  try {
+    lines = parseJsonlLines(sourcePath);
+  } catch {
+    return null;
+  }
   if (lines.length === 0) return null;
 
   const history: Array<{ role: string; chars: number; fp: string }> = [];
