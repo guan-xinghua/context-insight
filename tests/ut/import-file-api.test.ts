@@ -56,8 +56,9 @@ describe('POST /api/ingest/import-file — failure reasons', () => {
     fs.writeFileSync(emptyFile, '');
     try {
       const res = await POST(req({ source: 'claude-jsonl', sessionId: 'empty-session-it', filePath: emptyFile }));
-      expect(res.status).toBe(200);
-      const data = await res.json();
+      // 失败时透出路由 500 body（如 SQLITE_BUSY），不再只有裸的 status 断言
+      const data = await res.json().catch(() => null);
+      expect(res.status, `body: ${JSON.stringify(data)}`).toBe(200);
       // b17e13b7 起空 claude 捕获文件导入为占位 session（“捕获中”，等 merge 填充）
       expect(data.imported).toBe(true);
       expect(data.reason).toBe('imported-empty');

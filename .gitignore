@@ -49,8 +49,12 @@ workflow-extract-plugins.json
 # prisma
 prisma/dev.db
 prisma/dev.db-journal
+prisma/dev.db-wal
+prisma/dev.db-shm
 /dev.db
 /dev.db-journal
+/dev.db-wal
+/dev.db-shm
 
 # test data (large files)
 tests/ut/data/opencode-sessions.db

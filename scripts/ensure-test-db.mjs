@@ -37,3 +37,22 @@ if (!existsSync(path.join(PKG_DIR, 'prisma', 'dev.db'))) {
   }
   console.warn('[ensure-test-db] prisma/dev.db created via migrations');
 }
+
+// 并发自愈：dev.db 切 WAL（幂等，worker 拉起前的单进程窗口执行，无竞争）。
+// 默认 rollback-journal（delete）模式每次写锁全库，满并行用例 + 常驻 server
+// 的读写互斥是偶发 SQLITE_BUSY → 路由 500 / 用例超时类 flake 的系统性根因；
+// WAL 下读不阻塞写。对常驻生产 server 同样受益。切不上（被长事务占住等）
+// 只警告不拦测试——退化为现状行为。
+
+const dbFile = path.join(PKG_DIR, 'prisma', 'dev.db');
+try {
+  const mod = require('better-sqlite3');
+  const Database = mod.default ?? mod;
+  const db = new Database(dbFile, { timeout: 10_000 });
+  const mode = db.pragma('journal_mode = WAL', { simple: true });
+  db.close();
+  if (mode === 'wal') console.warn('[ensure-test-db] dev.db journal_mode=WAL');
+  else console.warn(`[ensure-test-db] journal_mode=${mode}（WAL 未生效，跳过）`);
+} catch (e) {
+  console.warn(`[ensure-test-db] WAL 切换失败（不影响继续）: ${e instanceof Error ? e.message : e}`);
+}

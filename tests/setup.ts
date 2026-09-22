@@ -37,7 +37,20 @@ beforeAll(async () => {
     }
     throw e;
   }
-  await prisma.$connect();
+  // WAL 下 many-worker 并发首开 -shm 有瞬时锁竞争（偶发 SQLITE_CANTOPEN/
+  // BUSY），有界重试即过；真实连接错误重试耗尽后原样抛出
+  let lastErr: unknown;
+  for (let i = 0; i < 3; i++) {
+    try {
+      await prisma.$connect();
+      lastErr = undefined;
+      break;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+    }
+  }
+  if (lastErr) throw lastErr;
 });
 
 afterAll(async () => {

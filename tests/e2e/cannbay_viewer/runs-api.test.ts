@@ -25,6 +25,9 @@ process.env.CANNBAY2_REMOTE_URL = path.join(TMP, 'lake.git');
 process.env.CANNBAY2_PUSH_URL = path.join(TMP, 'lake.git');
 process.env.CANNBAY2_CACHE_DIR = path.join(TMP, 'insight-cache');
 process.env.SCORING_DATA_DIR = path.join(TMP, 'scorecards');
+// 本套件测导入编排（物化→写库→状态翻转），不测 LFS bootstrap——无 git-lfs
+// 的机器上默认 LFS 模式会 requireGitLfs fail-fast，fixture 显式关掉聚焦逻辑
+process.env.CANNBAY2_LFS = '0';
 
 const prisma = new PrismaClient();
 
@@ -183,8 +186,9 @@ describe('POST /cannbay_viewer/api/runs/import（一键导入全链路）', () =
     expect(before.items.find(x => x.sid === 'e2e-cccc3333')?.imported).toBe(false);
 
     const res = await POST(importReq('e2e-cccc3333'));
-    expect(res.status).toBe(200);
-    expect((await res.json() as { ok: boolean }).ok).toBe(true);
+    const body0 = await res.json().catch(() => null);
+    expect(res.status, `body: ${JSON.stringify(body0)}`).toBe(200);
+    expect((body0 as { ok: boolean }).ok).toBe(true);
 
     const after = await (await getRuns(runsReq('paradigm=elementwise'))).json() as { items: ApiRun[] };
     const row = after.items.find(x => x.sid === 'e2e-cccc3333');
@@ -208,8 +212,9 @@ describe('POST /cannbay_viewer/api/runs/import（一键导入全链路）', () =
     expect(natRow?.startTime).toBe('2026-09-02T09:00:00+08:00');
 
     const res = await POST(importReq('e2e-nat4444', 'native'));
-    expect(res.status).toBe(200);
-    expect((await res.json() as { ok: boolean }).ok).toBe(true);
+    const body1 = await res.json().catch(() => null);
+    expect(res.status, `body: ${JSON.stringify(body1)}`).toBe(200);
+    expect((body1 as { ok: boolean }).ok).toBe(true);
 
     const after = await (await getRuns(runsReq('paradigm=contraction'))).json() as { items: ApiRun[] };
     expect(after.items.find(x => x.sid === 'e2e-nat4444')?.imported).toBe(true);
@@ -222,7 +227,8 @@ describe('POST /cannbay_viewer/api/runs/import（一键导入全链路）', () =
     const { POST } = await import('../../../src/app/cannbay_viewer/api/runs/import/route');
 
     const res = await POST(importReq('e2e-dual5555', 'native'));
-    expect(res.status).toBe(200);
+    const body2 = await res.json().catch(() => null);
+    expect(res.status, `body: ${JSON.stringify(body2)}`).toBe(200);
 
     const after = await (await getRuns(runsReq('paradigm=dualdb'))).json() as { items: Array<ApiRun & { recording?: string }> };
     const nat = after.items.find(x => x.sid === 'e2e-dual5555' && x.recording === 'native');
