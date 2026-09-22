@@ -272,6 +272,53 @@ describe('claude-jsonl adapter', () => {
       }
     });
 
+    // cpx 思考流捕获契约锁（现场 ses_f4da12dc：DeepSeek 网关思考走
+    // delta.reasoning_content，cpx OpenAIReassembler 修复后落 thinking 块）：
+    // thinking 块 → <thinking> 文本（与 native 会话同构，UI LLM Output 可见）；
+    // reasoning tokens 走 x_cannbay cc-wire-round 声明式通道（legacy usage 无
+    // reasoning 字段可载）。本用例不改适配器 —— 锁既有读取通道不被回归。
+    it('cpx thinking 块 → <thinking> 文本 + cc-wire-round.reasoningTokens → usage.reasoning', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cpx-thinking-contract-'));
+      try {
+        const f = path.join(dir, 'cpx-ses_rsn_contract.jsonl');
+        const ts = (i: number) => new Date(Date.UTC(2026, 8, 21, 8, 0, i)).toISOString();
+        fs.writeFileSync(f, [
+          JSON.stringify({ type: 'user', message: { role: 'user', content: '看下这个会话' }, timestamp: ts(0) }),
+          // bug 真实形态：thinking + tool_use、无正文（修复前 cpx 件只剩 tool_use）
+          JSON.stringify({
+            type: 'assistant',
+            message: {
+              id: 'msg_rsn_1', role: 'assistant',
+              content: [
+                { type: 'thinking', thinking: '先看实现再决定' },
+                { type: 'tool_use', id: 'call_rsn_1', name: 'bash', input: { command: 'ls' } },
+              ],
+              model: 'deepseek-v4-pro',
+              usage: { input_tokens: 11, output_tokens: 6, cache_read_input_tokens: 2, reasoning_tokens: 4 },
+            },
+            timestamp: ts(1),
+            source: 'opencode-proxy',
+            duration_ms: 1000,
+            stopReason: 'tool_calls',
+            x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', reasoningTokens: 4 } },
+          }),
+        ].join('\n'));
+        const interactions = readSession(f, 'ses_rsn_contract');
+        const assistant = interactions.find(i => i.role === 'assistant');
+        expect(assistant).toBeDefined();
+        // thinking 块 → <thinking> 文本（LLM Output 可见，与 native 同构）
+        expect(assistant!.content).toBe('<thinking>先看实现再决定</thinking>');
+        // 工具调用照常配对
+        expect(assistant!.tool_calls?.[0]).toMatchObject({ toolCallId: 'call_rsn_1', toolName: 'bash' });
+        // reasoning tokens 声明式通道恢复（message.usage.reasoning_tokens 非 claude 契约字段，不被读）
+        expect(assistant!.usage?.reasoning).toBe(4);
+        expect(assistant!.finish_reason).toBe('tool_calls');
+        expect(assistant!.latency).toBe(1000);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('merges parallel tool calls from same API response into one turn', () => {
       // When Claude Code streams a single API response with multiple tool_use blocks,
       // it writes them as separate assistant lines interleaved with user tool_result lines.

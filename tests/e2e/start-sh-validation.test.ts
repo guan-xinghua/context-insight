@@ -124,6 +124,99 @@ describe('start.sh -c parameter validation', () => {
   });
 });
 
+// 依赖实装守卫（npm ls 校验，cpx install.sh 同款纪律）：git pull 拉到新依赖
+// 声明而旧 node_modules 未重装时，start.sh 此前只查目录存在会跳过 npm
+// install → next build 期 Module not found（现场：存量部署机 Turbopack
+// Can't resolve '7zip-bin'，报错不指向真因）。源码级锁 + 行为级锁
+// （kill_all_insight IT 同款单函数提取执行，stub npm 记录调用与退出码）。
+describe('start.sh 依赖实装守卫（旧 node_modules × 新依赖声明 → 自动补装）', () => {
+  it('源码级：守卫用 npm ls 校验实装状态（回退成目录存在性检查即红）', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    expect(src).toContain('npm ls --omit=dev --depth=0');
+    expect(src).not.toMatch(/\[ ! -d "node_modules" \]/);
+  });
+
+  function runGuardCase(opts: {
+    nodeModules: boolean; lsExit: number; installExit: number; update: boolean;
+  }): { guardExit: number; npmLog: string; stdout: string; errText: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'startsh-deps-it-'));
+    try {
+      const stubBin = path.join(dir, 'bin');
+      fs.mkdirSync(stubBin, { recursive: true });
+      if (opts.nodeModules) fs.mkdirSync(path.join(dir, 'node_modules'));
+      const npmLog = path.join(dir, 'npm.log');
+      fs.writeFileSync(path.join(stubBin, 'npm'), [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}`,
+        'case "$1" in',
+        `  ls) exit ${opts.lsExit} ;;`,
+        `  install) exit ${opts.installExit} ;;`,
+        'esac',
+        'exit 0',
+        '',
+      ].join('\n'));
+      fs.chmodSync(path.join(stubBin, 'npm'), 0o755);
+      // 源码级单函数提取执行（不动 start.sh 其余逻辑）；提取失败即红
+      const fn = execSync(
+        `sed -n '/^install_deps_if_needed() {/,/^}/p' ${JSON.stringify(START_SH)}`,
+        { encoding: 'utf8' },
+      );
+      expect(fn).toContain('npm ls');
+      const runner = path.join(dir, 'runner.sh');
+      fs.writeFileSync(runner, [
+        `UPDATE=${opts.update}`,
+        `source ${JSON.stringify(path.join(dir, 'fn.sh'))}`,
+        'install_deps_if_needed 2>guard.err',
+        'echo "GUARD_EXIT=$?"',
+      ].join('\n'));
+      fs.writeFileSync(path.join(dir, 'fn.sh'), fn);
+      const stdout = execSync(`bash ${JSON.stringify(runner)}`, {
+        encoding: 'utf8',
+        cwd: dir,
+        env: { ...process.env, PATH: `${stubBin}:${process.env.PATH ?? ''}` },
+      });
+      const errFile = path.join(dir, 'guard.err');
+      return {
+        guardExit: parseInt((stdout.match(/GUARD_EXIT=(\d+)/) ?? [])[1] ?? '-1', 10),
+        npmLog: fs.existsSync(npmLog) ? fs.readFileSync(npmLog, 'utf8') : '',
+        stdout,
+        errText: fs.existsSync(errFile) ? fs.readFileSync(errFile, 'utf8') : '',
+      };
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('健康树：npm ls 通过 → install 不触发，守卫放行', () => {
+    const r = runGuardCase({ nodeModules: true, lsExit: 0, installExit: 0, update: false });
+    expect(r.guardExit).toBe(0);
+    expect(r.npmLog).not.toContain('install');
+  });
+
+  it('用户现场形态：node_modules 存在但缺件（npm ls 失败）→ 自动补装', () => {
+    const r = runGuardCase({ nodeModules: true, lsExit: 1, installExit: 0, update: false });
+    expect(r.guardExit).toBe(0);
+    expect(r.npmLog).toContain('install');
+  });
+
+  it('无 node_modules：直接安装', () => {
+    const r = runGuardCase({ nodeModules: false, lsExit: 1, installExit: 0, update: false });
+    expect(r.guardExit).toBe(0);
+    expect(r.npmLog).toContain('install');
+  });
+
+  it('缺件且安装失败：fail-fast 退出 1（不裸奔进 build 给出误导性 Module not found）', () => {
+    const r = runGuardCase({ nodeModules: true, lsExit: 1, installExit: 1, update: false });
+    expect(r.guardExit).toBe(1);
+    expect(r.errText).toContain('deps incomplete');
+  });
+
+  it('-u 更新且安装失败：旧依赖完整可用，不阻断（non-fatal）', () => {
+    const r = runGuardCase({ nodeModules: true, lsExit: 0, installExit: 1, update: true });
+    expect(r.guardExit).toBe(0);
+    expect(r.errText).toContain('non-fatal');
+  });
+});
 // 启动关键路径不被 git-lfs 自举预取阻塞：start.sh 调 cpx install.sh 时必须
 // 钉 CPX_SKIP_LFS_SETUP=1（GitHub 直连受限时预取会阻塞 ~2min，实测拉长
 // "杀旧→Ready" 停机窗口）。源码级锁——env 前缀被移除即红。

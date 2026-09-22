@@ -81,10 +81,32 @@ if [ "$CLI" = true ]; then
   fi
 fi
 
-if [ "$UPDATE" = true ] || [ ! -d "node_modules" ]; then
-  echo "[setup] Installing dependencies..."
-  npm install
-fi
+# 依赖实装守卫（cpx install.sh 同款纪律）：node_modules 目录存在 ≠ 依赖齐全
+# —— git pull 拉到新依赖声明（如 7z 升级的 7zip-bin）而未跑 npm install 的旧
+# node_modules 会缺件，next build 期 Module not found（现场：存量部署机
+# Turbopack Can't resolve '7zip-bin'，报错不指向真因）。npm ls 校验生产树
+# 实装状态（健康树 ~0.6s），缺件即补装；安装失败仅在依赖确实不完整时
+# fail-fast（此时 build 必炸，快死快报），-u 触发的失败不阻断（旧依赖仍
+# 完整可用，与既有行为一致）。
+install_deps_if_needed() {
+  local deps_ready=false
+  if [ -d node_modules ] && npm ls --omit=dev --depth=0 >/dev/null 2>&1; then
+    deps_ready=true
+  fi
+  if [ "$UPDATE" = true ] || [ "$deps_ready" = false ]; then
+    echo "[setup] Installing dependencies..."
+    if npm install; then
+      return 0
+    fi
+    if [ "$deps_ready" = false ]; then
+      echo "[setup] npm install failed — deps incomplete, build would fail (Module not found). Check network/registry or run: npm ci" >&2
+      return 1
+    fi
+    echo "[setup] npm install failed (non-fatal — existing deps still usable)" >&2
+  fi
+  return 0
+}
+install_deps_if_needed || exit 1
 
 # Proxy (cpx) setup — delegated to the standalone proxy installer, so both
 # `./start.sh` (integrated) and `../cpx/install.sh` (standalone, capture works

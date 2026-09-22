@@ -373,3 +373,44 @@ describe('cannbay2 上传指标快照：activeMs 活跃时长（与 Wall Clock �
     expect(d.activeMs).toBe(8 * 60_000);    // 活跃快照：两簇各 4min
   }, 60_000);
 });
+
+describe('cannbay2 上传自愈：失败残留脏工作树 → checkout 自愈后继续', () => {
+  it('脏工作树（物化件被改 + 未跟踪文件）不阻断后续上传', async () => {
+    const SID_HEAL = 'cc-extra-heal-0001';
+    EXTRA_SIDS.push(SID_HEAL);
+    // 第一次上传：建镜像 + 物化 others/<sid>/
+    const f = writeJsonlFixture(SID_HEAL, [
+      turnLine(0, 'user', 'heal v1'),
+      turnLine(1, 'assistant', 'ok v1'),
+    ]);
+    await importSession(f, SID_HEAL, prisma, f, 'claude-jsonl');
+    await cannbay2.uploadCannbay2Session(prisma, SID_HEAL, '提交人: t\n内容描述: heal v1', undefined, 'others');
+
+    // 模拟失败上传残留：物化件被改动 + 未跟踪垃圾（实测 2026-09-21：配额拒
+    // push 后的 staged/未提交物化件让下次上传死在 checkout -B
+    // "local changes would be overwritten"）
+    const dir = mirror.cannbay2CacheDir();
+    const sessDir = path.join(dir, 'others', SID_HEAL);
+    const materialized = fs.readdirSync(sessDir).map(f => path.join(sessDir, f))
+      .find(f => fs.statSync(f).isFile());
+    expect(materialized).toBeDefined(); // 物化区有会话件（.jsonl.7z / .meta.json 任一）
+    fs.appendFileSync(materialized!, '{"dirty":"leftover"}\n');
+    fs.writeFileSync(path.join(sessDir, 'untracked-junk'), 'junk');
+
+    // 旧代码：checkout -B 直接拒绝；新代码：过滤器中性化硬复位 + 清未跟踪 → 重试成功
+    const f2 = writeJsonlFixture(SID_HEAL, [
+      turnLine(0, 'user', 'heal v1'),
+      turnLine(1, 'assistant', 'ok v1'),
+      turnLine(2, 'user', 'heal v2'),
+      turnLine(3, 'assistant', 'ok v2'),
+    ]);
+    await importSession(f2, SID_HEAL, prisma, f2, 'claude-jsonl');
+    await expect(cannbay2.uploadCannbay2Session(prisma, SID_HEAL, '提交人: t\n内容描述: heal v2', undefined, 'others'))
+      .resolves.toBeTruthy();
+
+    // 远端确实收到 v2 提交（脏残留已被自愈复位，v2 内容整体替换）
+    const out = execSync(`git -C "${BARE}" log --oneline -- "others/${SID_HEAL}"`, { stdio: 'pipe' }).toString();
+    expect(out).toContain('heal v2');
+    expect(fs.existsSync(path.join(dir, 'others', SID_HEAL, 'untracked-junk'))).toBe(false);
+  });
+});

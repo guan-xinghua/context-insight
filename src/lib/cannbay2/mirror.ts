@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaultCannbay2Remote, escapeRegExp, normalizeDirPrefix, stripUrlCreds } from './remote';
 import type { Cannbay2Remote } from './remote';
+import { privateLfsBinDir, ensureLfsBinaryAvailable } from './lfs-setup';
 import { isProxyVersion } from '../shared/session-format';
 
 export { CANNBAY2_PULL_URL, CANNBAY2_PUSH_URL, CANNBAY2_BRANCH } from './remote';
@@ -784,14 +785,13 @@ export function hasGitLfs(): boolean {
   }
 }
 
+/** 私有 bin 目录（~/.cannbot-insight/bin）与自举下载见 lfs-setup.ts——
+ *  与 cpx 自举产物同位互用。此处仅消费目录。 */
 // cpx 私有 git-lfs 件（~/.cannbot-insight/bin/git-lfs，cpx lfs-setup 自举产物：
 // 系统 git-lfs 缺失时下载，零全局污染）。insight 复用同一份——两包数据目录
 // 同源，PATH 注入后 git 子进程（filter/钩子）自然命中。CANNBOT_PROXY_DIR 重定向
-// 优先（与 cpx lfs-setup 同语义，测试隔离用）。'.cannbot-insight' 引号字面量
-// 由 pack-context 规则表品牌翻转（context 变体 → ~/.context-insight/bin）。
-function privateLfsBinDir(): string {
-  return path.join(path.dirname(process.env.CANNBOT_PROXY_DIR ?? path.join(os.homedir(), '.cannbot-insight', 'proxy')), 'bin');
-}
+// 优先（与 cpx lfs-setup 同语义，测试隔离用）。
+// （privateLfsBinDir 已收敛到 ./lfs-setup.ts 单一来源）
 
 /** 私有件存在且系统无 git-lfs 时前置 bin 目录到本进程 PATH（幂等；不碰
  *  gitconfig / 用户 shell 配置——仅本进程树，镜像 git 子进程自然继承）。 */
@@ -810,13 +810,13 @@ const LFS_PRE_PUSH_HOOK = '#!/bin/sh\ncommand -v git-lfs >/dev/null 2>&1 || { ec
 
 /** 镜像内 LFS 就绪：fail-fast git-lfs 在机检查 + 仓级 filter 配置 + pre-push
  *  钩子。幂等；不触碰全局配置（仓级配置优先级高于全局，双保险）。
- *  git-lfs 解析链：系统件 > cpx 私有件（~/.cannbot-insight/bin，PATH 注入）。 */
+ *  git-lfs 解析链：系统件 > cpx/insight 私有件（~/.cannbot-insight/bin，PATH 注入）。 */
 export function ensureLfsReady(dir: string): void {
   ensurePrivateLfsOnPath();
   if (!hasGitLfs()) {
     throw new Error('LFS 模式需要 git-lfs（`git lfs version` 不可用），三条出路任选：'
       + ' ① 系统安装 git-lfs 并确保在 PATH（https://git-lfs.github.com）；'
-      + ' ② 跑一次 `cpx lfs-setup` 自举私有件到 ~/.cannbot-insight/bin（insight 自动复用，零全局污染）；'
+      + ' ② 直接重试上传——insight 会自动下载私有件到 ~/.cannbot-insight/bin（与 cpx lfs-setup 产物同位互用，零全局污染；慢网络可设 CANNBOT_CPX_LFS_BASE 镜像）；'
       + ' ③ 设置 env CANNBAY2_LFS=0 关闭 LFS 走普通 git 存储');
   }
   runGit('git config filter.lfs.process "git-lfs filter-process"', dir, 10_000, { raw: true });
@@ -828,6 +828,19 @@ export function ensureLfsReady(dir: string): void {
     fs.mkdirSync(path.dirname(hook), { recursive: true });
     fs.writeFileSync(hook, LFS_PRE_PUSH_HOOK, { mode: 0o755 });
   }
+}
+
+/** 上传路径 LFS 就绪（带自举）：私有件在位 → PATH 前置直接过检；缺失 →
+ *  自动下载安装（sha256 校验，见 lfs-setup.ts）后再过检。用户场景零手工
+ *  安装——纯 insight 安装（无 cpx）首次上传即自愈。失败抛指引（网络不可达
+ *  等），捕获保留本地，配置镜像后重试上传即自动重试自举。 */
+export async function ensureLfsReadyWithBootstrap(dir: string): Promise<void> {
+  ensurePrivateLfsOnPath();
+  if (!hasGitLfs()) {
+    await ensureLfsBinaryAvailable();
+    ensurePrivateLfsOnPath();
+  }
+  ensureLfsReady(dir);
 }
 
 // LFS 模式下确保 .gitattributes 声明 *.7z / *.gz 走 LFS（缺行补行，与默认模式
@@ -882,8 +895,9 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     const targetRoot = category ?? remote.rootDir;
     const dir = ensureMirror(remote);
     if (!revParseMain(dir, remote)) throw new Error('cannbay2 mirror has no main branch');
-    // LFS 模式：镜像内就绪（git-lfs 检查 + filter 配置 + pre-push 钩子）
-    if (remote.lfs) ensureLfsReady(dir);
+    // LFS 模式：镜像内就绪（git-lfs 检查 + filter 配置 + pre-push 钩子）。
+    // 自举版——私有件缺失时自动下载（用户场景零手工安装）
+    if (remote.lfs) await ensureLfsReadyWithBootstrap(dir);
     // 同 sid 双记录：目录名按记录类区分（捕获=裸 sid/，原生 claude=sid.native/）。
     // 全部路径推导（sparse/rm/target/交换）统一走 folder，另一记录类的目录
     // 永不触碰
@@ -920,7 +934,19 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
 
     runGit('git sparse-checkout init --no-cone', dir);
     runGit(`git sparse-checkout set "/${targetRoot}/${folder}/**" "/.gitattributes"${staleLocs.map(l => ` "/${locationPath(l, sid)}/**"`).join('')}${baseline ? ` "/${targetRoot}/baseline/**"` : ''}${swapBack.map(s => ` "/${targetRoot}/${s}/**"`).join('')}`, dir);
-    runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
+    // 自愈：上次失败上传可能残留脏工作树（物化件未提交/push 被拒后 staged），
+    // checkout -B 会拒绝覆盖。镜像工作树本就是可丢弃的物化缓存——失败时
+    // 硬复位 + 清未跟踪后重试（happy path 零开销；runGit 默认过滤器中性化，
+    // 复位不依赖 git-lfs 在机）。此前该态一旦出现，之后每次上传都死在
+    // checkout（实测 2026-09-21：配额拒 push 遗留 → 下次上传报
+    // "local changes would be overwritten"）
+    try {
+      runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
+    } catch {
+      runGit(`git reset --hard origin/${remote.branch}`, dir);
+      runGit('git clean -fdq', dir);
+      runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
+    }
     runGit('git reset --quiet', dir); // 丢弃上次失败上传可能残留的 staged 状态
 
     // staging 是该记录的完整权威集合：先清空目标目录与旧位置再拷入。

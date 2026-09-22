@@ -118,8 +118,19 @@ const prisma = new PrismaClient();
 const cannbay2 = await import('../../src/lib/cannbay2');
 const mirror = await import('../../src/lib/cannbay2/mirror');
 const governance = await import('../../src/lib/cannbay2/governance');
+const compression = await import('../../src/lib/compression');
 const proxyRedactor = await import('../../../cpx/src/redactor');
 const route = await import('../../src/app/api/ingest/cannbay2/route');
+
+// staging 出仓形态的期望字节：uploadCannbay2Session 对 .gz 源做「拷贝 →
+// ensure7z」（存量 gz 借此迁移新格式），确定性开关保证同内容同字节——本地
+// 同款转换即得期望档案（条目名 <sid>.jsonl 与 staging 一致）
+function expectedStaged7z(sourceGz: string, sid: string): Buffer {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cannbay2-exp7z-'));
+  const staged = path.join(dir, `${sid}.jsonl.gz`);
+  fs.copyFileSync(sourceGz, staged);
+  return fs.readFileSync(compression.ensure7z(staged));
+}
 
 function makeRequest(body: unknown) {
   return new NextRequest('http://localhost/api/ingest/cannbay2', {
@@ -203,10 +214,10 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
     expect(ga).not.toContain('filter=lfs');
   });
 
-  it('远端文件已脱敏（gzip 出仓）：物化回读明文密钥不出仓，掩码保留可读性', () => {
+  it('远端文件已脱敏（7z 出仓）：物化回读明文密钥不出仓，掩码保留可读性', () => {
     const mainJsonl = mirror.materializeSession(SID, undefined, 'native');
-    expect(mainJsonl.endsWith('.jsonl.gz')).toBe(true); // gzip at rest 出仓形态
-    const text = zlib.gunzipSync(fs.readFileSync(mainJsonl)).toString('utf8');
+    expect(mainJsonl.endsWith('.jsonl.7z')).toBe(true); // 7z at rest 出仓形态
+    const text = compression.readCaptureText(mainJsonl);
     for (const key of RAW_KEYS) {
       expect(text).not.toContain(key);
     }
@@ -220,10 +231,10 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
     const matSub = path.join(CACHE, 'materialized', `${SID}.native`, 'subagents');
     const names = fs.readdirSync(matSub);
     expect(names.length).toBeGreaterThan(0);
-    expect(names.every(n => n.endsWith('.jsonl.gz') || n.endsWith('.json'))).toBe(true);
+    expect(names.every(n => n.endsWith('.jsonl.7z') || n.endsWith('.json'))).toBe(true);
     expect(names).not.toContain('stray-notes.txt');
     for (const f of names) {
-      const t = f.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(path.join(matSub, f))).toString('utf8') : fs.readFileSync(path.join(matSub, f), 'utf8');
+      const t = f.endsWith('.json') ? fs.readFileSync(path.join(matSub, f), 'utf8') : compression.readCaptureText(path.join(matSub, f));
       expect(t).not.toContain('strayfile-secret');
     }
   });
@@ -326,9 +337,10 @@ describe('cannbay2 治理熔断：复检残留 → 拒绝上传且远端无新 c
 });
 
 describe('cannbay2 上传快路径（governed 直传）与兜底回退', () => {
-  // 快路径条件：源 .jsonl.gz 全量 + 伴生 meta producer=cpx + governed=true。
-  // 直传 = 不解压不重洗不重压：governText 从未被调用（spy 证明），远端字节
-  // 与源 gzip 字节一致。其余一切（明文源 / 无标记 / 混合形态）→ 治理兜底。
+  // 快路径条件：staging ensure7z 后 .jsonl.7z 全量 + 伴生 meta producer=cpx +
+  // governed=true。直传 = 不解压不重洗不重压：governText 从未被调用（spy
+  // 证明），远端字节与确定性 7z 期望档案一致。其余一切（明文源 / 无标记 /
+  // 混合形态）→ 治理兜底。
   const SID_F = 'cc-cannbay2-fast-0001';
   const SID_S = 'cc-cannbay2-slow-0001';
 
@@ -347,17 +359,17 @@ describe('cannbay2 上传快路径（governed 直传）与兜底回退', () => {
     return mainFile;
   }
 
-  it('快路径：governed .gz 直传 —— governText 零调用，远端字节 = 源 gzip 字节', async () => {
+  it('快路径：governed 直传（staging ensure7z）—— governText 零调用，远端字节 = 确定性 7z 期望档案', async () => {
     const f = gzCaptureFixture(FIXTURES, SID_F, true);
     await importSession(`${f}.gz`, SID_F, prisma, `${f}.gz`, 'claude-jsonl');
     try {
-      const srcGz = fs.readFileSync(`${f}.gz`);
+      const expected7z = expectedStaged7z(`${f}.gz`, SID_F);
       const spy = vi.spyOn(governance, 'governText');
       const up = await cannbay2.uploadCannbay2Session(prisma, SID_F, '提交人: 测试者\n内容描述: governed 直传', undefined, 'others');
       expect(up.unchanged).toBe(false);
       expect(spy).not.toHaveBeenCalled(); // 直传：治理未执行
-      const remote = execSync(`git cat-file -p $(git rev-parse main:others/${SID_F}/${SID_F}.jsonl.gz)`, { cwd: BARE, stdio: 'pipe' });
-      expect(remote.equals(srcGz)).toBe(true); // 字节级一致（未重压）
+      const remote = execSync(`git cat-file -p $(git rev-parse main:others/${SID_F}/${SID_F}.jsonl.7z)`, { cwd: BARE, stdio: 'pipe' });
+      expect(remote.equals(expected7z)).toBe(true); // 字节级一致（确定性 7z，未重压）
       await prisma.session.deleteMany({ where: { taskId: SID_F } });
       await cannbay2.importCannbay2Session(SID_F, prisma);
       const s = await prisma.session.findFirst({ where: { taskId: SID_F } });
@@ -380,8 +392,14 @@ describe('cannbay2 上传快路径（governed 直传）与兜底回退', () => {
       const up = await cannbay2.uploadCannbay2Session(prisma, SID_S, '提交人: 测试者\n内容描述: 无标记走治理', undefined, 'others');
       expect(up.unchanged).toBe(false);
       expect(spy).toHaveBeenCalled(); // 慢路径：治理执行
-      const remote = execSync(`git cat-file -p $(git rev-parse main:others/${SID_S}/${SID_S}.jsonl.gz)`, { cwd: BARE, stdio: 'pipe' });
-      expect(zlib.gunzipSync(remote).toString('utf8')).toContain(`直传验证 ${SID_S}`); // 内容经治理保留
+      const remote = execSync(`git cat-file -p $(git rev-parse main:others/${SID_S}/${SID_S}.jsonl.7z)`, { cwd: BARE, stdio: 'pipe' });
+      const tmp7z = path.join(FIXTURES, `${SID_S}.remote.7z`);
+      fs.writeFileSync(tmp7z, remote);
+      try {
+        expect(compression.readCaptureText(tmp7z)).toContain(`直传验证 ${SID_S}`); // 内容经治理保留
+      } finally {
+        fs.rmSync(tmp7z, { force: true });
+      }
     } finally {
       await prisma.session.deleteMany({ where: { taskId: SID_S } }).catch(() => {});
       fs.rmSync(f, { force: true }); fs.rmSync(`${f}.gz`, { force: true });
@@ -477,16 +495,23 @@ describe('cannbay2 route', () => {
       expect(rawBytes).toBeGreaterThan(10 * 1024 * 1024); // 原始 >10MB（30 轮 × ~340KB 冗余）
       const up = await cannbay2.uploadCannbay2Session(prisma, SID_BIG, '提交人: 测试者\n内容描述: 大会话压缩上传', undefined, 'others');
       expect(up.unchanged).toBe(false);
-      // 远端文件 gzip 出仓：解压后是 verbatim 全文（指纹压缩已退役），压缩字节 <1.5MB
-      const gzBytes = execSync(`git show main:others/${SID_BIG}/${SID_BIG}.jsonl.gz`, { cwd: BARE, stdio: 'pipe' });
-      expect(gzBytes.length).toBeLessThan(1_500_000); // 10MB+ 冗余 → gzip 后 <1.5MB
-      const remote = zlib.gunzipSync(gzBytes).toString('utf8');
+      // 远端文件 7z 出仓：解压后是 verbatim 全文（指纹压缩已退役），压缩字节 <1.5MB
+      const z7Bytes = execSync(`git show main:others/${SID_BIG}/${SID_BIG}.jsonl.7z`, { cwd: BARE, stdio: 'pipe' });
+      expect(z7Bytes.length).toBeLessThan(1_500_000); // 10MB+ 冗余 → 7z 后 <1.5MB
+      const tmp7z = path.join(FIXTURES, `${SID_BIG}.remote.7z`);
+      fs.writeFileSync(tmp7z, z7Bytes);
+      let remote: string;
+      try {
+        remote = compression.readCaptureText(tmp7z);
+      } finally {
+        fs.rmSync(tmp7z, { force: true });
+      }
       expect(remote).toContain('You are opencode, an interactive CLI tool.'); // verbatim 全文保留
       // 导入回读：Full Context 从首个全文行取 systemPrompt/tools（压缩零影响）
       const result = await cannbay2.importCannbay2Session(SID_BIG, prisma);
       expect(result).toBeTruthy();
       const fc = await import('../../src/lib/ingest/adapters/claude-jsonl-full-context').then(m => m.readFullContext(
-        path.join(CACHE, 'materialized', `${SID_BIG}.jsonl.gz`)));
+        path.join(CACHE, 'materialized', `${SID_BIG}.jsonl.7z`)));
       expect(fc?.systemPrompt).toContain('You are opencode');
       expect(fc?.tools?.length).toBe(20);
     } finally {

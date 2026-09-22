@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { readSession, classifyAgentInjection } from '../../../src/lib/ingest/adapters/claude-jsonl.ts';
-import { firstHumanQueryText } from '../../../src/lib/ingest/data-service.ts';
+import { firstHumanQueryText, resolveSessionQuery } from '../../../src/lib/ingest/data-service.ts';
 import path from 'node:path';
 
 const FIXTURE = path.resolve(__dirname, '../data/claude-sessions/handback-injections.jsonl');
@@ -151,5 +151,50 @@ describe('首真人查询回落（data-service.firstHumanQueryText）', () => {
       { role: 'user', content: '"""ir_after_sync —— 同步版 IR（⑦）。\n\n在 ir_after_vf.py' },
       { role: 'assistant', content: '继续处理。' },
     ])).toBe('继续处理。');
+  });
+
+  it('后台任务通知不作 Query（<task id=… state=…> 注入的 user 消息）', () => {
+    // 实测 ses_f4c5b028：捕获恰从通知处开始，Query 曾显示
+    // "Background task completed: ④ empty 泳道 模板计算流"
+    expect(firstHumanQueryText([
+      { role: 'user', content: '<task id="ses_f4baddab" state="completed">\n<summary>Background task completed: ④ empty 泳道 模板计算流</summary>\n</task>' },
+      { role: 'user', content: '请继续 ⑦ 的收尾归档' },
+    ])).toBe('请继续 ⑦ 的收尾归档');
+    // 全是通知时回落 assistant 文本，不把通知当 Query
+    expect(firstHumanQueryText([
+      { role: 'user', content: '<task id="ses_x" state="failed">\n<summary>任务失败</summary>\n</task>' },
+      { role: 'assistant', content: '收到失败通知，开始重试。' },
+    ])).toBe('收到失败通知，开始重试。');
+  });
+
+  it('skill 调用正文深处的块引用不连累整条（文档注入只看开头窗口）', () => {
+    // 实测 ses_f4c5b028：13.6KB skill 调用说明在第 1402 字符处的块引用被旧
+    // "全文任一处含 \n> " 整条误杀 → Query 落到任务通知上
+    const skillInvocation = '# ops-registry-invoke-fusion-design\n\n算子**设计阶段**的编排 skill。核心：把设计建模成逐级精化的 IR 流水线。'
+      + '正文很长。'.repeat(80) + '\n> 深处偶现的引用块';
+    expect(skillInvocation.indexOf('\n> ')).toBeGreaterThan(200);
+    expect(firstHumanQueryText([{ role: 'user', content: skillInvocation }]))
+      ?.toContain('ops-registry-invoke-fusion-design');
+  });
+});
+
+describe('会话 Query 决议（data-service.resolveSessionQuery）', () => {
+  it('opencode 标题优先于首真人查询（对意图的浓缩更准）', () => {
+    expect(resolveSessionQuery(
+      { title: 'ConfusionMulGrad Ascend C 算子开发' },
+      [{ role: 'user', content: '继续' }],
+    )).toBe('ConfusionMulGrad Ascend C 算子开发');
+  });
+
+  it('缺省占位标题（New session - …）回落首真人查询', () => {
+    expect(resolveSessionQuery(
+      { title: 'New session - 2026-09-18T08:32:09.590Z' },
+      [{ role: 'user', content: '请帮我实现 ConfusionMulGrad 算子' }],
+    )).toContain('请帮我实现 ConfusionMulGrad');
+  });
+
+  it('无标题（proxy 捕获/旧库）天然回落', () => {
+    expect(resolveSessionQuery({}, [{ role: 'user', content: '继续' }])).toBe('继续');
+    expect(resolveSessionQuery({ title: null }, [{ role: 'user', content: '继续' }])).toBe('继续');
   });
 });

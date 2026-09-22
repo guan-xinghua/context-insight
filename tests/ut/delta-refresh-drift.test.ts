@@ -192,3 +192,69 @@ describe('增量刷新漂移检测', () => {
     expect(after.endTime?.getTime()).toBeGreaterThan(t0); // 1970 脏值重算为源内时间
   });
 });
+
+describe('opencode 标题作 Query（title 优先决议）', () => {
+  const TITLE_TASK = 'cc-title-query-it';
+  const TITLE_DB = path.join(TMP, 'opencode-title.db');
+
+  function writeTitleDb(title: string | null): void {
+    fs.rmSync(TITLE_DB, { force: true });
+    const db = new Database(TITLE_DB);
+    // 真实 opencode.db 布局：session 表含 title 列（title-gen 产物）
+    db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, version TEXT, directory TEXT, summary_additions INTEGER, summary_deletions INTEGER, summary_files INTEGER)');
+    db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_created INTEGER, time_updated INTEGER)');
+    db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)');
+    db.prepare('INSERT INTO session VALUES (?, NULL, ?, NULL, NULL, NULL, NULL, NULL)').run(TITLE_TASK, title);
+    const t0 = 1789300000000;
+    // 首条 user 是后台任务通知（曾误导 Query 的形态），其后才是真人输入
+    const rows: Array<[string, string | null]> = [
+      ['user', '<task id="ses_bg1" state="completed">\n<summary>Background task completed</summary>\n</task>'],
+      ['user', '请实现 ConfusionMulGrad 算子'],
+      ['assistant', '好的，开始。'],
+    ];
+    let seq = 0;
+    for (const [role, text] of rows) {
+      const data: Record<string, unknown> = { role, time: { created: t0 + seq * 1000, completed: t0 + seq * 1000 + 900 } };
+      if (role === 'assistant') data.agent = 'build';
+      db.prepare('INSERT INTO message VALUES (?, ?, ?, ?, ?)').run(`m${seq}`, TITLE_TASK, JSON.stringify(data), t0 + seq * 1000, t0 + seq * 1000);
+      if (text) {
+        db.prepare('INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)').run(
+          `p${seq}`, `m${seq}`, TITLE_TASK, t0 + seq * 1000, t0 + seq * 1000, JSON.stringify({ type: 'text', text }));
+      }
+      seq++;
+    }
+    db.close();
+  }
+
+  it('小模型生成的标题直接作 Query（任务通知不掺和）', async () => {
+    await prisma.session.deleteMany({ where: { taskId: TITLE_TASK } }).catch(() => {});
+    writeTitleDb('ConfusionMulGrad Ascend C 算子开发');
+    await importSession(TITLE_DB, TITLE_TASK, prisma, TITLE_DB, 'opencode-db');
+    const s = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
+    expect(s.query).toBe('ConfusionMulGrad Ascend C 算子开发');
+  });
+
+  it('缺省占位标题（New session - …）回落：任务通知跳过、取真人输入', async () => {
+    await prisma.session.deleteMany({ where: { taskId: TITLE_TASK } });
+    writeTitleDb('New session - 2026-09-18T08:32:09.590Z');
+    await importSession(TITLE_DB, TITLE_TASK, prisma, TITLE_DB, 'opencode-db');
+    const s = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
+    expect(s.query).toBe('请实现 ConfusionMulGrad 算子');
+  });
+
+  it('delta 刷新（快路径回写）同样保持标题决议', async () => {
+    await prisma.session.deleteMany({ where: { taskId: TITLE_TASK } });
+    writeTitleDb('ConfusionMulGrad Ascend C 算子开发');
+    await importSession(TITLE_DB, TITLE_TASK, prisma, TITLE_DB, 'opencode-db');
+    // 手动污染 query（模拟旧版残留），刷新后应回到标题
+    const s = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
+    await prisma.session.update({ where: { id: s.id }, data: { query: '<task id="x" state="completed">旧残留</task>' } });
+    await deltaRefreshSession(TITLE_TASK, prisma);
+    const after = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
+    expect(after.query).toBe('ConfusionMulGrad Ascend C 算子开发');
+  });
+
+  afterAll(async () => {
+    await prisma.session.deleteMany({ where: { taskId: TITLE_TASK } }).catch(() => {});
+  });
+});

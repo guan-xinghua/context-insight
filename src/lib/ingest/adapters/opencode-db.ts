@@ -462,6 +462,8 @@ export function readSessionWithDb(db: Database.Database, sessionId: string): Raw
 
 export interface SessionMeta {
   parentId: string | null;
+  /** opencode 小模型生成的会话标题（title-gen 产物）。旧版 opencode.db 无此列 → null。 */
+  title: string | null;
   version: string | null;
   directory: string | null;
   summaryAdditions: number;
@@ -470,23 +472,27 @@ export interface SessionMeta {
 }
 
 export function readSessionMeta(db: Database.Database, sessionId: string): SessionMeta {
+  // SELECT * 而非点名列：title 列是 opencode 较新版本才有的——点名在旧库
+  // 上直接 SQL 报错；* 读不存在的列只得 undefined → ?? null 平滑兼容
   const row = db.prepare(
-    'SELECT parent_id, version, directory, summary_additions, summary_deletions, summary_files FROM session WHERE id = ?'
+    'SELECT * FROM session WHERE id = ?'
   ).get(sessionId) as {
-    parent_id: string | null;
-    version: string | null;
-    directory: string | null;
-    summary_additions: number | null;
-    summary_deletions: number | null;
-    summary_files: number | null;
+    parent_id?: string | null;
+    title?: string | null;
+    version?: string | null;
+    directory?: string | null;
+    summary_additions?: number | null;
+    summary_deletions?: number | null;
+    summary_files?: number | null;
   } | undefined;
 
-  if (!row) return { parentId: null, version: null, directory: null, summaryAdditions: 0, summaryDeletions: 0, summaryFiles: 0 };
+  if (!row) return { parentId: null, title: null, version: null, directory: null, summaryAdditions: 0, summaryDeletions: 0, summaryFiles: 0 };
 
   return {
     parentId: row.parent_id && row.parent_id !== '' ? row.parent_id : null,
-    version: row.version,
-    directory: row.directory,
+    title: row.title ?? null,
+    version: row.version ?? null,
+    directory: row.directory ?? null,
     summaryAdditions: row.summary_additions ?? 0,
     summaryDeletions: row.summary_deletions ?? 0,
     summaryFiles: row.summary_files ?? 0,

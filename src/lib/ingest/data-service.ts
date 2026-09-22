@@ -64,9 +64,19 @@ export function firstHumanQueryText(
 ): string | null {
   const isMain = (r: { subagent_session_id?: string | null; subagentSessionId?: string | null }) =>
     (r.subagent_session_id ?? r.subagentSessionId) == null;
+  // 文档注入判定只看开头 200 字符：注入文档（CLAUDE.md/AGENTS.md 形态）的
+  // 块引用紧随标题；而 skill 调用正文（可上万字节）深处偶现的引用块不该
+  // 连累整条消息——实测 ses_f4c5b028 的 13.6KB skill 调用说明在第 1402
+  // 字符处的块引用被旧"全文任一处含 \n> "整条误杀，Query 落到后台任务
+  // 通知上
   const isDocInjection = (text: string) =>
-    (text.startsWith('# ') && text.includes('\n> ')) || text.startsWith('"""');
-  const user = rows.find(r => r.role === 'user' && isMain(r) && r.content && !isDocInjection(r.content));
+    (text.startsWith('# ') && text.slice(0, 200).includes('\n> ')) || text.startsWith('"""');
+  // opencode 后台任务通知（<task id=… state=…>，任务完成/失败时注入的
+  // user 消息）不是真人输入——实测单会话可上百条，捕获/续跑恰好从通知
+  // 处开始时会被误选为 Query
+  const isTaskNotification = (text: string) => text.startsWith('<task ');
+  const user = rows.find(r => r.role === 'user' && isMain(r) && r.content
+    && !isDocInjection(r.content) && !isTaskNotification(r.content));
   if (user) return previewText(user.content);
   for (const r of rows) {
     if (r.role !== 'assistant' || !r.content || !isMain(r)) continue;
@@ -77,6 +87,19 @@ export function firstHumanQueryText(
     if (stripped && !stripped.startsWith('<block>')) return previewText(stripped);
   }
   return null;
+}
+
+// 会话 Query 决议：opencode 小模型生成的会话标题优先（对意图的浓缩远准于
+// 首条消息截取，续跑/中途捕获场景尤其）；"New session - <ts>" 是标题生成
+// 未完成时的缺省占位，不如回落首真人查询。native 行（opencode-db）有
+// 标题；proxy 捕获里 title-gen 请求被 cpx 过滤（isTitleGenRecord），
+// 天然走回落。
+export function resolveSessionQuery(
+  meta: { title?: string | null },
+  rows: Array<{ role: string; content: string | null; subagent_session_id?: string | null; subagentSessionId?: string | null }>,
+): string | null {
+  if (meta.title && !meta.title.startsWith('New session - ')) return meta.title;
+  return firstHumanQueryText(rows);
 }
 
 async function batchCreateMany(
@@ -396,7 +419,7 @@ export async function importSession(
       : adapter.readSession(dbPath, sessionId);
     console.log(`[import] readSession: ${Date.now() - t1}ms, ${rawInteractions.length} interactions`);
 
-    let sessionMeta: { parentId: string | null; version: string | null; directory: string | null; summaryAdditions: number; summaryDeletions: number; summaryFiles: number } = { parentId: null, version: null, directory: null, summaryAdditions: 0, summaryDeletions: 0, summaryFiles: 0 };
+    let sessionMeta: { parentId: string | null; title: string | null; version: string | null; directory: string | null; summaryAdditions: number; summaryDeletions: number; summaryFiles: number } = { parentId: null, title: null, version: null, directory: null, summaryAdditions: 0, summaryDeletions: 0, summaryFiles: 0 };
     // proxy 来源标记单独留存：merge 路径的 version 回填只用它（原生文件
     // merge 行为保持不变 —— 不回填 version），新 session 路径仍用完整 version
     let proxyVersionMarker: string | null = null;
@@ -666,7 +689,7 @@ export async function importSession(
         allSkillEventsAfterMerge as unknown as SkillEventRow[],
       );
 
-      const query = firstHumanQueryText(allTurnsAfterMerge);
+      const query = resolveSessionQuery(sessionMeta, allTurnsAfterMerge);
       const safeNum = (n: number) => (typeof n === 'number' && !isNaN(n)) ? n : 0;
       const safeDate = (d: Date | null) => d instanceof Date && !isNaN(d.getTime()) ? d : null;
       const updateData = {
@@ -712,6 +735,7 @@ export async function importSession(
     const rootExecutionId = executionGraph.rootExecutionId;
 
     const aggregates = computeSessionAggregates(turns, toolCalls, skillEvents);
+    const sessionQuery = resolveSessionQuery(sessionMeta, rawInteractions);
 
     const createdSessionId = await client.$transaction(async (tx) => {
       const ts0 = Date.now();
@@ -720,7 +744,7 @@ export async function importSession(
           taskId: sessionId,
           label: firstHumanQueryText(rawInteractions)?.substring(0, 100)
             ?? rawInteractions[0]?.content?.substring(0, 100) ?? null,
-          query: firstHumanQueryText(rawInteractions),
+          query: sessionQuery,
           framework: srcType === 'claude-jsonl' ? frameworkForCapture : srcType === BRAND_SOURCE_TYPE ? srcType : 'opencode',
           model: aggregates.model,
           startTime: aggregates.startTime,
@@ -778,7 +802,7 @@ export async function importSession(
     }, { maxWait: 30000, timeout: 60000 });
 
     console.log(`[import] new path total: ${Date.now() - t6}ms, overall: ${Date.now() - t0}ms`);
-    return { sessionId: createdSessionId, imported: true, query: firstHumanQueryText(rawInteractions) };
+    return { sessionId: createdSessionId, imported: true, query: sessionQuery };
   } finally {
     if (sharedDb) sharedDb.close();
     if (!prisma) await client.$disconnect();
@@ -796,6 +820,7 @@ async function recomputeAndApplySessionAggregates(
   session: { id: string; sourcePath: string | null; version: string | null },
   srcType: string,
   rootExecutionId: string | null,
+  refreshMeta: { title?: string | null } = {},
 ): Promise<number> {
   const allTurns = await prisma.turn.findMany({ where: { sessionId: session.id } });
   const allToolCalls = await prisma.toolCall.findMany({
@@ -820,7 +845,7 @@ async function recomputeAndApplySessionAggregates(
 
   const safeNum = (n: number) => (typeof n === 'number' && !isNaN(n)) ? n : 0;
   const safeDate = (d: Date | null) => d instanceof Date && !isNaN(d.getTime()) ? d : null;
-  const query = firstHumanQueryText(allTurns);
+  const query = resolveSessionQuery(refreshMeta, allTurns);
 
   // 同 merge 路径的历史脏数据矫正：proxy 捕获（含无 source 标记的早期产物，
   // 靠 wire 指纹兜底识别）重刷新时回填 framework/version，修复错显归属。
@@ -901,6 +926,11 @@ export async function deltaRefreshSession(
   }
 
   const oldTurnCount = await prisma.turn.count({ where: { sessionId: session.id } });
+  // opencode 标题（Query 决议优先项）：漂移全量替换与快路径两个回写点共用
+  let refreshMeta: { title?: string | null } = {};
+  if (sharedDb) {
+    try { refreshMeta = readSessionMeta(sharedDb, session.taskId); } catch { /* best-effort */ }
+  }
 
   try {
     const adapter = getAdapter(srcType);
@@ -1024,7 +1054,7 @@ export async function deltaRefreshSession(
       // 全量替换也必须重算 Session 聚合（与 merge 路径同源）——否则残留替换前
       // 的脏聚合且无后续刷新可矫正（见 recomputeAndApplySessionAggregates）
       const rebuiltCount = await recomputeAndApplySessionAggregates(
-        prisma, session, srcType, executionGraph.rootExecutionId,
+        prisma, session, srcType, executionGraph.rootExecutionId, refreshMeta,
       );
       return {
         addedTurns: Math.max(0, rebuiltCount - oldTurnCount),
@@ -1180,7 +1210,7 @@ export async function deltaRefreshSession(
     }, { maxWait: 30000, timeout: 60000 });
 
     const newTurnCount = await recomputeAndApplySessionAggregates(
-      prisma, session, srcType, rootExecutionId,
+      prisma, session, srcType, rootExecutionId, refreshMeta,
     );
 
     return {
