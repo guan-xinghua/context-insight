@@ -6,6 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
+import { subagentTiming } from '@/lib/subagent-timing';
 import type { RawInteraction } from '../shared/types';
 import type { ToolCallRow, TurnRow } from './turn-split';
 
@@ -164,22 +165,12 @@ export function buildBridges(
       if (subTurns.length > 0) {
         const lastTurn = subTurns[subTurns.length - 1];
         const responseContent = lastTurn.content ?? null;
-        const responseTimestamp = lastTurn.completedAt ?? null;
+        const timing = subagentTiming(subTurns, dispatchTimestamp);
+        const responseTimestamp = timing?.responseTimestamp ?? lastTurn.completedAt ?? null;
         const responseTurnId = lastTurn.id ?? null;
 
         const subagentTokens = subTurns.reduce((sum, t) => sum + t.totalTokens, 0);
-        const firstSubTime = subTurns[0].createdAt_ts
-          ? new Date(subTurns[0].createdAt_ts).getTime()
-          : 0;
-        const lastSubTime = responseTimestamp
-          ? new Date(responseTimestamp).getTime()
-          : firstSubTime;
-        const dispatchTimeMs = dispatchTimestamp
-          ? new Date(dispatchTimestamp).getTime()
-          : firstSubTime;
-        const subagentLatencyMs = lastSubTime > 0 && firstSubTime > 0
-          ? Math.max(lastSubTime - Math.min(dispatchTimeMs, firstSubTime), 0)
-          : 0;
+        const subagentLatencyMs = timing?.latencyMs ?? 0;
 
         const hasError = subTurns.some(t => isSubagentError(t));
 

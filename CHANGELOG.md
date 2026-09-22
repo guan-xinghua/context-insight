@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+### Fixed
+- 【Turn 时间线】子代理显示完整调用名称；缺少完成时间时恢复真实耗时，已导入会话无需重新导入即可生效。
 ### Added
 - 【压缩格式升级 gzip → 7z（LZMA2）——与 cpx v0.1.7 同步的双端变更】cpx 捕获 `.jsonl.7z` 直接导入（IT：.7z 导入 / sourcePath 明文-压缩态互找 / 存量 .gz 永续）；cannbay2 上传出仓统一 `.jsonl.7z`（staging ensure7z——本地 `.gz`/明文源上传时自动迁移新格式，湖内同 sid 重传整体替换语义天然完成逐会话迁移）；LFS 声明 `.gitattributes` 同时声明 `*.7z` 与 `*.gz`（存量件照走 LFS，读路径镜像按双声明刷新）；物化/导入/列表/目录扫描全部三形态透明解压（明文 / 存量 `.jsonl.gz` / 新 `.jsonl.7z`）。压缩模块 `src/lib/compression.ts` 与 cpx 同构（受控双实现，命令常量一致——parity 锁），`7zip-bin` npm 预编译 7za 随包。
 
