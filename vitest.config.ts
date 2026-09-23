@@ -13,7 +13,19 @@ import path from "path";
 export default defineConfig({
   test: {
     environment: "node",
+    // 输出降噪：dot 只留进度点与末尾汇总（默认逐文件 ✓ 行不打）；
+    // passed-only 静默通过用例的 console/stderr，失败用例的照常输出定位
+    reporters: ["dot"],
+    silent: "passed-only",
     exclude: ["tests/**/*.bench.ts", "tests/**/*.bench.tsx", "node_modules", "dist", ".next"],
+    // COVERAGE=1（scripts/run-tests.sh → npm run test:cov → --coverage）：
+    // v8 provider 统计 src/ 全量（不挑文件），终端只打 text-summary 摘要，
+    // 逐文件明细看 lcov/html（落 coverage/，供流水线归档与人工查看）
+    coverage: {
+      provider: "v8",
+      include: ["src/**"],
+      reporter: ["text-summary", "lcov", "html"],
+    },
     // cpx 网关测试已随包独立到 packages/cpx（自带 vitest，npm run test）；
     // 这里只跑 insight 自己的用例（Prisma 集成测试需要 @ alias + react 插件）
     projects: [

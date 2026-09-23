@@ -26,6 +26,7 @@
     "pretest:cli": "node scripts/ensure-native.mjs && node scripts/ensure-test-db.mjs",
     "pretest:bench": "node scripts/ensure-native.mjs && node scripts/ensure-test-db.mjs",
     "test": "vitest run tests/ut",
+    "test:cov": "npm run pretest && vitest run tests/ut --coverage",
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
     "test:cli": "vitest run tests/ut/cli/",
