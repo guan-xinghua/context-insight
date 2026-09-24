@@ -64,7 +64,7 @@ seedBare(BARE_B, 'srb_7_sessions');
   git('git -c user.name=seed -c user.email=seed@t commit -q -m "seed feat/x"', seed);
   git('git push -q origin feat/x', seed);
 }
-// 中文月份目录（客户现场 trace_corpus 布局：<范式>/<月份>/<提交人>/，
+// 中文月份目录（客户现场 语料仓布局：<范式>/<月份>/<提交人>/，
 // 01_longtail_op_gen/7月）—— 目录白名单放行非 ASCII 段的回归锚点
 {
   const seed = path.join(TMP, 'seed-remote-a');
@@ -176,7 +176,7 @@ describe('自定义分支：上传落 srb_7_sessions，main 不动', () => {
   });
 });
 
-describe('中文目录远端（trace_corpus <范式>/<月份> 布局）：上传 → 列表 → 导入回环', () => {
+describe('中文目录远端（语料仓 <范式>/<月份> 布局）：上传 → 列表 → 导入回环', () => {
   it('上传落 01_longtail_op_gen/7月/<sid>/，bare 仓与 scoped 列表可见，同目录存量不干扰', async () => {
     await importFixture(SID_CN);
     const up = await cannbay2.uploadCannbay2Session(prisma, SID_CN, '提交人: 测试者\n内容描述: 中文目录上传', cfgCn);
@@ -230,7 +230,7 @@ describe('目录浏览：action=dirs 逐级列出子目录（文件清单推导�
     const l2 = await (await route.POST(makeRequest({ action: 'dirs', prefix: 'trace/2026-08', config: { address: BARE_A } }))).json();
     expect(l2.dirs).toContain(`trace/2026-08/${SID_DIR}`);
   });
-  it('中文目录 drill-down（客户现场 trace_corpus：<范式> → <月份> → <提交人>），不再 400 无效目录', async () => {
+  it('中文目录 drill-down（客户现场语料仓：<范式> → <月份> → <提交人>），不再 400 无效目录', async () => {
     const l0 = await (await route.POST(makeRequest({ action: 'dirs', config: { address: BARE_A } }))).json();
     expect(l0.dirs).toContain('01_longtail_op_gen');
     const l1 = await (await route.POST(makeRequest({ action: 'dirs', prefix: '01_longtail_op_gen', config: { address: BARE_A } }))).json();

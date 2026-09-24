@@ -21,6 +21,7 @@ import {
   saveCannbayConfig,
   clearCannbayConfig,
   cannbayRemoteInput,
+  planCredentialAction,
   DEFAULT_CANNBAY_ADDRESS,
   type CannbayConfig,
   type CannbayAuthMode,
@@ -36,6 +37,8 @@ export default function SettingsPage() {
   const [directory, setDirectory] = useState("")
   const [savedFlag, setSavedFlag] = useState(false)
   const [hydrated, setHydrated] = useState(false)
+  const [authStatus, setAuthStatus] = useState<{ username: string; tokenMasked: string; verifiedAt?: string } | null>(null)
+  const [authHint, setAuthHint] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [browseOpen, setBrowseOpen] = useState(false)
@@ -70,6 +73,22 @@ export default function SettingsPage() {
     })
   }, [])
 
+  // 服务端凭据状态（cannbay-auth.json）：按当前地址展示已配置的令牌脱敏信息
+  useEffect(() => {
+    if (!hydrated) return
+    let active = true
+    fetch("/api/settings/cannbay-auth")
+      .then(r => r.json())
+      .then((data: { remotes?: Array<{ url: string; username: string; tokenMasked: string; verifiedAt?: string }> }) => {
+        if (!active) return
+        const key = (address.trim() || DEFAULT_CANNBAY_ADDRESS).replace(/\/+$/, "")
+        const hit = data.remotes?.find(r => r.url === key || r.url === `${key}.git` || r.url.replace(/\.git$/, "") === key.replace(/\.git$/, ""))
+        setAuthStatus(hit ?? null)
+      })
+      .catch(() => { /* 状态读取失败不阻塞页面 */ })
+    return () => { active = false }
+  }, [hydrated, address])
+
   const config: CannbayConfig = {
     address: address.trim(),
     authMode,
@@ -83,15 +102,63 @@ export default function SettingsPage() {
   function dirty() {
     setSavedFlag(false)
     setTestResult(null)
+    setAuthHint(null)
   }
 
-  function handleSave() {
+  // 保存：UI 偏好（地址/认证方式/分支/目录）落 localStorage；凭据（用户名+
+  // 令牌/密码）落服务端 cannbay-auth.json（与 cpx 同机共享）。凭据操作走
+  // planCredentialAction 决策：匿名模式清除该地址凭据；token/password 模式
+  // 输入留空 = 保留现有（不落入删除分支）
+  async function handleSave() {
     saveCannbayConfig(config)
     setSavedFlag(true)
+    const remoteUrl = (address.trim() || DEFAULT_CANNBAY_ADDRESS).replace(/\/+$/, "")
+    try {
+      const action = planCredentialAction(config)
+      if (action === "save-token") {
+        const res = await fetch("/api/settings/cannbay-auth", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: remoteUrl, username: account.trim() || "oauth2", token: token.trim() }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(String(data.error ?? "凭据保存失败"))
+        setAuthStatus({ username: account.trim() || "oauth2", tokenMasked: String(data.tokenMasked ?? "****"), verifiedAt: data.verifiedAt ?? undefined })
+        setAuthHint(data.reachable === false ? "已保存，但地址探测未通过（私有仓/网络问题可忽略，令牌有效性由首次上传确认）" : "凭据已保存到本机服务端（cpx 与 insight 共用）")
+      } else if (action === "save-password") {
+        const res = await fetch("/api/settings/cannbay-auth", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: remoteUrl, username: account.trim(), token: password.trim() }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(String(data.error ?? "凭据保存失败"))
+        setAuthStatus({ username: account.trim(), tokenMasked: String(data.tokenMasked ?? "****"), verifiedAt: data.verifiedAt ?? undefined })
+        setAuthHint(data.reachable === false ? "已保存，但地址探测未通过（私有仓/网络问题可忽略，令牌有效性由首次上传确认）" : "凭据已保存到本机服务端（cpx 与 insight 共用）")
+      } else if (action === "clear") {
+        await fetch("/api/settings/cannbay-auth", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: remoteUrl }),
+        })
+        setAuthStatus(null)
+        setAuthHint("匿名模式：已清除该地址的服务端凭据")
+      } else {
+        setAuthHint("令牌/密码留空：已保留该地址的服务端凭据（输入新值可更换；切到匿名模式可清除）")
+      }
+    } catch (e) {
+      setAuthHint(`凭据保存失败：${e instanceof Error ? e.message : "网络错误"}`)
+    }
   }
 
-  function handleClear() {
+  async function handleClear() {
     clearCannbayConfig()
+    const remoteUrl = (address.trim() || DEFAULT_CANNBAY_ADDRESS).replace(/\/+$/, "")
+    fetch("/api/settings/cannbay-auth", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: remoteUrl }),
+    }).catch(() => { /* best-effort */ })
     setAddress(DEFAULT_CANNBAY_ADDRESS)
     setAuthMode("none")
     setAccount("")
@@ -101,16 +168,19 @@ export default function SettingsPage() {
     setDirectory("")
     setSavedFlag(false)
     setTestResult(null)
+    setAuthStatus(null)
+    setAuthHint(null)
   }
 
   async function handleTest() {
     setTesting(true)
     setTestResult(null)
     try {
+      // 测试的是用户正在输入的凭据（includeCreds）；表单为空则测服务端已存凭据
       const res = await fetch("/api/ingest/cannbay2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "test", ...cannbayRemoteInput(config) }),
+        body: JSON.stringify({ action: "test", ...cannbayRemoteInput(config, { includeCreds: true }) }),
       })
       const data = await res.json()
       setTestResult({
@@ -209,7 +279,7 @@ export default function SettingsPage() {
         <div className="space-y-2">
           <h2 className="text-sm font-semibold">{BAY_NAME} 数据之湖</h2>
           <p className="text-xs text-muted-foreground">
-            会话归档仓的连接配置：地址、认证（账密 / 令牌二选一）、分支与目录。留空使用默认值；配置后列表 / 导入 / 上传均按此远端执行。
+            会话归档仓的连接配置：地址、认证（推送凭据）、分支与目录。留空使用默认值；配置后列表 / 导入 / 上传均按此远端执行。上传需要推送凭据（保存后 cpx 命令行同机可用）。
           </p>
         </div>
         <Card>
@@ -252,9 +322,15 @@ export default function SettingsPage() {
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground w-16 shrink-0">令牌</span>
-                  <Input type="password" value={token} onChange={(e) => { setToken(e.target.value); dirty() }} className="h-7 text-xs" placeholder="私人访问令牌（作为 git 凭据，账户可留空）" />
+                  <Input type="password" value={token} onChange={(e) => { setToken(e.target.value); dirty() }} className="h-7 text-xs" placeholder={authStatus ? `已配置 ${authStatus.tokenMasked}（输入新值可更换）` : "推送凭据（作为 git 凭据，账户可留空）"} />
                 </div>
               )}
+              {authStatus && (
+                <p className="text-xs text-green-700 pl-[72px]">
+                  ✓ 服务端已配置：{authStatus.username} / {authStatus.tokenMasked}{authStatus.verifiedAt ? `（连接验证于 ${new Date(authStatus.verifiedAt).toLocaleString()}）` : ""}
+                </p>
+              )}
+              {authHint && <p className="text-xs text-muted-foreground pl-[72px]">{authHint}</p>}
               <div className="flex items-center gap-2">
                 <span className="w-16 shrink-0" />
                 <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={handleTest} disabled={testing || !hydrated}>
@@ -345,7 +421,7 @@ export default function SettingsPage() {
               </Button>
               {savedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
             </div>
-            <p className="text-xs text-muted-foreground">凭据仅保存在浏览器本地，每次列表 / 导入 / 上传时随请求发送给本机后端做 git 认证，不写入数据库、不写入日志。</p>
+              <p className="text-xs text-muted-foreground">凭据保存在本机服务端（~/.cannbot-insight/cannbay-auth.json，权限 0600），cpx 与 insight 上传/下载共用同一份；地址/分支/目录等偏好存浏览器本地。数据仓默认需凭据推送（需仓主将你的账号加为协作者）。</p>
           </CardContent>
         </Card>
       </main>

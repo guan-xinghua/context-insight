@@ -17,7 +17,7 @@ import Database from 'better-sqlite3';
 import { execFileSync } from 'node:child_process';
 import { isPathInside } from '@/lib/ingest/import-paths';
 
-const CANNBAY_PULL_URL = 'https://gitcode.com/guanxinghua/CANNBay.git';
+const CANNBAY_PULL_URL = 'https://example.com/CANNBay.git';
 
 function runGit(args: string[], cwd: string) {
   return execFileSync('git', args, { cwd, stdio: 'pipe', timeout: 120_000 });

@@ -8,7 +8,7 @@
 
 // LFS 免疫 IT：模拟客户现场最恶劣组合——
 //   远端：.gitattributes 带 *.gz filter=lfs + 历史里已有孤儿指针 blob
-//         （atomgit "project lfs not enabled"，对象永不可取）
+//         （平台 "project lfs not enabled"，对象永不可取）
 //   本机：gitconfig 挂着 lfs filter（process/smudge/clean=失败命令 + required=true，
 //         等效装了 git-lfs；且客户实测 git lfs uninstall 清不掉 system/XDG 级配置）
 // 断言：镜像操作（checkout/add/push）全程免疫——新会话上传成功且远端是真实

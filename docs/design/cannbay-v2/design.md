@@ -1,16 +1,16 @@
-# CANNBay v2 设计（atomgit 数据集仓 + proxy jsonl 格式）
+# CANNBay v2 设计（数据集仓 + proxy jsonl 格式）
 
 ## 背景
 
-v1：gitcode `CANNBay` 仓，上传 `.db` 快照（8 表导出），全量 clone，`master` + 20 条轮转。
-v2：atomgit `cannbay2` 数据集仓（**公开**），上传 proxy 捕获 jsonl 文件夹，partial clone，`main` 分支。
+v1：旧版 `CANNBay` 仓，上传 `.db` 快照（8 表导出），全量 clone，`master` + 20 条轮转。
+v2：`cannbay2` 数据集仓（**公开**），上传 proxy 捕获 jsonl 文件夹，partial clone，`main` 分支。
 v1 的上传/解析代码与 API 原样保留（界面上不再出现），用于读取以前存的文件。
 
 ## 需求
 
 | # | 需求 | 验收标准 |
 |---|------|---------|
-| R1 | 上传目标 = `https://atomgit.com/guanxinghua/cannbay2.git`（公开库） | push 成功、布局正确 |
+| R1 | 上传目标 = `https://example.com/cannbay2.git`（公开库） | push 成功、布局正确 |
 | R2 | 上传载体 = claude-jsonl 文件夹格式：proxy 捕获与 native claude **原文件直传**；opencode 会话由 insight DB **导出 jsonl** 再传 | `sessions/<sid>/<sid>.jsonl` (+ `subagents/`) |
 | R3 | 千级文件夹下选一条加载要快 | 列表 <2s（热）/ <5s（含 fetch）；导入单条 <5s |
 | R4 | 上传一条 = O(新会话)，与库存量无关 | 上传全程 <5s（push 实测 1.5s） |
@@ -19,7 +19,7 @@ v1 的上传/解析代码与 API 原样保留（界面上不再出现），用�
 | R7 | 分支 `main`；pull 匿名 HTTPS（公开库）；push 凭据 **base64 密文常量内嵌**（与 v1 同方式），默认零配置，换机/CI 无需任何设置 | |
 | R8 | `*.jsonl` 不走 LFS；mirror 初始化时自动剔除模板 `.gitattributes` 中的 LFS 行 | 纯 git 客户端读到真实 JSON |
 
-非目标：不迁移 gitcode 旧数据；不做轮转/归档；不引入 git-lfs；不接入
+非目标：不迁移旧版数据；不做轮转/归档；不引入 git-lfs；不接入
 "CANNbay 数据之湖"（涉密内容去向，settings 页已有配置入口 `cannbay-config.ts`，
 当前仅保存凭据留后用）。
 
@@ -79,7 +79,7 @@ tmp/cannbay2-cache（env CANNBAY2_CACHE_DIR）
     └─ staging/<sid>/       ← 上传时治理后的待传副本
 
 push URL = base64 密文常量（与 v1 `upload-session/route.ts` 同方式），解码后为
-https://<user>:<token>@atomgit.com/guanxinghua/cannbay2.git，凭据随代码走，
+https://<user>:<token>@example.com/cannbay2.git，凭据随代码走，
 换机/CI 零配置。
 ```
 
@@ -156,7 +156,7 @@ sessions/<sid>/ → commit → push
 
 ## 测试方案（IT）
 
-- **闭环 IT**（不碰真实 atomgit）：本地 `git init --bare` 伪远端 → v2 上传
+- **闭环 IT**（不碰真实远端）：本地 `git init --bare` 伪远端 → v2 上传
   fixture 捕获（含 subagent + 注入 key 各形态）→ 断言远端文件已脱敏、
   列表元数据正确 → import 断言 turns/subagent execution/bridge 落库 +
   Full Context 可读
@@ -180,7 +180,7 @@ sessions/<sid>/ → commit → push
 | upload 一条 | <5s | 4.35s（3.36M 数据 + 首次 LFS 行剔除 + push） | 150ms（库存 1000 条时新增 1 条，O(新会话)） |
 | 磁盘（partial 镜像 vs 全量 clone） | — | — | 4.4M vs 130M（30×） |
 
-① atomgit cannbay2 真实仓，上传/回读一条真实 proxy 会话（1.48M 主文件 + 10 subagent 文件）。
+① 真实数据集仓，上传/回读一条真实 proxy 会话（1.48M 主文件 + 10 subagent 文件）。
 ② 本地 bare 仓合成 1000 会话 / 7000 文件 / 1001 commit（每条 ~200KB、一条一 commit、提交信息按约定格式）。合成内容压缩率偏高，只影响"全量 vs partial"对比幅度；列表/物化/上传测的是元数据与对象数，结论不受影响。
 
 压测记录：千级压测发现 listSessions 存在 O(N²)（每 sid 全量 filter 一次
@@ -232,7 +232,7 @@ fileCommit 映射），1000 会话时热列表 1794ms；改为 log walk 单遍�
   的镜像实为全量（物化退化成本地读）——`cloneMirror` 已加 `--no-local`
   修复；真实 HTTPS 镜像不受影响。本地压测中"镜像磁盘"列因此不采信
 
-真实远端梯度压测（atomgit `test_cannbay` 专用测试仓，1-10MB/条同法合成，
+真实远端梯度压测（专用测试仓，1-10MB/条同法合成，
 1000→2000 每档 +100，总耗时 15.1min；含完整网络传输）：
 
 | 库存 | 热列表 | 物化冷会话(1MB档) | 导入一条(1MB档) | 上传一条(6MB档) |
@@ -258,9 +258,9 @@ fileCommit 映射），1000 会话时热列表 1794ms；改为 log walk 单遍�
 | 风险 | 应对 |
 |------|------|
 | 公开库内容敏感性不止 key（源码片段、内部路径、人名随会话公开） | 已决策：涉密内容未来走"CANNbay 数据之湖"（settings 页已有配置入口，仅保存、暂不接入）；公开仓上传由用户按非涉密自行把关 |
-| atomgit 单仓体积/单文件数配额 | 撞到再启轮转或分仓（v1 planArchive 可复用） |
+| 平台单仓体积/单文件数配额 | 撞到再启轮转或分仓（v1 planArchive 可复用） |
 | 超大单会话（>100MB）撞平台单文件限制 | 上传前检查文件大小，超限报错跳过 |
 | 同 sid 重复上传 | 按"覆盖更新"语义（新 commit 替换文件夹）；内容无变化时优雅提示 |
 | 捕获进行中上传 = 快照不完整 | 允许（git 可再传覆盖），列表不做特殊标注 |
-| git ≥2.19 / 服务端 filter 能力 | atomgit 已实测支持；镜像损坏删库重建（秒级） |
+| git ≥2.19 / 服务端 filter 能力 | 平台已实测支持；镜像损坏删库重建（秒级） |
 | push 凭据 base64 密文内嵌源码（与 v1 同级风险） | 可接受（用户决策，与 v1 保持一致）；泄露时改密 + 换常量 |

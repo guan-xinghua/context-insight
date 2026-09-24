@@ -17,6 +17,7 @@ import { readCcSessionMeta } from '../ingest/proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { computeSessionActiveSplit } from '../active-time';
 import { defaultCannbay2Remote } from './remote';
+import { requirePushCredentials } from './auth';
 import { governText } from './governance';
 import { exportSessionToClaudeJsonl, xCannbay } from './export';
 import { readCaptureText, ensure7z, compressCaptureFile, decompressToPlain } from '@/lib/compression';
@@ -25,7 +26,7 @@ import type { PrismaClient } from '@prisma/client';
 
 export type { Cannbay2SessionEntry, Cannbay2Overview };
 
-// atomgit 单文件上限兜底（按压缩后字节）。导出为可变引用（测试注入小阈值
+// 平台单文件上限兜底（按压缩后字节）。导出为可变引用（测试注入小阈值
 // 验证熔断路径）；生产初值可经 env CANNBAY2_MAX_SESSION_MB 覆写（LFS 模式
 // 下平台限制在 LFS 对象侧，git blob 的 100MiB 钳制不再适用）
 export const MAX_SESSION_BYTES = { value: (() => {
@@ -332,7 +333,7 @@ function governStagedSession(stagingDir: string, sid: string): void {
   if (residues.length > 0) {
     throw new GovernanceError(`上传熔断：清洗后仍检出疑似密钥残留，已拒绝上传。检出项（值已截断）：\n${residues.slice(0, 10).join('\n')}`);
   }
-  // ③ 治理通过 → 7z 压缩出仓；大小检查按压缩后字节（atomgit 限的是传输形态）
+  // ③ 治理通过 → 7z 压缩出仓；大小检查按压缩后字节（平台限的是传输形态）
   let totalBytes = 0;
   for (const rel of listFiles().filter(f => f.endsWith('.jsonl'))) {
     const file = path.join(sessionDir, rel);
@@ -439,6 +440,10 @@ export async function uploadCannbay2Session(
   const { error: submitterError } = extractSubmitter(description);
   if (submitterError) throw new Error(submitterError);
   const rem = remote ?? defaultCannbay2Remote();
+  // https 远端推送凭据前置检查（本地 bare 测试远端不受影响）：无凭据直接
+  // fail-fast 给配置指引——放行到 git push 只会在 401/终端提示上挂死，且
+  // staging/治理全成白工
+  requirePushCredentials(rem.pushUrl, rem.pushAuth);
   // baseline（范式基准会话）：仅默认仓且必须选中范式；位置即身份 —— 勾选即
   // 换（新会话进 <paradigm>/baseline/，原 baseline 会话同 commit 移回范式
   // 普通目录），无确认标记，远端现状即唯一事实源

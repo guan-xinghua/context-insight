@@ -26,6 +26,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { CannbayTokenDialog } from '@/components/CannbayTokenDialog'
+import {
+  findStoredAuthEntry,
+  isCredentialErrorCode,
+  resolveRemoteAddress,
+  type CannbayTokenReason,
+  type StoredRemoteInfo,
+} from '@/lib/cannbay-token-prompt'
 
 export interface UploadCannbayTarget {
   taskId: string
@@ -93,6 +101,10 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
   const [paradigmLoading, setParadigmLoading] = useState(false)
   const [paradigmError, setParadigmError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  // 凭据引导弹窗：默认仓上传必然需要凭据——打开即检（未配置主动弹出），
+  // 凭据类失败（凭据无效/无写权限）反应弹出；保存一次全机生效
+  const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
+  const [tokenReason, setTokenReason] = useState<CannbayTokenReason>('no-credentials')
 
   // 打开即重置 + 预填（描述=首问，提交人=会话用户）——render-phase prop 变化
   // 模式（https://react.dev/learn/you-might-not-need-an-effect），替代在
@@ -136,6 +148,25 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
     return () => { active = false }
   }, [open, defaultRemote])
 
+  // 打开且默认仓 → 凭据预检：未配置凭据直接弹引导（免去填完表单才在
+  // 提交时撞 no-credentials）；已配置则静默
+  useEffect(() => {
+    if (!open || !defaultRemote) return
+    let active = true
+    const address = resolveRemoteAddress(loadCannbayConfig())
+    fetch('/api/settings/cannbay-auth')
+      .then(r => r.json())
+      .then((data: { remotes?: StoredRemoteInfo[] }) => {
+        if (!active) return
+        if (!findStoredAuthEntry(data.remotes ?? [], address)) {
+          setTokenReason('no-credentials')
+          setTokenDialogOpen(true)
+        }
+      })
+      .catch(() => { /* 状态读取失败不阻塞上传弹窗 */ })
+    return () => { active = false }
+  }, [open, defaultRemote])
+
   async function handleUpload() {
     if (!target) return
     setUploading(true)
@@ -156,7 +187,15 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
         }),
       })
       const data = await res.json()
-      onResult?.({ ok: res.ok, message: res.ok ? undefined : (data.error ?? 'Upload failed') })
+      // 凭据类错误（无凭据/鉴权失败/无权限）：弹引导配置弹窗（免绕道设置页），
+      // 文案仍随结果回调给调用方展示
+      let message = res.ok ? undefined : String(data.error ?? 'Upload failed')
+      if (!res.ok && isCredentialErrorCode(data.code)) {
+        message = `${message} —— 请在弹窗中配置凭据后重试`
+        setTokenReason(data.code)
+        setTokenDialogOpen(true)
+      }
+      onResult?.({ ok: res.ok, message })
       if (res.ok) onOpenChange(false)
     } catch {
       onResult?.({ ok: false, message: 'Upload failed: network error' })
@@ -273,6 +312,8 @@ export function UploadToCannbayDialog({ open, onOpenChange, target, onUploadStar
           </Button>
         </DialogFooter>
       </DialogContent>
+      {/* 令牌引导弹窗（叠加在上传弹窗之上；保存成功自动收起，表单保留可重试） */}
+      <CannbayTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} reason={tokenReason} />
     </Dialog>
   )
 }

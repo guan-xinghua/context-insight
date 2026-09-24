@@ -29,7 +29,7 @@
 | Session 轨迹分析器 | [session-trajectory-analyzer](session-trajectory-analyzer/) | 轨迹 MD → 分析 JSON，自建轻量 agent，不依赖 Claude Code | Feature | 2026-07-13 | ✅ 已实现（落在 `smart-agent/trajectory_analyzer.py`，为设计超集） |
 | 导入批量写优化 | [import-batch-write](import-batch-write/) | 导入写入从逐条 create 改为批量 createMany + $transaction | Perf | 2026-06-18 | ✅ 已实现（`batchCreateMany`，500 行/批） |
 | claude-jsonl 适配 proxy 格式 | [claude-jsonl-proxy-adaptation](claude-jsonl-proxy-adaptation/) | proxy 扩展字段按 OCP 文件隔离重构，核心管线不感知 | Refactor | 2026-08-14 | ✅ 已实现（`claude-jsonl-full-context.ts` 扩展层，红线见 AGENTS.md） |
-| CANNBay v2 | [cannbay-v2](cannbay-v2/) | atomgit 数据集仓 + proxy jsonl 上传/partial clone/数据治理 | Feature | 2026-08-19 | ✅ 已实现（`src/lib/cannbay2/`） |
+| CANNBay v2 | [cannbay-v2](cannbay-v2/) | 数据集仓 + proxy jsonl 上传/partial clone/数据治理 | Feature | 2026-08-19 | ✅ 已实现（`src/lib/cannbay2/`） |
 | 组合声明提取插件 + LLM 泛化 | [workflow-extract-plugin](workflow-extract-plugin/) | 主 agent 组合声明确定性提取插件化（cann-ops 默认）+ llm-root 选择式泛化路径（正文取 DB 原文，与确定性共享装配） | Feature | 2026-08-28 | ✅ 已实现（`src/lib/workflow-extract-config.ts` + `src/lib/llm-workflow-extract.ts`） |
 | Session 轨迹评分 v2（六维评价体系） | [workflow-scoring](workflow-scoring/) | 评分卡从三组指标（deterministic/semantic/efficiency）重组为六维结果导向体系：D1 完成度（否决）、D2 行为可信、D3 质量、D4 效率、D5 冗余度、D6 自主性（加权）+ D7 用户自定义维度（可选）；单会话基线比值、subagent 重派检测、评审 CoT 契约与 judge-log 可观测 | Refactor | 2026-08-29 | ✅ 已实现（持续演进至 v2.20；v1 日落至 src/lib/scoring-sunset/） |
 

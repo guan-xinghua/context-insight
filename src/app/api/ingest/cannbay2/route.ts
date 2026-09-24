@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listCannbay2Overview, importCannbay2Session, uploadCannbay2Session, GovernanceError } from '@/lib/cannbay2';
 import { resolveCannbay2Remote, testCannbay2Remote, listRemoteBranches, redactRemoteSecrets, normalizeDirPrefix } from '@/lib/cannbay2/remote';
+import { classifyCannbayError } from '@/lib/cannbay2/auth';
 import { listRemoteDirs } from '@/lib/cannbay2/mirror';
 import type { CannbayRemoteInput } from '@/lib/cannbay-config';
 import { prisma } from '@/lib/db';
@@ -18,8 +19,16 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   let remote = resolveCannbay2Remote();
   let secrets: (string | undefined)[] = [];
-  const fail = (message: string, status: number) =>
-    NextResponse.json({ error: redactRemoteSecrets(message, remote, secrets) }, { status });
+  // 错误出边界统一走这里：消息脱敏 + classifyCannbayError 产出结构化 code
+  // （no-credentials/auth-failed/forbidden/quota/unknown）——前端据 code 给
+  // 「前往设置页配置凭据」等定向引导，而不是让用户看脱敏后的 git 原文
+  const fail = (err: unknown, status = 500) => {
+    const code = classifyCannbayError(err);
+    const message = redactRemoteSecrets(
+      err instanceof Error ? err.message : String(err), remote, secrets,
+    );
+    return NextResponse.json({ error: message, code }, { status: code === 'no-credentials' ? 400 : status });
+  };
   try {
     const body = await request.json();
     const { action, config } = body as { action?: string; config?: CannbayRemoteInput };
@@ -90,8 +99,7 @@ export async function POST(request: NextRequest) {
         const result = await importCannbay2Session(sid, prisma, remote, recording === 'native' ? 'native' : 'capture');
         return NextResponse.json({ result });
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Import failed';
-        return fail(message, 500);
+        return fail(err);
       }
     }
 
@@ -110,14 +118,12 @@ export async function POST(request: NextRequest) {
         if (err instanceof GovernanceError) {
           return NextResponse.json({ error: err.message, governance: true }, { status: 422 });
         }
-        const message = err instanceof Error ? err.message : 'Upload failed';
-        return fail(message, 500);
+        return fail(err);
       }
     }
 
     return NextResponse.json({ error: `Unknown action: "${action}". Supported: list, import, upload, test` }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return fail(message, 500);
+    return fail(err);
   }
 }

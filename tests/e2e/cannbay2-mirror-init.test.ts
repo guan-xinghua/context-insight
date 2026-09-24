@@ -19,6 +19,7 @@
 //   ⑤ 成功后无 .lock / .tmp-* 残骸
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -27,6 +28,9 @@ import type { Cannbay2Remote } from '../../src/lib/cannbay2/remote';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cannbay2-mirror-init-'));
 const BARE = path.join(TMP, 'remote.git');
+// 第二个可 fetch 的 bare（stale-origin 回归锁需要"错误但活着"的远端——
+// 空仓 fetch 不存在的分支会失败，必须有一个 main 可拉）
+const BARE_ALT = path.join(TMP, 'remote-alt.git');
 const SEED = path.join(TMP, 'seed');
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const CHILD_SCRIPT = path.join(REPO_ROOT, 'tmp', 'mirror-init-child.ts');
@@ -36,7 +40,8 @@ function git(cmd: string, cwd: string): void {
 }
 
 function makeRemote(cacheDir: string): Cannbay2Remote {
-  return { pullUrl: BARE, pushUrl: BARE, pushAuth: null, branch: 'main', rootDir: 'sessions', cacheDir, paradigmRoots: true };
+  return { pullUrl: BARE, pushUrl: BARE, pushAuth: null,
+    pullAuth: null, branch: 'main', rootDir: 'sessions', cacheDir, paradigmRoots: true };
 }
 
 beforeAll(() => {
@@ -48,10 +53,27 @@ beforeAll(() => {
   git('git add .', SEED);
   git('git -c user.name=seed -c user.email=seed@t commit -q -m init', SEED);
   git('git push -q origin main', SEED);
+  // ALT 仓：同一 seed 内容推一份（与 BARE 内容等价但地址不同——stale-origin
+  // 锁只关心地址一致性，不关心内容）
+  execSync(`git init --bare -b main "${BARE_ALT}"`, { stdio: 'pipe' });
+  git('git config uploadpack.allowFilter true', BARE_ALT);
+  git(`git push -q "${BARE_ALT}" main`, SEED);
   fs.mkdirSync(path.dirname(CHILD_SCRIPT), { recursive: true });
   fs.writeFileSync(CHILD_SCRIPT, [
     "import { ensureMirror } from '../src/lib/cannbay2/mirror';",
-    'console.log(ensureMirror());',
+    '// MIRROR_INIT_CACHE_DIR：显式钉 cacheDir（并发竞速用例——默认远端的',
+    '// cacheDir 已按远端 URL 哈希，不钉住则各子进程路径断言失效）；缺省走',
+    '// 默认远端解析（相对 env 路径解析用例需要走完整链）。',
+    'const explicit = process.env.MIRROR_INIT_CACHE_DIR;',
+    'console.log(ensureMirror(explicit ? {',
+    '  pullUrl: process.env.CANNBAY2_REMOTE_URL!,',
+    '  pushUrl: process.env.CANNBAY2_PUSH_URL!,',
+    '  pushAuth: null,',
+    "  branch: 'main',",
+    "  rootDir: 'sessions',",
+    '  cacheDir: explicit,',
+    '  paradigmRoots: true,',
+    '} : undefined));',
     '',
   ].join('\n'));
 });
@@ -91,6 +113,9 @@ describe('cannbay2 mirror init race', () => {
           CANNBAY2_REMOTE_URL: BARE,
           CANNBAY2_PUSH_URL: BARE,
           CANNBAY2_CACHE_DIR: cacheRoot,
+          // 并发竞速用例显式钉 cacheDir：4 子进程在同一目录竞争（默认远端
+          // 的 cacheDir 已按远端哈希，不钉则预置的损坏镜像与路径断言全落空）
+          MIRROR_INIT_CACHE_DIR: cacheRoot,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -171,14 +196,32 @@ describe('cannbay2 mirror init race', () => {
     const code = await new Promise<number | null>(resolve => child.on('exit', resolve));
     expect(code).toBe(0);
     expect(err).not.toContain('ENOENT');
-    // ensureMirror 返回绝对路径，镜像落在 <cwd>/rel-cache（单层）
+    // ensureMirror 返回绝对路径：相对 env 单次解析为 <cwd>/rel-cache，镜像
+    // 落在其按远端哈希的子目录（默认远端 cacheDir 已哈希化）
     const dir = out.trim();
     expect(path.isAbsolute(dir)).toBe(true);
-    expect(dir).toBe(path.join(work, 'rel-cache'));
+    const hashDir = createHash('sha1').update(`${BARE}|main`).digest('hex').slice(0, 12);
+    expect(dir).toBe(path.join(work, 'rel-cache', hashDir));
     assertValidMirror(dir);
     // 双重路径残骸不存在（修复前 git 把克隆落到了 rel-cache/rel-cache/）
     expect(fs.existsSync(path.join(work, 'rel-cache', 'rel-cache'))).toBe(false);
   }, 120_000);
+
+  it('stale-origin mirror（fetch 得通但指向别的仓）不再被信任，直接重建——默认仓迁址回归锁', () => {
+    // 2026-09-22 事故：默认仓迁址后旧镜像 origin 仍指旧仓——旧仓活着，
+    // fetch 照样成功，tryFetchMirror 旧实现只在 fetch 失败时才校验 origin
+    // → 列表/上传静默读写旧仓（主页显示旧仓 113 会话）。修复 = fetch 之前
+    // 先验 origin 一致性；配合 cacheDir 按远端哈希，默认远端天然新目录
+    const dir = path.join(TMP, 'stale-origin');
+    const remote = makeRemote(dir);
+    ensureMirror(remote);
+    // 模拟迁址残留：origin 改到另一个"活着且可 fetch"的仓
+    git(`git remote set-url origin ${BARE_ALT}`, dir);
+    expect(ensureMirror(remote)).toBe(path.resolve(dir));
+    // 重建后 origin 回到期望远端，且引用可解析
+    expect(execSync('git remote get-url origin', { cwd: dir, encoding: 'utf-8' }).trim()).toBe(BARE);
+    assertValidMirror(dir);
+  });
 
   it('transient fetch failure (ref lock contention) keeps mirror — config-level damage still heals', () => {
     const dir = path.join(TMP, 'transient');

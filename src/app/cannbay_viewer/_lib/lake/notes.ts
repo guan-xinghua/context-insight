@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process';
 import { ensureMirrorAsync, markLakePhase, resolveLakeRemote, revParseMain, runGit, runGitAsync, sessionFolderName } from './mirror';
 import { redactLakeSecrets } from './remote';
 import type { LakeRemote } from './remote';
+import { requirePushCredentials } from '@/lib/cannbay2/auth';
 
 export interface NoteEntry { ts: string; type: 'note'; text: string }
 
@@ -178,13 +179,16 @@ let writeQueue: Promise<unknown> = Promise.resolve();
 
 /**
  * 401 挑战-应答式 push（与 cannbay2 pushMirror 同方案）：pushUrl 一律无凭据，
- * 凭据经一次性 credential helper 供给——atomgit 网关已拒"请求直带密码"的内嵌
+ * 凭据经一次性 credential helper 供给——托管平台网关已拒"请求直带密码"的内嵌
  * URL（proactive Basic 直接拒；同凭据经 401 挑战后重试可通过，2026-09-14
  * 实测）。helper 脚本只落 0700 临时目录、用后即删，凭据不进命令行（失败消息
  * 不含凭据）。`-c credential.helper=` 先清空继承链（全局 store 等），保证显式
  * 凭据确定性生效。pushAuth=null（本地 bare / 匿名推）直推。
  */
 async function pushLakeAsync(dir: string, remote: LakeRemote, commit: string): Promise<number> {
+  // https 远端推送凭据前置检查：无凭据直接给出配置入口（与 cannbay2/cpx 同
+  // 款 fail-fast——匿名 https 推送只会在 401/终端提示上挂死）
+  requirePushCredentials(remote.pushUrl, remote.pushAuth);
   const refspec = `${commit}:refs/heads/${remote.branch}`;
   if (!remote.pushAuth) {
     return runGitAsync(`git push --no-verify "${remote.pushUrl}" ${refspec}`, dir, 300_000);

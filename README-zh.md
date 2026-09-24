@@ -10,7 +10,7 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 - **Token 与费用** — 每轮 token 五项拆解，按模型上下文窗口显示占比，估算费用
 - **上下文增长** — 逐 subagent 的上下文增长曲线与动画回放，`/compact` 压缩点标注
-- **活跃 / 墙钟** — 会话详情 Wall Clock 拆分（活跃 + 非活跃 = 墙钟）与首页、CANNBay Viewer 的 Active / Wall 列：事件聚类口径（间隔 >5min 计非活跃、API 调用进行中计活跃）；上传时把 activeMs 快照写进数据湖 meta，未导入行同样可见
+- **活跃 / 墙钟** — 会话详情 Wall Clock 拆分（活跃 + 非活跃 = 墙钟）与首页 Active / Wall 列：事件聚类口径（间隔 >5min 计非活跃、API 调用进行中计活跃）
 - **上下文治理** — 查看每轮 LLM 输入构成：可见消息 + 稳定 System 开销
 - **Subagent 追踪** — 识别子代理会话与 dispatch→response 链路，时间线内联展示
 - **Turn 快速跳转** — Turns 时间线输入 `#459` 回车直达该轮
@@ -23,7 +23,6 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 - **轨迹评分** — 六维评分卡（完成度否决维 / 行为可信 / 质量 / 效率 / 冗余 / 自主性 + 自定义维度），支持基线对比与评分配置 profile
 - **Audit** — Workflow 审计（流程框图 + 节点问题 + 优化优先级）与 Skill 审计（真实执行 vs SKILL.md / agent 定义 / workflow 声明对账）
 - **密钥脱敏**（proxy 捕获）— API key 永不落盘：落盘咽喉统一打码（`前4…后4`）
-- **CANNBay Viewer** — 首页入口进入：范式侧栏浏览数据湖（partial clone 按需拉取）、运行清单（描述/作者/工具/算子生成标注、指标与评分 vs baseline）、算子生成耗时优化图（基线/期望参考线可配）、一键导入打开会话详情、会话级实验记录与评分快照写入数据湖（团队共享）
 
 主页 Sessions 列表支持关键词 / sessionID 搜索；导入对话框提供常用路径一键直达。
 
@@ -66,16 +65,16 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/`（目录自动扫描）
 
-Web UI 还支持：导出 session 为独立 SQLite 或 Markdown；上传 CANNBay 数据集仓（范式目录 + 算子生成结果标注 + 可选 baseline，上传前强制密钥治理）；从 CANNBay 列表按需导入。数据湖远端、认证与分支可在设置页配置（凭据仅存浏览器 localStorage）。LLM 接入面板内置常见提供商 Base URL 速查。数据仓在平台侧启用 LFS 后可设 env `CANNBAY2_LFS=1`（或请求体 config `lfs`）切换 LFS 指针出仓——容量脱离 git 仓配额，导入链路透明支持（meta 仍是普通 blob，会话实体按需从 LFS 存储拉取）；`.gitattributes` 同时声明 `*.7z` 与 `*.gz`（存量 gz 件照走 LFS）。
+Web UI 还支持：导出 session 为独立 SQLite 或 Markdown。LLM 接入面板内置常见提供商 Base URL 速查。
 
-### 方式二：CLI 上传 + Web 分析
+### 方式二：CLI 导入 + Web 分析
 
-适用于 SSH 远程等无浏览器环境（首次需 `npm install` + `npx prisma migrate deploy`，之后上传命令自动拉起后端）：
+适用于 SSH 远程等无浏览器环境（首次需 `npm install` + `npx prisma migrate deploy`，之后导入命令自动拉起后端）：
 
 ```bash
-# opencode：列出 / 指定上传 / 交互选择
+# opencode：列出 / 指定导入 / 交互选择
 npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --list
-npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --session-id <id> --description "描述" --yes --json
+npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --session-id <id> --yes --json
 
 # Claude Code：目录扫描 / 单文件
 npx tsx src/cli/index.ts upload --file ~/.claude/projects/ --list
@@ -89,5 +88,3 @@ npx tsx src/cli/index.ts upload --file ~/.claude/projects/<hash>/<uuid>.jsonl --
 | `--description <text>` | 提交描述 |
 | `--yes` / `--json` | 跳过确认 / JSON 输出（脚本友好） |
 | `--list` | 仅列出可选 session |
-
-上传后在 Web UI 点击 **CANNBay** 按钮选范式目录导入，无需手动 clone。

@@ -14,6 +14,7 @@
 import { execSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { escapeRegExp, redactLakeSecrets, resolveLakeRemote, stripUrlCreds } from './remote';
 import type { LakeRemote } from './remote';
@@ -158,7 +159,7 @@ export function runGitAsync(cmd: string, cwd: string, timeoutMs: number, onStder
 async function tryFetchMirrorAsync(dir: string, remote: LakeRemote): Promise<boolean> {
   if (!fs.existsSync(path.join(dir, '.git'))) return false;
   setLakePhase('fetch', `origin/${remote.branch}`);
-  const code = await runGitAsync(`git fetch --progress origin ${remote.branch}`, dir, 120_000,
+  const code = await runGitAsyncWithAuth(`git fetch --progress origin ${remote.branch}`, dir, remote.pullAuth, 120_000,
     line => setLakePhase('fetch', redactLakeSecrets(line, remote)));
   if (code === 0) { setLakePhase('idle'); return true; }
   return mirrorLocallyUsable(dir, remote);
@@ -203,7 +204,7 @@ function releaseInitLock(lock: string): void {
 }
 
 // ensure 单飞 + fetch TTL：ensureMirrorAsync 在每个 API 路径上（runs/notes/
-// health 2s 轮询），不做节流会把每次筛选/轮询变成一次 atomgit 往返，并发
+// health 2s 轮询），不做节流会把每次筛选/轮询变成一次平台往返，并发
 // 调用还会在同一 cacheDir 上踩 ref 锁。TTL 内的镜像视为新鲜，直接复用。
 const FETCH_TTL_MS = 15_000;
 const lastFreshAt = new Map<string, number>();
@@ -226,15 +227,49 @@ export async function ensureMirrorAsync(remote: LakeRemote = resolveLakeRemote()
 // 可能各自克隆一份 tmp——浪费一次克隆但安全：交换由锁串行，后换者胜；
 // 交换前的「他人是否已交付」判定用本地检查（mirrorLocallyUsable，纯本地 git
 // 读、毫秒级），不用 fetch（网络操作进锁定区等于换一种方式长持锁）。
+
+/**
+ * Run a git command with a one-shot credential helper (401 challenge-response
+ * auth) — private-repo pull support. URLs never carry embedded credentials;
+ * the helper script lives in a 0700 temp dir and is removed afterwards.
+ * auth=null runs the command as-is.
+ */
+async function runGitAsyncWithAuth(
+  cmd: string,
+  cwd: string,
+  auth: LakeRemote['pullAuth'],
+  timeoutMs: number,
+  onStderr?: (line: string) => void,
+): Promise<number> {
+  if (!auth) return runGitAsync(cmd, cwd, timeoutMs, onStderr);
+  if (/[\r\n]/.test(auth.username) || /[\r\n]/.test(auth.password)) {
+    throw new Error('git credentials contain newline (invalid for credential helper protocol)');
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-lake-auth-'));
+  try {
+    const helper = path.join(tmp, 'helper.sh');
+    fs.writeFileSync(
+      helper,
+      `#!/bin/sh\ncat <<'LAKEEOF'\nusername=${auth.username}\npassword=${auth.password}\nLAKEEOF\n`,
+      { mode: 0o700 },
+    );
+    const prefix = `-c credential.helper= -c credential.helper="${helper}"`;
+    const wrapped = cmd.startsWith('git ') ? `git ${prefix} ${cmd.slice('git '.length)}` : cmd;
+    return await runGitAsync(wrapped, cwd, timeoutMs, onStderr);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 async function cloneAndSwapAsync(dir: string, remote: LakeRemote): Promise<void> {
   const target = path.resolve(dir);
   const tmp = `${target}.tmp-${process.pid}-${randomUUID().slice(0, 8)}`;
   fs.rmSync(tmp, { recursive: true, force: true });
   try {
     setLakePhase('clone', '连接远端…');
-    const code = await runGitAsync(
+    const code = await runGitAsyncWithAuth(
       `git clone --no-local --filter=blob:none --no-checkout --progress "${remote.pullUrl}" "${tmp}"`,
-      path.dirname(target), 600_000,
+      path.dirname(target), remote.pullAuth, 600_000,
       line => setLakePhase('clone', redactLakeSecrets(line, remote)),
     );
     if (code !== 0) throw new Error(`git clone 失败（exit ${code}），详见 /api/lake-status`);

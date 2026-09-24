@@ -284,6 +284,9 @@ function waitForReady(port) {
 }
 
 function openBrowser(port) {
+  // 测试环境熔断：vitest 子进程继承 VITEST env；显式 kill-switch 优先
+  // （与 cpx openBrowser 同款纪律——PATH 桩对 cmd.exe 绝对路径分支无效）
+  if (process.env.CANNBOT_NO_BROWSER || process.env.VITEST) return
   const url = `http://localhost:${port}`
   const isWin = platform() === 'win32'
   const isMac = platform() === 'darwin'

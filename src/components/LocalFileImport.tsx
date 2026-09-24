@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { BRAND_NAME, BRAND_SLUG, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
 import { loadCannbayConfig, cannbayRemoteInput, isDefaultCannbayRemote, DEFAULT_CANNBAY_ADDRESS } from '@/lib/cannbay-config'
+import { CannbayTokenDialog } from "@/components/CannbayTokenDialog"
 import {
   Dialog,
   DialogContent,
@@ -150,6 +151,15 @@ function formatTokens(n: number): string {
   return `${(n / 1000000).toFixed(2)}M`
 }
 
+// cannbay2 路由错误（带结构化 code）：凭据类错误附设置页指引，其余原样
+function cannbayErrorMessage(data: { error?: string; code?: string }): string {
+  const base = String(data.error ?? "Import failed")
+  if (["no-credentials", "auth-failed", "forbidden"].includes(data.code ?? "")) {
+    return `${base} —— 请在弹窗中配置凭据后重试`
+  }
+  return base
+}
+
 export function LocalFileImport() {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>("input")
@@ -178,6 +188,10 @@ export function LocalFileImport() {
   // null = 范式选择阶段；'__none__' = 未标注（存量 sessions/ 区）；其余 = 范式目录名
   const [cannbayParadigms, setCannbayParadigms] = useState<string[]>([])
   const [cannbayParadigm, setCannbayParadigm] = useState<string | null>(null)
+  // 数据仓凭据引导弹窗：列表/导入的凭据类失败（私有仓无凭据/
+  // 凭据无效）反应弹出；保存走服务端，一次配置全机生效
+  const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
+  const [tokenReason, setTokenReason] = useState<"no-credentials" | "auth-failed" | "forbidden">("no-credentials")
 
   function resetState() {
     setStep("input")
@@ -394,7 +408,14 @@ export function LocalFileImport() {
         body: JSON.stringify({ action: "list", ...cannbayRemoteInput(cfg) }),
       })
       const listData = await listRes.json()
-      if (!listRes.ok) throw new Error(listData.error ?? `Failed to fetch ${BAY_NAME} sessions`)
+      if (!listRes.ok) {
+        // 凭据类失败（私有仓未配置/令牌无效）→ 弹引导配置
+        if (["no-credentials", "auth-failed", "forbidden"].includes(listData.code ?? "")) {
+          setTokenReason(listData.code as "no-credentials" | "auth-failed" | "forbidden")
+          setTokenDialogOpen(true)
+        }
+        throw new Error(cannbayErrorMessage(listData))
+      }
       if (paradigmEnabled) {
         const paradigms = ((listData.dirs ?? []) as string[]).filter(d => d !== "sessions")
         if (paradigms.length === 0) {
@@ -468,9 +489,13 @@ export function LocalFileImport() {
         const data = await res.json()
         const result = res.ok ? data.result : null
         const ok = Boolean(result)
+        if (!res.ok && ["no-credentials", "auth-failed", "forbidden"].includes(data.code ?? "")) {
+          setTokenReason(data.code as "no-credentials" | "auth-failed" | "forbidden")
+          setTokenDialogOpen(true)
+        }
         setImportStatuses(prev => prev.map(s =>
           s.key === key
-            ? { ...s, status: ok ? "success" as const : "error" as const, message: ok ? importResultMessage(result) : (data.error ?? "Import failed"), framework: result?.framework ?? undefined, version: result?.version ?? undefined }
+            ? { ...s, status: ok ? "success" as const : "error" as const, message: ok ? importResultMessage(result) : cannbayErrorMessage(data), framework: result?.framework ?? undefined, version: result?.version ?? undefined }
             : s))
         if (ok) {
           importedPreviews.push({
@@ -1235,6 +1260,8 @@ export function LocalFileImport() {
           )}
         </DialogFooter>
       </DialogContent>
+      {/* 数据仓令牌引导弹窗（叠加在导入弹窗之上；保存成功自动收起） */}
+      <CannbayTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} reason={tokenReason} />
     </Dialog>
   )
 }

@@ -226,7 +226,7 @@ npx tsx src/cli/index.ts sessions
 npx tsx src/cli/index.ts sessions --limit 50 --offset 20
 
 # 只列出特定用户的会话
-npx tsx src/cli/index.ts sessions --user guanxinghua
+npx tsx src/cli/index.ts sessions --user demo-user
 
 # 输出 JSON 格式，便于程序处理
 npx tsx src/cli/index.ts sessions --json
@@ -244,8 +244,8 @@ npx tsx src/cli/index.ts sessions --json | jq '.[] | {taskId, model, totalCost}'
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ #  │ Task ID              │ Model              │ User        │ Turns │ Tokens   │ Cost   │ Time              │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ 1  │ task_abc123          │ claude-3.5-sonnet  │ guanxinghua │ 25    │ 150.2K   │ ¥3.20  │ 06-14 10:30:15    │
-│ 2  │ task_def456          │ gpt-4o             │ guanxinghua │ 12    │ 80.5K    │ ¥1.50  │ 06-14 09:15:22    │
+│ 1  │ task_abc123          │ claude-3.5-sonnet  │ demo-user │ 25    │ 150.2K   │ ¥3.20  │ 06-14 10:30:15    │
+│ 2  │ task_def456          │ gpt-4o             │ demo-user │ 12    │ 80.5K    │ ¥1.50  │ 06-14 09:15:22    │
 │ 3  │ task_ghi789          │ claude-3.5-sonnet  │ zhangsan    │ 45    │ 320.0K   │ ¥8.10  │ 06-13 18:00:45    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
   显示 1-3 条，共 150 条记录
@@ -260,7 +260,7 @@ npx tsx src/cli/index.ts sessions --json | jq '.[] | {taskId, model, totalCost}'
   {
     "taskId": "task_abc123",
     "model": "claude-3.5-sonnet",
-    "user": "guanxinghua",
+    "user": "demo-user",
     "turns": 25,
     "totalTokens": 150200,
     "totalCost": 3.20,
@@ -316,7 +316,7 @@ Session: task_abc123
 基本信息
 ────────────────────────────────────────────────────────────
   模型:       claude-3.5-sonnet
-  用户:       guanxinghua
+  用户:       demo-user
   开始时间:   2026-06-14 10:30:15
   结束时间:   2026-06-14 10:45:30
   持续时间:   15m 15s
@@ -362,7 +362,7 @@ Subagent 列表
 {
   "taskId": "task_abc123",
   "model": "claude-3.5-sonnet",
-  "user": "guanxinghua",
+  "user": "demo-user",
   "startTime": "2026-06-14T10:30:15.000Z",
   "endTime": "2026-06-14T10:45:30.000Z",
   "totalTokens": 150200,
@@ -540,7 +540,7 @@ npx tsx src/cli/index.ts compare task_abc123 task_def456 --json
 │ 指标               │ task_abc123      │ task_def456      │
 ├────────────────────────────────────────────────────────────┤
 │ 模型               │ claude-3.5-sonnet│ gpt-4o           │
-│ 用户               │ guanxinghua      │ guanxinghua      │
+│ 用户               │ demo-user      │ demo-user      │
 ├────────────────────────────────────────────────────────────┤
 │ 轮次               │ 25               │ 12               │
 │ 总 tokens          │ 150.2K           │ 80.5K            │
@@ -1209,7 +1209,7 @@ echo "Analysis complete. Check analysis_*.json files."
 ./start.sh
 
 # 2. 在另一个终端使用 CLI 快速查找
-npx tsx src/cli/index.ts sessions --user guanxinghua --limit 10
+npx tsx src/cli/index.ts sessions --user demo-user --limit 10
 
 # 3. 找到感兴趣的会话后，在浏览器中查看详情
 # 访问 http://localhost:21025/session/task_abc123

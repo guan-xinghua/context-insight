@@ -5,22 +5,31 @@
 ## [Unreleased]
 
 ### Fixed
-- 【Turn 时间线】子代理显示完整调用名称；缺少完成时间时恢复真实耗时，已导入会话无需重新导入即可生效。
+- 【私有数据仓分支下拉 / 测试连接修复】分支列表与「测试连接」改为与服务端已存凭据（`cannbay-auth.json`）同通道鉴权（401 挑战-应答）：表单留空也能列出私有仓分支、有效已存凭据不再被误报「连接失败」；gitcode 上无法确认令牌属主时如实提示「凭据未能验证」而非伪称已验证；无凭据指引由已移除的 `cpx auth` 更正为 `cbi auth`
+
+## [v0.2.37] - 2026-09-22
+
 ### Added
-- 【压缩格式升级 gzip → 7z（LZMA2）——与 cpx v0.1.7 同步的双端变更】cpx 捕获 `.jsonl.7z` 直接导入（IT：.7z 导入 / sourcePath 明文-压缩态互找 / 存量 .gz 永续）；cannbay2 上传出仓统一 `.jsonl.7z`（staging ensure7z——本地 `.gz`/明文源上传时自动迁移新格式，湖内同 sid 重传整体替换语义天然完成逐会话迁移）；LFS 声明 `.gitattributes` 同时声明 `*.7z` 与 `*.gz`（存量件照走 LFS，读路径镜像按双声明刷新）；物化/导入/列表/目录扫描全部三形态透明解压（明文 / 存量 `.jsonl.gz` / 新 `.jsonl.7z`）。压缩模块 `src/lib/compression.ts` 与 cpx 同构（受控双实现，命令常量一致——parity 锁），`7zip-bin` npm 预编译 7za 随包。
+- 【数据仓推送凭据引导式配置弹窗】上传/导入遇凭据缺失或失败时自动弹出引导配置，配完即可直接重试，无需绕道设置页
+- 【压缩格式升级 gzip → 7z（与 cpx 同步）】`.jsonl.7z` 捕获可直接导入，上传出仓统一新格式，存量 `.gz` 永续可读且上传时自动迁移
 
 ### Changed
-- 【首页 Sessions 列表 Duration 列 → LLM Active（模型推理时间）】Start→End 列已天然反映会话墙钟时长，Duration 列改为展示 LLM Active（assistant turn 在途窗口并集、并行去重叠）——一眼区分"会话经历时长"与"模型真正忙时"。列表 API 与 SSR 单查询批量取本页会话 turn 窗口计算（无 N+1，与既有 error 统计查询同款模式）；列头悬停有口径说明。CLI/TUI 列表维持 Duration=墙钟不变。
-- 【LFS 上传默认开启——与 cpx 对齐的三层决议链】`env CANNBAY2_LFS`（显式 `1/true/on` 开、`0/false/off` 关，一次性覆写）> 请求体 `config.lfs` > **默认开**（此前默认关且 env 只认开值）。数据仓平台侧启用 LFS 后会话件默认走 LFS 指针出仓、容量脱离 git 仓配额。配套：git-lfs 解析链升级为「系统件 > cpx 私有件（`~/.cannbot-insight/bin/git-lfs`，`cpx lfs-setup` 自举产物——insight 进程 PATH 前置复用，零全局污染）」，缺件 fail-fast 指引三出路（系统安装 / `cpx lfs-setup` 自举 / `CANNBAY2_LFS=0` 回退 blob）。IT：`cannbay2-lfs-resolution`（决议链全态）；既有 blob 断言类测试统一钉 `CANNBAY2_LFS=0`（12 处）。
+- 【数据之湖凭据管理重构（**breaking**）：推送凭据改为用户自配】内置共享凭据全部移除，用户在设置页配置推送凭据并落服务端（与 cpx 同机共享）；无凭据上传提前快速失败并给配置引导。迁移：默认仓推送需仓主加协作者
+- 【默认数据仓迁址（组织仓）】默认远端迁至新组织仓，存量配置自动重映射；已存凭据需对新仓重新保存一次
+- 【start.sh 单实例收口】默认启动固定绑定 21025 并自动收口旧实例，不再端口漂移；端口被无关进程占用时明确报错
+- 【首页 Sessions 列表 Duration 列 → LLM Active】改为展示模型推理时间（并行去重叠），一眼区分"会话经历时长"与"模型真正忙时"；CLI/TUI 维持墙钟口径
+- 【LFS 上传默认开启——与 cpx 对齐】会话文件默认以 LFS 指针出仓，容量脱离数据仓 git 配额
 
 ### Fixed
-- 【用户场景上传鲁棒性两连：git-lfs 自动自举 + 失败残留脏镜像自愈】①纯 insight 安装（无 cpx）首次上传即缺 git-lfs——旧报错指路"跑一次 `cpx lfs-setup`"对该用户群无效（没装 cpx）。新增 `src/lib/cannbay2/lfs-setup.ts`（与 cpx src/lfs-setup.ts 受控双实现，parity IT 锁定）：`ensureLfsReadyWithBootstrap`（uploadFolder 接线）在私有件缺失时自动下载安装（版本 pin v3.8.0 + sha256 四平台校验和，`CANNBOT_CPX_LFS_BASE` 镜像 env 与 cpx 同名用户配一次两用），失败降级指引（三条出路：配镜像重传即自动重试自举 / 系统安装 / `CANNBAY2_LFS=0`）；零全局污染（仅 `~/.cannbot-insight/bin`，与 cpx 自举产物同位互用）。②失败上传（配额拒绝/网络中断）在镜像缓存残留脏工作树（staged/未提交物化件），下次上传死在 `checkout -B`"local changes would be overwritten"——失败态自我固化（实测 2026-09-21：atomgit 配额拒 push 遗留 → 后续上传全挂）。uploadFolder 的 checkout 加自愈：失败 → 过滤器中性化 `reset --hard` + `clean -fdq` → 重试（镜像工作树本就是可丢弃物化缓存；happy path 零开销）。privateLfsBinDir 收敛到 lfs-setup.ts 单一来源。IT：离线全链自举（注入 fetch + 真实 tar.gz 夹具 + sha256 拒坏源 + 404 指引 + 在位跳过下载）+ 脏镜像自愈（改物化件 + 未跟踪垃圾 → 下次上传成功且远端收到新提交）。门禁：全量 1683 passed + tsc 干净
-- 【首页 Query 语义修复：三层决议——标题优先 + 跳过后台任务通知 + 文档注入判定只看开头窗口】旧取值 = 首条主会话 user 消息截取，两类真实失真（实测 ses_f4c5b028）：①opencode 后台任务通知（`<task id=… state=…>`，任务完成/失败注入的 user 消息，单会话可上百条）被选为 Query，显示"Background task completed…"；②13.6KB skill 调用说明在第 1402 字符处的块引用被旧"全文任一处含 `\n> `"整条误判为文档注入跳过，才轮落到通知上。修复：新增 `resolveSessionQuery` 决议链——opencode 小模型生成的会话标题优先（对意图的浓缩远准于首条消息截取，续跑/中途捕获场景尤其；"New session - <ts>"缺省占位不算）> `firstHumanQueryText`（新增 `<task ` 通知过滤；块引用检查收敛到开头 200 字符——注入文档的引用块紧随标题，skill 正文深处的偶现引用不该连累整条）。接线四处：importSession 新建/merge、deltaRefresh 快路径/漂移全量替换（`recomputeAndApplySessionAggregates` 新增 refreshMeta 参数透传）。native 行（opencode-db）有标题源（readSessionMeta 改 `SELECT *` 兼容无 title 列的旧库）；proxy 捕获里 title-gen 请求被 cpx 过滤（isTitleGenRecord），天然走回落。真机验证 f4c5b028 双行：native 行 → "ConfusionMulGrad Ascend C 算子开发"（标题直取），proxy 行 → skill 调用说明（通知跳过 + 深处引用不误杀）。IT：resolveSessionQuery 决议链 3 用例 + 通知/窗口语义 2 用例 + delta-refresh-drift 真实 importSession 全链路 3 用例（标题直取/占位回落/刷新矫正）
-- 【git pull 后直接 `./start.sh` 构建失败（Module not found）】存量部署机拉到新依赖声明（如 7z 升级的 `7zip-bin`）时，旧 `node_modules` 缺件但安装被跳过——此前只检查目录存在。现以 `npm ls` 校验生产依赖实装状态（cpx install.sh 同款纪律），缺件自动补装；安装失败仅在依赖确实不完整时快速报错退出，不再裸奔进 build 给出误导性的 Turbopack 报错
-- 【7z 导入在 next build 生产态产出空会话（7zip-bin 被 bundler 内联）】`7zip-bin` 的 index.js 用 `__dirname` 定位平台二进制——被 Turbopack 内联打包后 `__dirname` 编译成构建期常量（如 `/ROOT/node_modules/7zip-bin/...`），运行机上不存在 → `spawnSync` ENOENT → 读捕获抛错被 `parseJsonlLines` 的兜底 catch 吞掉 → "导入成功"但 0 turns 空会话（页面显示「捕获中，暂无内容」）。vitest 全走 tsx 直跑源码测不到该路径（生产构建盲区）。修复：`next.config.ts` 声明 `serverExternalPackages: ["7zip-bin"]`（Next 官方机制，带二进制的包不打包、运行时从真实 node_modules require，`__dirname` 保真）；构建产物复核无内联残留，真机 `.7z` 重导 turns/latency/LLM Active 全量恢复。
-- 【cannbay2 治理快路径从未生效（governed 信任标记读取路径错误）】`governStagedSession` 此前从 `<sid>.jsonl.gz` 读 cc-session-meta（gzip 二进制 JSON.parse 必败 → meta 恒 null → 快路径永假，全部 cpx 捕获上传都走慢路径解压重洗重压）——cpx v0.1.4 修了自家同款 bug 但 insight 侧漏修。现改读 `<sid>.meta.json`（staging 必备伴生件），带 governed 标记的 cpx 会话恢复免解压直传。
-- 【start.sh 启动被 git-lfs 自举预取阻塞 ~2min（重启期间 21025 无服务）】start.sh 内部调 cpx install.sh 会连带 postinstall 的 git-lfs 自举预取——GitHub 直连受限的机器上预取要等满 120s 超时才降级，把"杀旧实例 → next start"之间的停机窗口从秒级拉长到 ~2 分钟，期间浏览器打不开 Web UI。现 start.sh 调用行钉 `CPX_SKIP_LFS_SETUP=1`：insight 启动关键路径零网络等待，自举推迟到首次上传时自动发生（独立 install.sh / npm 安装路径不受影响，预取保留）。IT：start-sh-validation 源码级锁（调用行 env 前缀被移除即红）
-- 【-k 重启后浏览器一直转圈（SIGTERM 双等死锁）】next-server 对 SIGTERM 走 graceful close：LISTEN 释放（新实例得以绑上 21025）但进程等存量 keep-alive 连接收尾，浏览器在等响应——双等死锁使旧连接永驻不响应：新连接（curl）正常 200、浏览器复用旧连接永远转圈（实测 2026-09-20）。`kill_all_insight` 击杀升级为 SIGTERM → 3s 宽限 → SIGKILL 补刀，残存进程连同其套接字被内核强制回收（浏览器侧连接 RST 后重试命中新实例）。IT：start-sh-validation 行为级验证（忽略 SIGTERM 的仿真 next-server 必须在宽限后被 SIGKILL，仅 SIGTERM 的旧实现即红）
+- 【Turn 时间线】子代理显示完整调用名称；缺少完成时间时恢复真实耗时，已导入会话无需重新导入即可生效。
+- 【默认仓迁址后镜像静默读写旧仓】本地镜像可能仍指向旧仓导致列表/上传串仓——镜像改按远端哈希隔离并拉取前校验来源
+- 【用户场景上传鲁棒性两连】缺 git-lfs 时首次上传自动安装；失败上传残留的脏镜像缓存下次自动修复，不再卡死后续上传
+- 【首页 Query 语义修复】Query 改为会话标题优先、跳过后台任务通知，长会话不再显示"Background task completed"类噪音
+- 【git pull 后直接 `./start.sh` 构建失败】启动前校验生产依赖实装状态，旧安装拉新代码后自动补装缺失依赖
+- 【7z 导入在生产构建下产出空会话】打包器内联 7zip-bin 导致运行时找不到二进制的问题修复
+- 【数据仓治理快路径从未生效】cpx 捕获上传恢复免解压直传快路径，上传耗时显著下降
+- 【start.sh 启动被 git-lfs 自举阻塞约 2 分钟】启动关键路径不再等待网络，重启停机窗口恢复秒级
+- 【-k 重启后浏览器一直转圈】旧实例连接收尾死锁的问题修复
 
 ## [v0.2.36] - 2026-09-20
 
@@ -30,7 +39,7 @@
 ### Fixed
 - 【导入】超 512MiB 的大捕获（长会话 wire 全量）此前导入必败且**假成功**——整读文件撞 V8 字符串上限、错误被吞成"空文件"走占位路径；现改 Buffer 逐行解码（现场 631MB 捕获 15.7s 导入成功），读取/解压/单行超限错误真实上抛
 - 【会话列表】混合模型长会话的 Model 显示改为**最频次**模型（此前取首条，长会话换模型后被首条边缘样本代表）
-- 【Session Duration 虚高（并行子代理双计）】列表 / CLI / TUI / compare 的 Duration 此前取 Σ turn latency（root 与全部子代理直接相加，并行执行时间重叠双计，实测可达墙钟 2.1 倍），且与详情页 Wall Clock、CANNBay Viewer 耗时、Markdown 导出互相打架。现统一为会话墙钟时长（endTime − startTime，客户端用已有 start/end/Σ 三字段自算，API 不派生冗余 durationMs）；全局 Avg Duration 同步改墙钟口径。存储的 totalLatencyMs 保留原语义（Σ turn latency），评分 D4 等内部消费方不受影响。
+- 【Session Duration 虚高（并行子代理双计）】列表 / CLI / TUI / compare 的 Duration 此前取 Σ turn latency（root 与全部子代理直接相加，并行执行时间重叠双计，实测可达墙钟 2.1 倍），且与详情页 Wall Clock、Markdown 导出互相打架。现统一为会话墙钟时长（endTime − startTime，客户端用已有 start/end/Σ 三字段自算，API 不派生冗余 durationMs）；全局 Avg Duration 同步改墙钟口径。存储的 totalLatencyMs 保留原语义（Σ turn latency），评分 D4 等内部消费方不受影响。
 - 【启动即崩（Node 24 客户现场回归）】`better-sqlite3@11` 手写 V8 绑定的 `Database` 析构在 GC 回收已 close 对象时直接调 `node::RemoveEnvironmentCleanupHook`——Node ≥24 部分版本在 GC 线程无环境上下文，触发原生断言 `(env) != nullptr` **abort 整个进程**（启动器 `ensureNative()` 探针必踩：打印数据目录后 core dump；测试 worker 退出期同栈）。升级 **better-sqlite3@13**（上游 N-API/node-addon-api 重写，cleanup hook 改经 Napi 管理）根因消除；附带收益：预编译二进制随 npm 包分发（prebuilds/ 全平台目录），**安装不再从 GitHub Releases 下载**（国内安装慢/回退 node-gyp 编译的问题一并解决，`npm_config_better_sqlite3_binary_host` 镜像配置不再需要）。tests/setup.ts 的探针强引用 workaround 随根因修复一并退役（对照验证：v13 + 摘除 workaround 全量 191 文件零 abort）。
 
 ## [v0.2.35] - 2026-09-20
@@ -44,7 +53,7 @@
 ## [v0.2.34] - 2026-09-20
 
 ### Fixed
-- 【导入失败报错一闪而过不可见】导入对话框完成后此前无论成败 1s 自动关闭（`allSuccessOrError` 统一触发 `handleDone`）、有成功时又整页 reload——失败项报错被截断/秒关，用户看不到错误原因。修复：拆 `allDone`/`hasError`，**全部成功才自动关闭**；任一失败驻留结果视图（报错完整展示：失败行 `Failed` 徽标 + 报错正文独立换行 `break-words` 不截断），用户看清后手动 Done（toast 补失败计数，含失败项时用 `toast.warning` 而非成功样式）；**CANNBay Viewer 一键导入同步收口**——`importRun` 不再只 `console.error` 丢真因，改返回错误消息（保留 v0.2.33 的 `(sid, recording)` 双记录签名），`RunsTable` 经 `toast.error` 展示 + 重试按钮 tooltip 保留真实错误（弃「详见浏览器控制台或服务日志」占位）。IT：`tests/ut/local-import-error-persist.test.tsx`（cannbay 与本地 JSONL 两条导入链路：失败驻留、报错可见、越过 1s 不自动关闭、无 reload/无 history、手动 Done）
+- 【导入失败报错一闪而过不可见】导入对话框完成后此前无论成败 1s 自动关闭（`allSuccessOrError` 统一触发 `handleDone`）、有成功时又整页 reload——失败项报错被截断/秒关，用户看不到错误原因。修复：拆 `allDone`/`hasError`，**全部成功才自动关闭**；任一失败驻留结果视图（报错完整展示：失败行 `Failed` 徽标 + 报错正文独立换行 `break-words` 不截断），用户看清后手动 Done（toast 补失败计数，含失败项时用 `toast.warning` 而非成功样式）。IT：`tests/ut/local-import-error-persist.test.tsx`（本地 JSONL 导入链路：失败驻留、报错可见、越过 1s 不自动关闭、无 reload/无 history、手动 Done）
 
 ### Changed
 - 【Perf 页】Task Duration / Token consumption 横轴每根柱子下直接标注 agent 名（按 agent 固定色，长名断行/截断），无需悬停即可定位具体 agent；#N 序号保留用于 Task Detail 交叉引用
@@ -53,63 +62,37 @@
 ## [v0.2.33] - 2026-09-18
 
 ### Fixed
-- 【cannbay viewer】适配同 sid 双记录布局：native 会话（`<sid>.native/`）此前 meta 读不出（工具/模型列为空、开始时间退化为上传时间）且导入失败，现列表 / 导入 / 实验记录全链路按记录类定位
+- 适配同 sid 双记录布局：native 会话（`<sid>.native/`）此前 meta 读不出（工具/模型列为空）且导入失败，现列表 / 导入全链路按记录类定位
 
 ## [v0.2.32] - 2026-09-18
 
-### Added
-- 【同 sid 双记录·cannbay 侧：wire 捕获与原生会话两份记录在数据仓并存（不再互踩覆盖）】仓内布局按记录类拆目录——**不变量从「sid 全仓唯一」升级为「sid × 记录类 全仓唯一」**：wire 捕获占裸 `<sid>/`（cpx 直传/insight 捕获行/存量数据零迁移，今日行为不变），原生 claude 会话占 `<sid>.native/`（点分隔——uuid 形态 sid 不含点，与真实 sid 裸目录零歧义；**目录内文件仍以真实 sid 命名**，materialize/导入 taskId 不带后缀，与 insight 方案一双向闭环：仓内两记录分别导入 → insight 两行）。同记录类重传仍是整体替换（幂等/清旧语义不变），staging 仍是该记录的完整权威集合；换范式/普通↔baseline 迁移与 baseline 交换均按记录类各自执行（每记录类各一个范式基准，另一记录类的目录永不触碰）。上传侧记录类推导：version 带 marker 或 framework 带 `-proxy` 后缀 → 裸主位（capture）；**其余非 proxy 行（claude/opencode 原生行、insight 导出行）一律落 `.native/`**——含 opencode/codex 原生行的重传：此类行的仓内位置会从旧裸位迁到 `<sid>.native/`（存量原生裸目录在下一次原生行上传时按 meta 归属自动迁移，见下）。**存量迁移（上传时自愈）**：旧世界非 proxy 上传落在裸 `<sid>/`，裸目录不在 native 记录类的 stale 位置视野内会永不清理（list 同 sid 双条目、旧原生内容错标 capture 且无法被重传替换）——上传 native 时识别裸目录内容归属（`bareDirHoldsNativeRecording`，与上传侧记录类推导**同构**：producer=cpx / framework 带 `-proxy` / **ccVersion 带 proxy marker（早期捕获行形态——framework 无后缀 + version 带 marker，合成/DB 导出 meta 原样抄行值，ccVersion 是该形态下唯一 proxy 信号；漏判会把存量捕获裸目录误判为存量原生而删除）**任一命中 = 捕获不动；producer=insight-export/insight-upload 且无任何 proxy 信号作为过期位置一并删除（同 commit 完成迁移）；无 meta 的归属不明目录保守不动（宁可残留勿误删，如需彻底清理可手工删除该裸目录）。**cpx 侧零改动**（只传捕获 → 永远落裸位，parity 不受影响）。配套：`listOverview` 条目增 `recording` 字段（同 sid 两条目、`readSessionMetas` 按目录名双形态匹配）；`importCannbay2Session`/cannbay2 路由 import action 增 `recording` 参数；导入对话框选择键改 `sid@recording` 复合键（同 sid 两行可选可导——**复合键只用于选择集与状态更新定位**，ImportHistory taskId/File Path/列表 label 一律真实 sid，避免 delete-session 404 静默失败与假路径显示；原生条目靠同 sid 两条目并排区分，不加额外徽标）；**Recent Imports 删除按行消歧**——同 sid 双记录两条 history 条目共享 taskId，`handleDeleteOne` 请求体带 `framework`（不带会命中两行全部级联删除、另一份记录 DB 数据随之被删），localStorage 过滤按 taskId+framework 双键只清点击的那条（framework 缺失的旧条目回落裸 taskId 语义）；类型徽标事实源（dbMeta）按行定位键查找（双记录各显各的，不再都查首行），knownFramework 白名单经 `agentFrameworkOf` 剥 `-proxy` 后缀归一（捕获条目不再显示「—」）。IT：`tests/ut/cannbay2-dual-recording.test.ts`（①双行上传仓内两目录并存 ②list 两条目 ③分别导入 insight 两行各自落位 ④同记录类重传只替换自己目录 ⑤目录名推导纯单元 ⑥存量迁移：insight 导出件裸目录在原生重传时清除、捕获形态裸目录（cpx / 早期捕获行 ccVersion 带 marker）不动 ⑦注入面：恶意顶层目录名被 root 段级白名单过滤，不进入定位与 shell 命令）+ `tests/ut/local-import-cannbay-dual.test.tsx`（组件级：双记录勾选导入 label/history 真实 sid 不外泄复合键 + 全选键对齐）+ `tests/ut/import-history-dual-delete.test.tsx`（Recent Imports 删除带 framework 消歧只清单条 + 徽标按行定位 + 旧条目回落）；既有 6 个 cannbay2 测试文件 fixture 同步捕获形态（测主路径机械，`.native` 路径由新 IT 覆盖）
-
 ### Fixed（自查审查：code-review skill 全维度检视）
-- 【镜像层 shell 注入面收口（四出口同根因：ls-tree 输出的 root 未纳入白名单纪律）】`locateSessionLocations` 逐项匹配不再 `join('\n')/split('\n')`（含 \n 的文件路径可伪造 `evil-root/<sid>/` 定位行，让攻击者完全可控的 root 直通下游 shell 命令）；新增 root 段级白名单（与 `normalizeDirPrefix` 段规则同源：非 ASCII 放行、shell 元字符与空白全挡，非法段丢弃整个 loc——保守不动语义）；`bareDirHoldsNativeRecording` 的 meta 读取改 spawnSync argv（纵深，与 LFS cat-file 同款纪律）。IT ⑦：恶意顶层目录名（`evil;rm -rf /$(...)`）上传/物化不执行注入、不抛异常
-- 【DB 导出兜底丢消歧（错误数据出机器）】`exportSessionToClaudeJsonl` 增可选 framework 参数——`uploadCannbay2Session` 已按 framework 选行，但无本地 jsonl 源时（opencode 原生 .db / 源文件已删）DB 导出兜底裸 taskId findFirst 在双行下取行不确定，可能把他行轮次导出上传到错误记录类目录；`stageSessionFiles` 穿行 framework
 - 【旧 history 条目（framework 缺失）删除双行全删无提示（数据丢失）】旧版前端写入的条目无 framework → 无消歧参数的删除命中同 sid 全部行级联清除。现在删除前按行数探测（挂载时已拉取的 /api/observe/data 顺便计数），旧条目且该 taskId 多行时弹 Dialog 明示「将删除全部 N 份记录」，用户确认后才执行（ui/dialog，非 browser confirm）。IT ④：弹窗内容/取消保留/确认后执行
-- 【CLI/TUI 上传补 framework 消歧（TODO 清账）】`client.uploadSession` 增 framework 参数：`--session` 交互态取行详情 framework、`--file` 用导入响应的行 framework（DB 为准——文件源推导的 resolvedFramework 与行值不一致，用它会消歧失败）；TUI 链路（SessionList onUpload → App → UploadPanel）行 framework 穿参
-- 【File Path 假路径】`cannbayRepoRef` 目录改 `paradigm ?? cfg.directory ?? 'sessions'`——默认仓条目实际在 `<paradigm>/<sid>[.native]/`，此前恒显 `sessions/`（范式区全部指错位置）；ImportStatus 增 paradigm 字段从选中条目带入
 - 【导入列表类型徽标归一】success 徽标白名单经 `agentFrameworkOf` 剥 `-proxy` 后缀（捕获条目 claude-code-proxy 不再缺徽标，与 ImportHistory 同款）
 - 【多行删除确认改服务端事实源（PR #20 审查复核）】前端 `rowCounts` 探测源 `/api/observe/data?limit=500` 实际只认 `pageSize`（缺省 20）——DB 会话一多，旧条目 taskId 落窗口外 → 确认弹窗永不触发、无消歧删除照旧级联全删。改为 **delete-session 服务端守卫**：无 framework 且命中多行返回 409 + rowCount（`findMany` 事实源判定，不受列表截断影响），前端据此弹确认、用户确认后带 `confirmAll: true` 重发放行。IT：delete-session-api 双行 409/消歧删单行/confirmAll 全删三态 + 组件级 409 驱动弹窗全流程（首删 409 → 取消保留 → 再删 409 → 确认全删）
-- 【baseline 交换注入面补口（PR #20 审查复核）】`locateBaselineSids` 返回的 baseline/ 目录名（ls-tree 原始输出，同 root 威胁模型）未过白名单即直通 sparse-checkout/git add 的 shell 字符串——swapBack 过滤补 `isSafeRootSegment`（合法 `<sid>`/`<sid>.native` 不受影响）
 
 ### Security
-- 【安全加固批】修复服务端多类输入校验缺失问题（命令执行 / 路径越权 / 请求伪造类）：本地 git 调用全部改为无 shell 的数组参数模式；taskId、cannbay 导入 filenames、smart-agent 输出与 prompt 参数统一白名单收敛（导入/浏览路径与 breather 连接目标为本地自用功能，刻意不设白名单）。新增环境变量：`CANNBOT_AGENT_OUTPUT_ROOTS`（追加 smart-agent 输出根）。**建议所有部署尽快升级；旧版本请勿将服务端口暴露给不可信网络**
-- 【测试】新增守卫 IT（`security-guards` / `upload-git-injection` 等，vitest + pytest 共 20+ 用例），存量用例适配新校验口径
+- 【安全加固批】修复服务端多类输入校验缺失问题（命令执行 / 路径越权 / 请求伪造类）：本地 git 调用全部改为无 shell 的数组参数模式；taskId、smart-agent 输出与 prompt 参数统一白名单收敛（导入/浏览路径与 breather 连接目标为本地自用功能，刻意不设白名单）。新增环境变量：`CANNBOT_AGENT_OUTPUT_ROOTS`（追加 smart-agent 输出根）。**建议所有部署尽快升级；旧版本请勿将服务端口暴露给不可信网络**
+- 【测试】新增守卫 IT（`security-guards` 等，vitest + pytest 共 20+ 用例），存量用例适配新校验口径
 
 ## [v0.2.31] - 2026-09-17
 
-### Added
-- 【CANNBay Viewer 并入 insight：单一后端（原 cannbay 分支独立 Next 应用整体迁入）】页面挂 `/cannbay_viewer`（首页「上下文监控」与「设置」之间的入口，EyeIcon + `BAY_VIEWER_NAME`——branding 新增双名显示位，CANNBot 品牌显示 "CANNBay Viewer"、context 变体自动翻 "contextBay Viewer"，pack-context 规则表配对翻转）；代码集中 `src/app/cannbay_viewer/`（`_lib/` 数据层 / `_components/` 六件 / `api/` 六路由），测试独立 `tests/ut|e2e/cannbay_viewer/`（35 用例：镜像/聚合 UT + runs/notes 路由 e2e，一键导入全链路真跑）。**进程内取数**（`_lib/insight-data.ts`）替代原 HTTP 自调用：会话指标 prisma 直查、评分卡 scorecardStore 缓存+确定性层现算（与 observe/session/scorecard 路由同口径）、导入直调 `importCannbay2Session`——「insight 未启动」状态随合并消失（HealthBadge/探活路由不迁）；会话查看改站内同窗口跳转（`/session/<sid>` 相对路径，返回键回到 viewer 且 URL 记住筛选状态）
-- 【镜像目录共用：session 文件只落一处】viewer 镜像默认与 insight cannbay2 共用 `CANNBAY2_CACHE_DIR`（覆写链 `CANNBAY_VIEWER_CACHE_DIR` → `CANNBAY2_CACHE_DIR` → `<cwd>/tmp/cannbay2-cache`）——单进程合并后「两进程并发 fetch 同一 cacheDir」的隔离理由不再成立；**初始化锁不跨 await 持有**（锁内只做本地判定与 rm+rename 交换，长克隆锁外完成后短暂持锁换入），cannbay2 同步路径 `withMirrorInitLock` 的 Atomics.wait 等锁最长只等一次毫秒级交换，无整进程假死窗口（e2e 死锁哨兵锁该场景）；历史遗留的独立 viewer 镜像（`~/.cannbot-insight/cannbay-viewer/cache`，9-16 事故全量下载 664M）可删，默认不再使用
-- 【meta.json 指标快照：未导入行直显 开始/耗时/Token，优化图免导入】上传链 `annotateSessionMeta`（原 annotateOpGen 扩展，一个补丁点覆盖 cpx 伴生 / insight-upload 合成 / insight-export 三条 staging 路径）从 DB 会话行把 `startTime`/`endTime`/`durationMs`/`totalTokens` 写进 cc-session-meta（spec §4.4 可选字段不升版本，与导入后展示同源同值）；viewer 未导入行优先用快照（无 ≈ 近似号），已导入行仍以 DB 为权威，存量旧 meta 缺省回退 commit 时间近似；算子生成耗时优化图不再要求已导入
-- 【运行列表新增「模型类型」列】会话主模型（首条 assistant 轮的 model，即 Session.model）紧随「工具」列展示：已导入行取本地 DB，未导入行取 meta 指标快照新增的 `model` 字段（spec §4.4 可选字段，`annotateSessionMeta` 与指标快照同一补丁点写入，三条 staging 路径全覆盖）；存量旧 meta 无该字段显示 —，导入后自然补全
-- 【实验记录（notes）全链路迁入 + 增强】会话级实验备注存数据湖 `<paradigm>/[baseline/]<sid>/<sid>.notes.jsonl`（类型化记录 note/scorecard，前向兼容跳过未知 type）；记录可编辑（按 ts+原文定位改写、保留原 ts）；评分卡快照一键入湖；算子生成标注修正（改写 meta.json `x_cannbay.data.opGen`）；范式级目标配置（`<paradigm>/<paradigm>.jsonl` 基线/期望耗时，追加式末条生效）；描述/作者/备注从上传 commit message 解析（半角/全角冒号双形态，与 cannbay2 同口径）；viewer 自身提交（`notes(viewer):`）不顶掉原始上传的描述归属
 ### Fixed
-- 【viewer push 鉴权对齐 cannbay2（线上写全挂修复）】原 vendored push 用凭据内嵌 URL 直推——atomgit 网关已拒"请求直带密码"的内嵌 URL（proactive Basic 直接拒；2026-09-14 实测），实验记录/opGen 标注/目标配置全部 502 且误报「并发更新」。修复：pushUrl 一律无凭据，凭据经一次性 0700 credential helper 以 401 挑战供给（与 cannbay2 pushMirror 同方案），凭据不进命令行
-- 【push 被拒后死路重试】重试原样走 `ensureMirrorAsync` 被 15s TTL 短路 → 三次重试用同一 stale 父提交全部被拒；修复：被拒后显式强制 fetch 换父提交再重建提交重试（e2e：外部客户端 push 后再写记录可恢复）
-- 【meta 缺失 blob 批量预取】冷 partial clone 懒取是逐对象一次协商，千级缺失时批量读被 120s 超时截断、指标列残缺（cannbay2 实测 2370 缺失懒取 ≈42min vs 批量 ~10s）；补 localObjectOids 清单 + 200/块批量 fetch（异步不阻塞事件循环），失败回退懒取
-- 【目标配置防误清空】target 路由畸形 body / 两键俱缺原被吞成 `{baselineMs:null, expectedMs:null}` 追加入湖——末条生效语义下等于抹掉团队参考线；修复：一律 400，显式带键 null 仍是合法清除语义；OpgenProgress 加载窗口（含 GET 失败）禁用保存，杜绝无回显状态发出全 null
-- 【混格式开始时间排序错序】startTime 混两种口径（本地库 UTC `.000Z` / meta 快照与 git `%aI` 的 `+08:00`），字符串比较把同日 '+08' 晨间行排在 'Z' 午后行前；改 epoch 数值比较（无法解析按最旧），前 200 评分窗口取行同步归正
-- 【vendored normalizeGitAddress 丢 ai.gitcode.com→gitcode.com host 改写】该 env 形态下 viewer clone 失败且共享镜像会被误判不可用触发破坏性重克隆；补齐与 cannbay2 同款改写
-- 【e2e 夹具并行竞速】viewer ut/e2e 两个 runs 夹具共用同组 taskId，并行共享 dev.db 时 deleteMany/create 撞 `taskId+framework` 唯一约束（偶发）；e2e 夹具 sid 改 `e2e-` 前缀隔离
-- 【target 值类型错误静默清空参考线（MR !19 review）】`{"baselineMs": "5400000"}`（字符串）/`true` 等非 number 值原被类型收敛成 null 追加入湖——末条生效语义下等于抹掉团队已存参考线，恰是「防误清空」要堵的场景；修复：键存在且值既非 number 也非显式 null 一律 400
 - 【评分卡查询失败被 300s TTL 放大（MR !19 review）】`getScorecard` 原把异常也吞成 null 且 null 照常入缓存——一次瞬态 DB 故障让受影响会话 5 分钟内一直「未评分」、`scored=false` 筛选误判，与 `listInsightSessions` 的失败不缓存策略不一致；修复：查询失败上抛（区别于「确定无卡」的 null），`fetchScorecard` 降级为未评分但不落缓存，下次请求立即重试
 - 【日期筛选裸日期按服务器时区解析、跨时区部署边界平移（MR !19 review）】`Date.parse('2026-09-16T00:00:00')` 无时区后缀按服务器本地时区——UTC 服务器上 +08 用户的「当天」平移 8 小时；修复：客户端随 from/to 附带浏览器时区偏移（`tz=±HH:MM`），服务端拼偏移解析（非法/缺省回退服务器本地，边界解析失败回退无界），URL 仍保持可读的 YYYY-MM-DD
-- 【NotesDialog 提交信息面板同款归属缺陷（MR !19 review）】`readSubmitInfo` 原取「最新一条非 viewer 提交」的 message——普通「提交人: …」格式维护提交后，面板「提交信息（上传时填写）」显示维护者/回填描述，与表格列（首传归属）不一致；改与 readLakeSessions 同口径：log 新→旧持续覆写留存最老（`sessionDir` 已按当前位置限定，跨位置迁移的旧位置提交不参与），e2e 两处 GET /notes submit 断言锁定
-- 【会话归属被维护提交顶掉】viewer 列表的 描述/作者/时间原按「最后触碰 commit」取——viewer 自身写路径靠 `notes(viewer):` 前缀豁免，但普通「提交人: …」格式的维护提交（meta 指标回填、baseline 搬移等）会把描述列顶成维护信息（op-fusion 存量回填实测 6 条全中）；改按「首传 commit」取归属（log walk 持续覆写留最老），对任何后续维护提交天然免疫
 
 ## [v0.2.30] - 2026-09-17
 
 ### Added
 - 【claude-code ≥2.1 handback 协议适配】新版 claude-code 在捕获中注入四类框架消息（transcript 回放 / 背景事件 / label 请求 / 状态查询）——逐条指纹识别重分类 system 并摘要化，原文留在捕获文件、DB 不再双份存储子代理内容。会话标题改用首真人查询（主会话行、跳过文档注入、assistant 回落）——中途接入捕获不再拿注入文本当标题。**transcript 指纹加自声明护栏**：`</transcript>` 之后须带 block rules 审查指令（"Err on the side of blocking" / `<block>`）——用户粘协议样本提问（`<transcript>` 开头但无指令尾）不判注入、user turn 原文保留。IT：`tests/ut/adapters/claude-agent-injection.test.ts`（146 行 + transcript 护栏负例）
-- 【方案一：同 sid 双会话共存——先导 cannbay wire 捕获、再导同 sid 的 claude 原生会话文件，各建一行互不吞并】proxy 捕获行的 framework 追加 `-proxy` 记录后缀（`claude-code-proxy` / `opencode-proxy` / `codex-proxy` / `cannbot-proxy`），与同 sid 的原生会话（`claude-code` / `opencode` / …）在 (taskId, framework) 唯一索引下各占一行。导入匹配按「记录类」对齐（`recordingClassOfSessionRow`：proxy 行按 version 标记推导，与分类器同源映射——framework 误标史不参与判定；insight 导出行保持导出身份）：同类 merge（既有行为）、异类各建新行；**insight-export meta 的 framework 声明参与记录类推导**（DB 导出件是既有会话的再记录——重导入并回原生行而非按 claude-jsonl 缺省新建 claude-code 重复行，否则 meta 恢复 patch 撞 (taskId, framework) 唯一键）。存量数据迁移：version 带 marker 的行 framework 幂等补后缀（`20260916000001_proxy_framework_split`，**按 version 标记推导而非追加到现有 framework**——误标行（claude-code + opencode-proxy marker）按现值追加得 claude-code-proxy、与导入匹配推导的 opencode-proxy 分叉 → 重导建重复行且旧行永不合并）；cpx 退出自动导入/cannbay 重导入自动落位到共存语义。**API 消歧补全**（同 taskId 双行后按 framework 参数定位）：wire-rounds / auto-refresh / auto-refresh-stream / stats / scorecard / scorecard/op-bench / scorecard/baseline / scorecard/semantic（scoring 链 collectForScoring→assembleInput→runScorecard 穿参）+ **cannbay2 上传**（`uploadCannbay2Session` 增 framework 参数——UploadToCannbayDialog 请求体携带 target.framework，从捕获行上传不再把另一行的数据传出机器）+ **列表导出**（SessionList.handleExport 补 framework 字段，route/exportSession 已支持）；**deltaRefreshSession 消裸 taskId 二次查找**（refresh-session route 直传已消歧的行对象，同 sid 双行下刷新不再落错行；audit 脚本同款穿行）；**cannbay2 导入回读/补列按行 id 定位**（readSessionType / patchXCannbayColumns 用 importSession 返回的行 id，双行不串行）；AI 分析（analyzer）与 CLI 上传留 TODO 跟进。组件侧 WireRounds / TrajectoryScoring / OpBenchDialog 透传 framework（会话页 4 处调用点 + scoring 独立页 ?framework）；import-file 响应按行 id 精确取回归属（不再 findFirst 撞双行；**占位新建分支也返回行 id**——返回 taskId 会让 findUnique 查不到、imported-empty 条目丢类型徽标）。**归一谓词**：`isClaudeFormatSession` 放行 `-proxy` 变体（前缀匹配）；新增 `agentFrameworkOf`（剥记录后缀 → agent 归属，SessionList 图标归一，proxy 徽标仍走 version）；审计脚本 audit-proxy-classification 期望值同构。IT：`tests/ut/import-proxy-native-coexist.test.ts`（①原生/捕获各建一行+轮次独立 ②重导同类 merge 不膨胀 ③存量旧行按标记归类不建重复行 ④归一谓词 ⑤迁移分叉守护——误标行后缀化按 version 推导、重导 merge 无残留）；既有 5 个 framework 断言文件同步新约定（cannbay-schema 的 insight-export 回环保持导出身份不套后缀）；cannbay2 e2e 的快路径重导断言同步 `opencode-proxy` 约定 + opencode-sample.db fixture 自建守卫（gitignored 二进制由同目录 .sql 重建，此前只有 e2e-import-observe 会建——单文件/乱序运行时 Database 打开失败静默早退）
+- 【方案一：同 sid 双会话共存——先导 wire 捕获、再导同 sid 的原生会话文件，各建一行互不吞并】proxy 捕获行的 framework 追加 `-proxy` 记录后缀，与原生会话在 (taskId, framework) 唯一索引下各占一行；导入匹配按「记录类」对齐（同类 merge、异类各建新行），存量数据按版本标记幂等迁移；导入/导出/刷新等 API 全链路带 framework 消歧
 ### Fixed
 - 【展开收起交互统一推广至全部面板（上轮仅 TurnContextPanel/LlmContextView 两处）】整体审视 14 个含折叠交互的组件，修复 8 文件 10 处「点击行空白处即触发展开」的误触面：LLM Output（面板头 + thinking 段，三角纯化右置——原「▼ hide/▶ show」文字混合体）、Tool Calls（skill 行 + 普通行）、Wire Rounds（Round 头三角与 chars 统计拆绑 + 消息行三角左→右移位，删「点击展开全文」误导文案）、Skill 事件列表、TurnTimeline bridge 展开头（三角左→右）；表格/网格范式的两处（SkillDetail 技能聚合表、perf-shared subagent grid）保留首列/名字侧 expander 位置（各自范式内的统一），仅收窄交互到三角本身；ComparePanorama 区块头旋转三角从标题左侧移至头尾。不在修复范围（非行空白问题）：独立文字开关（WorkflowAgentAudit 诊断/I/O/动作、TokenTrendChart 展示全部、LlmContextView 显示全部）、播放控制（ChatReplay/ContextReplay 的 ▶ Play）、WireRounds 原生 `<details>`、TurnTimeline 折叠态 pill（紧凑 chip，点击即按钮本体）。IT：`tests/ut/panels-expand-toggle.test.tsx`（Output/Tools/Wire 三面板的空白不触发 + 三角展开收起 + 行尾锚定；Wire 消息行为视觉裁剪型展开，以 max-h class 断言）；既有 `tool-call-skill-expand.test.tsx` 点击目标同步改三角
 - 【上下文面板展开收起交互统一（TurnContextPanel + LlmContextView）】① 三角按钮（▶/▼）统一锚定行最右侧：原先 LlmContextView 消息行三角跟在 token 后（copy 图标反而在最右）、TurnContextPanel「Show full context」是三角在文字前的文字链——统一为「行内容居左、三角 ml-auto 居右」；② **仅三角可触发展开/收起**：原先整行（button/role=button）可点，阅读时点空白处误触——改为行是普通 div、三角是 `span role=button`（tabIndex + Enter/Space 键盘支持、px-2 py-1 独立点击热区与 hover 反馈、行不再有误导性高亮）；③ TurnContextPanel 消息行三角显示条件扩展为「长内容**或**有 tool_calls」（原先仅 >80 字符——短内容带 tool_calls 的消息收窄交互后将无三角可展开，功能丢失）；④ CopyButton 垂直对齐修复：size-4 固定盒内的内联 SVG 按基线排版、被继承行高顶出盒子（与三角文本字形错位的根源）——组件改为 `inline-flex items-center justify-center` 居中，caller className 经 cn 叠加、全部 12 处调用点统一受益。IT：`tests/ut/context-expand-toggle.test.tsx`（两面板的行空白不触发/三角展开收起/右锚定/copy 对齐断言）；`llm-context-injection-render.test.tsx` 点击辅助同步改为点三角（并区分同为 role=button 的 CopyButton）
 ## [v0.2.29] - 2026-09-16
 
 ### Added
-- 【双名发布：context 品牌变体（`context-insight`，bin `context-insight` / `ctxi`）】同一源码仓、打包期品牌变换——`scripts/pack-context.mjs`：`npm pack --dry-run` 取本包真实清单 → staging 复制（bin 启动器改名 `context-insight.mjs`）→ 精确字面量替换（**每条规则带 minHits 防漂移哨兵**，源码品牌字面量漂移时打包即报错指路）→ staging 内 `npm pack`（prepack 的 build-cli 在 staging 跑，CLI bundle 品牌随源码变换）。翻转面：显示名 `Context-Insight` / CLI 别名 `ctxi` / 数据目录 `~/.context-insight/` / Bay 显示名 `contextBay`（**UI 字符串一律经 `BAY_NAME` 常量（`@/lib/branding`）取值**——此前大量硬编码大写 B 的 `CANNBay`（上传按钮/弹窗标题/CLI 描述与结果/TUI 面板/导入向导），规则表只覆盖小写 b 的 `"CANNbay"`，context 成品 Bay 名一半品牌一半残留；源码级修复后两品牌同时受益，v1 路由错误消息同步改 BAY_NAME）/ 导入对话框快捷路径；保留面（**两品牌数据互通的契约，不得品牌化**）：数据格式标识 `BRAND_SOURCE_TYPE="cannbot-insight"`、`x_cannbay` 命名空间、`CANNBAY2_*`/`CANNBOT_*` env 名、smart-agent 服务标识 `cannbot-smart-agent`、cannbay2 机器提交身份、v1 路由仓 URL（`guanxinghua/CANNBay.git` 是真实仓库名，替换会断链——哨兵对其豁免）。发布：`node scripts/pack-context.mjs` → `npm publish .context-pack/context-insight-<ver>.tgz`（与主包同版本号双发）。IT：`tests/context-pack.test.ts`（打包→解包→package.json/bin 断言 + CLI bundle 实跑 `--version`=`Context-Insight vX` + 品牌泄漏哨兵全树扫描——**覆盖 `CANNbay`/`CANNBay` 两种大小写形态**（v1 仓 URL 豁免剥除后再扫）+ 契约保留断言）；`.context-pack/` 进 .npmignore 与根 .gitignore（防上次打包产物污染下次 dry-run 清单——实际炸过：tgz 被收进清单、rm -rf 后复制 ENOENT）
-- 【cannbay2 LFS 模式（`config.lfs` > env `CANNBAY2_LFS`，默认关）——上传/导入双域支持，容量脱离 git 仓配额】数据仓启用 LFS 后上传走 LFS 指针出仓（`.jsonl.gz` blob=指针，实体进 LFS 存储），数据量不再计入 atomgit git_repo 1GiB 硬配额；**导入闭环同步支持**——`materializeSession` 在 LFS 模式改用 `git cat-file --filters`（smudge 按需拉实体，`.git/lfs/objects` 本地缓存），且自动从 origin/main 物化工作树 `.gitattributes`（--filters 的属性解析依赖）；列表零影响（meta.json 是普通 blob）。**cat-file 走 spawnSync argv 形式**——repoPath 来自 `ls-tree -z` 原始输出（除 NUL 外任意字节都可能），内插进 shell 双引号字符串即命令注入面（恶意文件名 `sub"; cmd; ".jsonl.gz` 可在导入方机器执行任意命令），argv 传参彻底绕开 shell（oid 是十六进制无此风险）。**工作树 `.gitattributes` 判定对齐 `ensureLfsGitattributes`（缺 `*.gz filter=lfs` 声明即从 origin/main 刷新，非仅看文件存在）**——同一镜像默认模式上传会把剔除过 lfs 行的副本写回工作树（LFS 免疫操作），此后远端切回 LFS 模式时过期副本让 `--filters` 不做 smudge，指针文本被当作 gzip 内容落盘、导入在解压环节报费解错误。镜像内手工写仓级 `filter.lfs.*` + pre-push 钩子（不碰用户全局配置），LFS 模式 add/push 跳过 filter 中和、push 不带 `--no-verify`（钩子=LFS 对象上传通道）；`.gitattributes` 反向操作——确保 `*.gz filter=lfs` 声明存在（默认模式仍是剔除，LFS 免疫行为不变）；git-lfs 不在机 fail-fast。请求体 config 增可选 `lfs` 字段（`CannbayRemoteInput`；Web UI 开关后续接线）。配套 env `CANNBAY2_MAX_SESSION_MB` 覆写单会话大小限（默认 100MB；测试注入 `.value` 机制不变）。与 cpx `src/cannbay/` 受控双实现（parity 锁定），IT：`tests/cannbay2-lfs.test.ts`（file:// bare + standalone 传输，无 git-lfs 机器自动跳过；含注入探针 ⑤ 与过期 .gitattributes 回归锁 ⑥）
-- 【LFS 免疫 IT 修复：seed 推送与机器 git-lfs 状态解耦】装了 git-lfs 的机器上新克隆自动带 lfs pre-push 钩子，`cannbay2-lfs-immunity.test.ts` 的 seed 推送（故意放置孤儿指针）被真实钩子拦截 → collect 期失败；seed push 补 `--no-verify`（免疫验证另有三层防线，不依赖 seed 路径）
+- 【双名发布：context 品牌变体】同一套代码打包期品牌变换——显示名 / CLI 别名 / 数据目录随之翻转，格式契约与环境变量名保留不变（两品牌数据互通）；与主包同版本号双发
 
 ## [v0.2.28] - 2026-09-14
 
@@ -155,9 +138,6 @@
   - IT：agent-content-api.test.ts 补 source=session（旧 UI 值）按缺省两级优先的兼容用例；既有缺省/降级用例继续锁定主行为
 - 【版本策略按包迭代】版本号迭代规则明确为 PR 粒度按包升降：每次合 PR +0.0.1，只升 PR 实际触达的包（insight 触达才升 insight、cpx 触达才升 cpx，未触达不动），AGENTS.md/CLAUDE.md 双语四处同步
 
-### Fixed（测试）
-- session-page-cannbay-upload 偶发超时（vitest 5s 默认值在并行负载下偶破）→ it 显式 30s 超时，连续 3 轮全量回归验证通过
-
 ## [v0.2.26] - 2026-09-09
 
 ### Added
@@ -174,8 +154,6 @@
 ### Added
 - 【原仓 v2.21~v2.25 + 未提交改动一次性同步】skill-dev 原仓（tests/cannbot-insight）自 v2.20 分叉点以来的全部演进整版本合入本仓，与本地 0.2.21~0.2.24 演进（scoring profiles / op-bench）无冲突合并（代码文件 0 冲突，README/AGENTS 人工合并），包含：
   - 【主页 Sessions 搜索与翻页客户端化】`?q=` keyword / sessionID 搜索（服务端过滤 taskId/query/label，回车或按钮提交、Clear 回全量、命中显示 N of M）+ 首屏 SSR 数据之后翻页/搜索走客户端 `/api/observe/data` 无整页刷新（首页/末页/前后页按钮）；SQLite 载入后的会话选择表同款 keyword/sessionID 过滤（全选作用于当前过滤视图）。IT：`tests/home-session-search.test.tsx` + `tests/local-import-session-search.test.tsx`
-  - 【会话页 CANNBay 上传入口】会话详情页标题栏（Export HTML 旁）新增上传按钮，与主页面上传共用 `UploadToCannbayDialog` 同一弹窗（描述/范式目录/算子生成标注/baseline 全同款）。IT：`tests/session-page-cannbay-upload.test.tsx`
-  - 【cannbay2 镜像 LFS 全面免疫】镜像内全部 git 命令收口 `runGit`（mirror.ts），per-command 配置中和 lfs filter（`filter.lfs.process= / smudge=cat / clean=cat / required=false`）+ `push --no-verify`——数据仓 `.gitattributes` 历史带 `*.gz filter=lfs` 且客户机装 git-lfs 时，checkout（孤儿指针 smudge 403）与 add（clean 指针化）两条路免疫；绕过 runGit 直拼 git 命令会重新暴露。约束同步 AGENTS.md。IT：`tests/cannbay2-lfs-immunity.test.ts`
   - 【S3 形态（opencode ≥1.17 首条 skill 注入）双修复】提取侧 `recoverMainAgentWorkflowBody` 只认 role=user 而注入体带 Base directory 标记被 adapter 重分类 system → 规程层丢失，扩 in [user,system]；归一侧 claude-jsonl adapter 会话首条 skill 注入不再重分类、保持 user（同内容会话 turn0 角色不随 opencode 版本漂移），user prompt 之后的注入仍 system+合并；新增 `stripSkillRuntimeTail` 行级剥运行时注入尾部（Base directory/Relative paths/Note 行 + `<skill_files>` 块），LLM 路 turn0 候选同款保持两路产出一致。IT：adapter 首条/中段 2 例 + 提取层 S3/剥尾 5 例 + LLM 候选 1 例
   - 【sift 层3 派发回报对】`buildStructuredRecords` 的 dispatch 类（task/agent）tool_calls 带 result（截断 4096）——派发的 tool_result 是子代理最终报告，sift 层3 用它构建"派发-回报对"喂 step 判官（缺席式误判的洗冤证据 + "传递≠达成"的验收结论依据）
 - README / README-zh 特性清单同步上述条目
@@ -186,20 +164,15 @@
 - 【版本号改三段式】展示版本从两段 `v2.20` 改为三段 `v0.2.20`（前补 `0.` 主段，`package.json` version 仍不作展示版本）。版本源 `src/lib/version.ts` 单一源不变，CLI `--version` / TUI StatusBar·HelpScreen / Web 页头·设置页全端自动跟随，无硬编码处需改；升版本策略同步 `+0.01 → +0.0.1`（CLAUDE.md 两处）。历史两段式条目（v2.07 及以前）按发布当时原样保留，不改写
 - 【cpx 独立为独立组件工具】cpx 捕获网关自 `cannbot-insight/proxy` 独立成 `packages/cpx` 包（git mv 保留历史），成为可独立安装、独立使用的组件工具：捕获不依赖 insight 运行（`packages/cpx/install.sh` 独立安装，`cpx <agent>` 独立捕获），insight 只保留导入/分析职责（运行时捕获退出自动导入 + Web UI「Import Session → JSONL」）。独立后 cpx 拥有自身版本号 v0.1.0（`packages/cpx/src/version.ts` 单一源，`cpx --version | -v` 可查版本 + 生效代码路径）与独立 CHANGELOG（`packages/cpx/CHANGELOG.md`）——后续 cpx 变更在该处记录，本文件不再重复
 
-## [v2.07] - 2026-09-01
-
-### Fixed
-- 【设置数据湖时中文目录报"无效目录"】客户现场（trace_corpus，分支 submit-sessions-08-sgqn）目录浏览点进 `01_longtail_op_gen/7月` 即报 `无效目录:"01_longtail_op_gen/7月"`：`normalizeDirPrefix` 段白名单 `/^[\w.-]+$/` 的 `\w` 纯 ASCII，中文月份段"7月"被拒——而浏览列表的 `ls-tree -z` 本身支持中文路径，造成"看得见、点进去 400"。修复：段白名单放行非 ASCII 区（`\u0080-\uFFFF`），ASCII 区维持原白名单——shell 元字符与路径语义字符（空白 `;|&$`"' *?[] \ /）全在 ASCII 区，注入面不变；target ES2017 用不了 `\p{..}` property escape 故按码位区间表达。上游/下游全链路实测（真实仓 + 本地 bare IT）：设置页 drill-down（根 → 范式 → 月份 → 提交人目录）、目录设为 `01_longtail_op_gen/7月` 后的上传（sparse-checkout/`git add` 中文路径）、列表（rootDir 正则 escapeRegExp）、物化导入全部通过。注：trace_corpus 存量 `<月份>/<提交人>/*.jsonl` 扁平布局（无 `<sid>/<sid>.jsonl` 会话文件夹）不在列表/导入支持范围（README 既有限制，与本次修复无关）。`tests/cannbay2-remote.test.ts` +2（中文段接受 / 中文段混注入字符仍拒）、`tests/cannbay2-remote-it.test.ts` +3（drill-down 客户现场复现 / 中文目录上传→列表→导入回环）
-
 ## [v2.06] - 2026-08-30
 
 ### Changed
-- 【subagent 声明恢复重设计——system 注入为主路径，不依赖 Read】依托 ses_fc73d17d7ffer 正常会话（cannbot proxy 显式派发形态）实测定型：88/88 子代理的运行时 system prompt（jsonl 顶层 `system` = `x_cannbay.data.system`，agent .md 正文 + `<available_skills>` 运行时尾部 ~62%）即**运行时真正生效的声明**。旧 Read 恢复路径在该形态天然无数据——声明已注入上下文，子代理不会再去磁盘读一遍自己的 md（实测仅 3 个验收类子代理 Read 过【别人的】md）；磁盘扫描给的是本机另一版本（designer 真身 8,606 字 vs 磁盘 demo 4,771 / glacier 6,793，均非同版本）+ 多插件歧义退化字母序。落地：
-  - `agent-md-session-recover.ts`（server-only，proxy 扩展层）：`recoverAgentMdFromSystem`——meta.json agentType 定位子代理（免逐个解压）→ x_cannbay/legacy 双读 system → 剥运行时尾部（`<available_skills>`/`<available_agents>` 截断）得纯正文。守卫：opencode 通用 prompt（"You are opencode"）排除、首行标题 ≠ agent 名排除（防 meta 错位）
+- 【subagent 声明恢复重设计——system 注入为主路径，不依赖 Read】依托真实会话（proxy 显式派发形态）实测定型：子代理运行时 system prompt（捕获扩展字段，agent .md 正文 + 运行时尾部 ~62%）即**运行时真正生效的声明**。旧 Read 恢复路径在该形态天然无数据——声明已注入上下文，子代理不会再去磁盘读一遍自己的 md；磁盘扫描给的是本机另一版本 + 多插件歧义退化字母序。落地：
+  - `agent-md-session-recover.ts`（server-only，proxy 扩展层）：`recoverAgentMdFromSystem`——meta.json agentType 定位子代理（免逐个解压）→ 扩展字段/legacy 双读 system → 剥运行时尾部得纯正文。守卫：opencode 通用 prompt 排除、首行标题 ≠ agent 名排除（防 meta 错位）
   - `agent-content` 路由：两级恢复——**system 注入（主路径）> 磁盘扫描（兜底：会话内无声明数据的形态）**；`source=system|disk` 显式指定。移除 Read 恢复依赖（`agent-md-recover.ts` 保留未删，调用点已撤）
   - `audit-agentsift` 路由：声明同链路（审的 = 看的）；system 源物化临时 .md 注入 frontmatter `name: <agentName>`
   - `agent-role-name-map.ts`（client-safe）+ `buildStructuredRecords`：子代理 turn 的 `rec.agent` 改用**角色名**（bridge.subagentType 优先，general 时 join dispatchTurnId→SkillEvent）——修 agent 对账切片匹配断点：`Turn.agentName` 是任务标题（"Task29 修复Kernel崩溃"），sift `--kind agent` 按声明 name 匹配 records.agent 永远对不上
-- 测试：fixture = 真实会话 19 agentType 子代理样本（gzip，404K）+ 恢复 6 用例（19/19 全恢复 / 真身长度断言 / x_cannbay 优先 / 通用 prompt 排除 / 标题守卫 / 缺目录容错）+ 角色名映射 5 用例 + agent-content IT 5 用例 + audit-agentsift IT +1（system 物化声明）+ buildStructuredRecords +2（角色名/回退）；客户端可达性静态锁覆盖 agent-role-name-map.ts
+- 测试：fixture = 真实会话 19 agentType 子代理样本 + 恢复 6 用例（全恢复 / 真身长度断言 / 扩展字段优先 / 通用 prompt 排除 / 标题守卫 / 缺目录容错）+ 角色名映射 5 用例 + agent-content IT 5 用例 + audit IT +1 + 构建记录 +2；客户端可达性静态锁覆盖角色名映射
 
 ## [v2.03] - 2026-08-29
 
@@ -233,26 +206,13 @@
 ## [v1.83] - 2026-08-19
 
 ### Added
-- 【数据格式 schema 契约】捕获/导出 jsonl 引入 `x_cannbay` 声明式扩展命名空间（规范：`docs/cannbay-schema-spec.md`，roadmap #10 一期）——claude 原生字段为冻结信封，全部扩展进 `{schema, version, data}` 口袋，读方按声明分发（不认识整块跳过），终结魔法值与字段嗅探。5 个 payload：`cc-wire-round`（cpx assistant 行：roundIndex/protocol/system/tools/requestParams/latencyMs/ttftMs/stopReason/status/ccVersion）、`cc-wire-input`（cpx 输入行：roundIndex/kind/dedup）、`cc-db-turn`（DB 导出行）、`cc-session-meta`（主会话 `<sid>.meta.json`：producer/framework/ccVersion）、`cc-subagent-meta`（子代理 meta 双写）。双轨期 legacy 顶层字段并存写，读方一律 x_cannbay 优先
+- 【数据格式 schema 契约】捕获/导出 jsonl 引入声明式扩展命名空间——claude 原生字段为冻结信封，全部扩展进 `{schema, version, data}` 口袋，读方按声明分发（不认识整块跳过），终结魔法值与字段嗅探；五种 payload 覆盖 wire 轮次 / wire 输入 / DB 导出行 / 会话 meta / 子代理 meta；双轨期 legacy 顶层字段并存写，读方一律扩展字段优先
 - 【导出丢失修复 ×6】`Turn.reasoningTokens`（接口有字段但从未写出）、`Turn.ttftMs`（导出未取列，且管线侧恒 null——现经 post-patch 补列成为活数据）、`ToolCall` 明细（errorType/errorMessage/durationMs/startedAt，原只剩 is_error 布尔）、`Session.framework/version`（重导入不再错变 claude-code）、`Turn.modelId/providerId/temperature/maxTokens`、wire `response.status`/`request.model`（此前捕获未记录）
-- 【验证】`tests/cannbay-schema.test.ts` 四把锁：形状一致（声明 ∈ 注册表且 version=1）、双写一致（legacy ≡ x_cannbay）、**列清单对账 round-trip**（富 fixture 全列 → 导出 → 上传 → 删库 → 再导入 → 逐列多重集比对 **0 丢失 0 损造**）、混排容错（native/legacy-proxy/纯 x_cannbay 三通道同文件互不污染）；emitter 侧 4 条双写断言（roundIndex 连续、meta 双写、kind 分类）
+- 【验证】schema 契约四把锁：形状一致（声明 ∈ 注册表且版本一致）、双写一致（legacy ≡ 扩展字段）、列清单对账 round-trip（富夹具全列 → 导出 → 再导入 → 逐列多重集比对 **0 丢失 0 损造**）、混排容错（native / legacy-proxy / 纯声明式三通道同文件互不污染）；emitter 侧 4 条双写断言
 
 ### Fixed
 - 【adapter 分组缺陷】带 `message.content` 的 system 行（system 轮/注入约定）夹在两个不同 message.id 的 assistant 行之间时，后一个 assistant 被并入前组且两行整体静默丢失——现带内容的 system 行破组（原生 claude 元数据 system 行无 message.content，行为不变）
-- 【徽标回归（自检视）】cannbay2 再导入时 cc-session-meta 的纯 ccVersion 会把 `Session.version` 的 `-proxy` 后缀徽标覆盖掉——meta patch 现仅对 `producer: 'insight-export'` 生效（cpx 捕获的 version/framework 由导入管线按行标记计算）；⑤号 IT 锁定治理上传→再导入徽标保留
-
-## [v1.82] - 2026-08-19
-
-### Added
-- 【CANNBay v2】上传/下载切换到 atomgit 数据集仓 `cannbay2`（公开库，`main` 分支）— 上传格式 = proxy 捕获的 claude-jsonl 文件夹（`sessions/<sid>/<sid>.jsonl` + `subagents/`），native claude 原文件直传，opencode 会话由 insight DB 自动导出 jsonl；下载列表/导入走 partial clone（`--filter=blob:none`）持久镜像：列表只读元数据（ls-tree + 一次 git log walk，零 blob），导入单条才 cat-file 按需下载，千级会话仓库不变慢（实测单 blob 0.6s、上传 push 1.5s）。实现收在 `src/lib/cannbay2/`（mirror/governance/export/index），API `POST /api/ingest/cannbay2 {action: list|import|upload}`；Web/CLI/TUI 全部切 v2
-- 【数据治理】上传前唯一强制关口（fail-closed）— redactor 自 `proxy/src/redactor.ts` 移植（parity 测试锁定两份实现字节一致），所有待传文件视为不可信输入：深度遍历结构层键名 + 字符串层厂家特征清洗到 staging 副本（不改原件），独立复检残留即熔断拒绝上传（422），密钥不出公开仓；上传时自动剔除仓库 `.gitattributes` 的 `*.jsonl` LFS 行防指针化
-- 【保留 v1】gitcode CANNBay 的 .db 上传/解析 API 原样保留（UI 入口移除），历史数据仍可读取
-
-### Fixed
-- CLI `upload` 不再需要 framework 推断：v2 按 taskId 服务端定位（旧 `--file` 模式对 opencode-proxy 会话因 framework 误判上传失败的问题随之消失）
-- 自检视修复三项：① sid/taskId 白名单校验（`/^[\w.-]+$/`）—— 原样拼进 git 命令存在命令注入面，入口与 `uploadFolder` 双重拦截；② `unchanged` 误报 —— commit 失败一律当"无变化"会静默吞掉真实失败（hook 拒绝等）且跳过 push，现用 `git diff --cached --quiet` 区分"确无 staged 变更"与"真实失败"；③ 治理盲区 —— subagents 目录原为整目录拷贝，杂散的 .txt/.log 等绕过清洗直接进公开仓，现白名单拷贝（.jsonl/.json）+ staging 白名单外文件熔断
-- 无 jsonl 源会话上传被拒 → DB 导出通用兜底：v1 CANNBay 下载的 `.db` 快照会话（`framework=cannbot-insight`，sourcePath 是 .db）、源文件已删/移动的会话，均从 insight DB 导出 claude-jsonl 上传（导出件不含 Full Context，管线数据齐全）；真实场景验证：`a8b8f974` 会话 9.8s 上传成功
-
+- 【徽标回归（自检视）】再导入时 cc-session-meta 的纯 ccVersion 会把 `Session.version` 的 `-proxy` 后缀徽标覆盖掉——meta patch 现仅对 DB 导出行生效（cpx 捕获的 version/framework 由导入管线按行标记计算）；IT 锁定再导入徽标保留
 
 ## [v1.81] - 2026-08-18
 
@@ -341,23 +301,16 @@
 ## [v0.96] - 2026-06-29
 
 ### Changed
-- README 面向用户重写 — 功能介绍 + 方式一（Web UI）+ 方式二（CLI 上传 + Web 分析），日志路径说明，CANNBay 直接导入（无需手动下载）
+- README 面向用户重写 — 功能介绍 + 方式一（Web UI）+ 方式二（CLI 导入 + Web 分析），日志路径说明
 - README 去除技术栈/运行测试/许可等开发者信息（保留在 CLAUDE.md）
 
 ## [v0.95] - 2026-06-29
 
 ### Added
-- CANNBay 上传描述对话框 — Web UI 上传按钮改为弹出对话框，预填模板（提交人/内容描述/问题说明/日志路径/备注），sourcePath 自动填充
-- CLI upload 命令 — `upload --file <path>` 一步完成导入+上传，支持 opencode .db 和 Claude JSONL
+- CLI 导入命令 — `upload --file <path>` 一步完成本地导入，支持 opencode .db 和 Claude JSONL
 - 源类型自动识别 — 根据文件扩展名自动选择 adapter，无需 `--source` 参数
 - 多 session 交互式选择 — 源文件包含多个 session 时自动列出并让用户选择
-- 交互式描述填写 — CLI 上传时交互式填写提交信息（与 Web UI 对话框一致），从 session 数据自动填充默认值
-- 后端自动管理 — CLI upload 命令自动启动后端（如未运行），上传完成后自动关闭
-- TUI 上传入口 — SessionList 新增 'u' 键上传，ConfirmDialog 确认
-
-### Changed
-- Upload API commit message — 使用用户描述作为提交信息（不再使用 "Add session <taskId>"）
-- README 简化 — 去除 beta/内部功能描述，中英文一致，聚焦核心功能
+- 后端自动管理 — CLI 导入命令自动启动后端（如未运行），导入完成后自动关闭
 
 ## [v0.76] - 2026-06-19
 
@@ -419,7 +372,6 @@
 - export-service 测试用例 — 10 个测试覆盖 INSERT 列名/占位符/run() 参数三方匹配、DDL 可执行性、Session 30-vs-31 回归守卫
 
 ### Fixed
-- Upload to CANNBay 失败 — export-service Session INSERT 31 列名 / 30 占位符不匹配（Turn 同类 bug 33/32 一并修复）
 - Import 完成后需手动点 Done — 导入完成后 1.5 秒自动跳回主页并刷新
 
 ### Changed

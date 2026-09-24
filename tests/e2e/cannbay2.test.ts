@@ -228,7 +228,7 @@ describe('cannbay2 闭环：上传（治理）→ push → 列表 → 物化 →
 
   it('杂散文件不进公开仓：staging 白名单只带 .jsonl/.json，stray 内容零泄漏', () => {
     mirror.materializeSession(SID, undefined, 'native');
-    const matSub = path.join(CACHE, 'materialized', `${SID}.native`, 'subagents');
+    const matSub = path.join(mirror.cannbay2CacheDir(), 'materialized', `${SID}.native`, 'subagents');
     const names = fs.readdirSync(matSub);
     expect(names.length).toBeGreaterThan(0);
     expect(names.every(n => n.endsWith('.jsonl.7z') || n.endsWith('.json'))).toBe(true);
@@ -511,7 +511,7 @@ describe('cannbay2 route', () => {
       const result = await cannbay2.importCannbay2Session(SID_BIG, prisma);
       expect(result).toBeTruthy();
       const fc = await import('../../src/lib/ingest/adapters/claude-jsonl-full-context').then(m => m.readFullContext(
-        path.join(CACHE, 'materialized', `${SID_BIG}.jsonl.7z`)));
+        path.join(mirror.cannbay2CacheDir(), 'materialized', `${SID_BIG}.jsonl.7z`)));
       expect(fc?.systemPrompt).toContain('You are opencode');
       expect(fc?.tools?.length).toBe(20);
     } finally {

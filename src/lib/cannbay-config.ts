@@ -12,8 +12,9 @@ export const CANNBAY_CONFIG_STORAGE_KEY = `${BRAND_SLUG}-cannbay-config`
 
 export type CannbayAuthMode = "none" | "password" | "token"
 
-// 地址输入框默认值；等于该值时请求不带地址 → 后端 env / 内置默认接管
-export const DEFAULT_CANNBAY_ADDRESS = "https://atomgit.com/duanbingzhe/cannbay3.git"
+// 地址输入框默认值；等于该值时请求不带地址 → 后端 env / 内置默认接管。
+// 默认地址为占位示例；实际部署通过 env / 设置页配置真实数据仓
+export const DEFAULT_CANNBAY_ADDRESS = "https://example.com/cannbay-lake.git"
 
 export interface CannbayRemoteInput {
   address?: string
@@ -42,9 +43,7 @@ export function migrateCannbayConfig(raw: unknown): CannbayConfig | null {
   const r = raw as Record<string, unknown>
   const str = (v: unknown): string => (typeof v === "string" ? v : "")
   let address = str(r.address).trim()
-  // 旧版预设形状：default → 默认地址；trace_corpus → 语料仓地址
-  const preset = str(r.addressPreset)
-  if (preset === "trace_corpus" && !address) address = "https://ai.gitcode.com/cann_corpus/trace_corpus"
+  // 旧版预设形状（default/trace_corpus）与空地址一律回落默认地址
   if (!address) address = DEFAULT_CANNBAY_ADDRESS
   const validMode = (v: string): CannbayAuthMode | null =>
     v === "none" || v === "password" || v === "token" ? (v as CannbayAuthMode) : null
@@ -80,9 +79,18 @@ export function isDefaultCannbayRemote(config: CannbayConfig | null): boolean {
   return !config || !config.address.trim() || config.address.trim() === DEFAULT_CANNBAY_ADDRESS
 }
 
+// localStorage 只存 UI 偏好（地址/认证方式/分支/目录）——凭据走服务端存储
+// （cannbay-auth.json，设置页保存时落盘，cpx 与 insight 同机共享）。旧版
+// 落在本地的凭据字段不再持久化（migrateCannbayConfig 仍读旧值供表单预填，
+// 用户重新保存即完成迁移）
 export function saveCannbayConfig(config: CannbayConfig): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(CANNBAY_CONFIG_STORAGE_KEY, JSON.stringify(config))
+  localStorage.setItem(CANNBAY_CONFIG_STORAGE_KEY, JSON.stringify({
+    address: config.address,
+    authMode: config.authMode,
+    branch: config.branch,
+    directory: config.directory,
+  }))
 }
 
 export function clearCannbayConfig(): void {
@@ -90,10 +98,29 @@ export function clearCannbayConfig(): void {
   localStorage.removeItem(CANNBAY_CONFIG_STORAGE_KEY)
 }
 
-export function cannbayRemoteInput(config: CannbayConfig | null): { config?: CannbayRemoteInput } {
+// 保存时的服务端凭据操作决策（设置页 handleSave 消费）：填了令牌/密码 →
+// 保存；显式匿名 → 清除该地址已存凭据；认证模式停在 token/password 但输入
+// 留空 → 保留现有（令牌框 placeholder「已配置 xxx（输入新值可更换）」的
+// 空值语义是"不动"而非"删除"——留空保存误删已存凭据，下次上传会撞
+// no-credentials 引导重配）
+export type CredentialAction = "save-token" | "save-password" | "clear" | "keep"
+
+export function planCredentialAction(config: CannbayConfig): CredentialAction {
+  if (config.authMode === "token" && config.token.trim()) return "save-token"
+  if (config.authMode === "password" && config.account.trim() && config.password.trim()) return "save-password"
+  if (config.authMode === "none") return "clear"
+  return "keep"
+}
+
+// 请求体构造：默认不带凭据（服务端从 cannbay-auth.json 按地址解析——上传/
+// 列表/导入统一凭据源）；仅 test/branches 即时验证场景带表单凭据
+// （includeCreds: true —— 测试的是用户正在输入的值，不是已存的值）
+export function cannbayRemoteInput(
+  config: CannbayConfig | null,
+  opts?: { includeCreds?: boolean },
+): { config?: CannbayRemoteInput } {
   if (!config) return {}
   const has = (v?: string): boolean => !!v?.trim()
-  // 按认证方式裁剪：不携带无关字段（切换方式后隐藏输入框的历史值不得泄进请求）
   const creds: CannbayRemoteInput =
     config.authMode === 'token'
       ? { authMode: 'token', token: config.token }
@@ -106,14 +133,17 @@ export function cannbayRemoteInput(config: CannbayConfig | null): { config?: Can
   const isDefaultBranch = !branch || branch === 'main';
   // 地址为默认值（或空）→ 不带地址：后端 env / 内置默认接管（含 env 缓存目录语义）
   const isDefault = !has(config.address) || config.address.trim() === DEFAULT_CANNBAY_ADDRESS
+  const withCreds = opts?.includeCreds && anyCred ? creds : { authMode: 'none' as const }
   if (isDefault) {
-    if (!anyCred && isDefaultBranch && !has(config.directory)) return {}
-    return { config: { ...creds, ...(isDefaultBranch ? {} : { branch }), directory: config.directory } }
+    // 无可传信息（默认地址 + 默认分支 + 无目录 + 未带表单凭据）→ 完全省略
+    // config，后端 env/内置默认接管
+    if (isDefaultBranch && !has(config.directory) && !(opts?.includeCreds && anyCred)) return {}
+    return { config: { ...withCreds, ...(isDefaultBranch ? {} : { branch }), directory: config.directory } }
   }
   return {
     config: {
       address: config.address.trim(),
-      ...creds,
+      ...withCreds,
       ...(isDefaultBranch ? {} : { branch }),
       directory: config.directory,
     },

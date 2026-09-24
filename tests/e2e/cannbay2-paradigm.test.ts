@@ -237,7 +237,7 @@ describe('范式网关：必填 + 动态白名单 + 自定义远端拦截', () =
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// git quotepath 回归（客户现场 trace_corpus：设置页浏览目录出现两个"同名"
+// git quotepath 回归（客户现场语料仓：设置页浏览目录出现两个"同名"
 // 目录，一个带双引号一个不带，带引号的无效）。真实根因：仓是干净的，但
 // 含中文子目录（<类别>/<月份>/ 布局，如 09_fa_op_gen/7月/）——git 默认
 // core.quotepath 把含非 ASCII 的整条路径加引号转义（"09_fa_op_gen/7\346…
@@ -249,7 +249,7 @@ describe('quotepath：中文子目录不得产生带引号的重复目录条目'
     // seed 可能落后于 bare（uploadFolder 直接 push 过）→ 先 rebase 再推
     git('git checkout -q main', SEED);
     git('git pull --rebase -q origin main', SEED);
-    // 模拟 trace_corpus 布局：类别目录 = ASCII、月份子目录 = 中文、外加纯
+    // 模拟 语料仓布局：类别目录 = ASCII、月份子目录 = 中文、外加纯
     // ASCII README（两条路径形态并存——正是触发双条目的组合）
     fs.mkdirSync(path.join(SEED, '09_fa_op_gen', '7月'), { recursive: true });
     fs.writeFileSync(path.join(SEED, '09_fa_op_gen', '7月', 'README.md'), '# month\n');

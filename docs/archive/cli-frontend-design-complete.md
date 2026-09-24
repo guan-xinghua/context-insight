@@ -140,7 +140,7 @@ $ cannbot-insight
 ```bash
 # 列表
 $ cannbot-insight sessions
-$ cannbot-insight sessions --user guanxinghua --limit 20
+$ cannbot-insight sessions --user demo-user --limit 20
 
 # 详情
 $ cannbot-insight session <taskId>

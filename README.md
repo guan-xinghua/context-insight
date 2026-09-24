@@ -9,7 +9,7 @@ Session-level observability for LLM coding agents: import agent session logs and
 Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
 
 - **Tokens & Cost** — 5-item per-turn token breakdown vs the model's context window, plus cost estimation
-- **Active / Wall time** — session detail Wall Clock split (active + inactive = wall) and Active / Wall columns on the homepage & CANNBay Viewer: event-clustering semantics (gaps >5min count as inactive, in-flight API calls count as active); uploads snapshot `activeMs` into lake meta so non-imported rows stay visible
+- **Active / Wall time** — session detail Wall Clock split (active + inactive = wall) and Active / Wall columns on the homepage: event-clustering semantics (gaps >5min count as inactive, in-flight API calls count as active)
 - **Context Growth** — Per-subagent context growth curves with animated replay; `/compact` markers
 - **Context Governance** — Per-turn LLM input composition: visible messages + stable System overhead
 - **Subagent Tracking** — Subagent sessions and dispatch→response bridges, inline in the timeline
@@ -23,7 +23,6 @@ Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; p
 - **Trajectory Scoring** — Six-dimension scorecard (completion veto / trust / quality / efficiency / redundancy / autonomy + custom dims), baseline comparison and scoring profiles
 - **Audit** — Workflow audit (flow chart + per-node findings + priorities) and Skill audit (real execution vs SKILL.md / agent definitions / workflow declarations)
 - **Key Redaction** (proxy captures) — API keys never touch disk: masked (`abcd…wxyz`) at the single write chokepoint
-- **CANNBay Viewer** — homepage entry: paradigm sidebar over the data lake (partial clone, on-demand fetch), run list (description / author / tool / operator-generation annotation, metrics and score vs baseline), operator-generation duration chart (configurable baseline/expected reference lines), one-click import into the session detail page, and per-session experiment notes / scorecard snapshots written back to the data lake (team-shared)
 
 The homepage Sessions list supports keyword / session-ID search; the import dialog offers one-click default paths.
 
@@ -66,16 +65,16 @@ Log file locations:
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/` (directory auto-scan)
 
-The Web UI also supports: exporting sessions to standalone SQLite or Markdown; uploading to the CANNBay dataset repo (paradigm directory + operator-generation outcome annotation + optional baseline, with mandatory secret governance before push); on-demand import from the CANNBay list. The data-lake remote, auth, and branch are configurable in Settings (credentials stay in browser localStorage). The LLM provider panel embeds a known-provider Base URL quick reference. When the data repo has LFS enabled on the platform, set env `CANNBAY2_LFS=1` (or request config `lfs`) to store `.jsonl.7z` sessions as LFS pointers — capacity escapes the git repo quota, and the import path handles it transparently (meta stays a plain blob; session payloads are fetched from LFS storage on demand).
+The Web UI also supports exporting sessions to standalone SQLite or Markdown. The LLM provider panel embeds a known-provider Base URL quick reference.
 
-### Option 2: CLI Upload + Web Analysis
+### Option 2: CLI Import + Web Analysis
 
-For SSH remotes and other browser-less environments (one-time `npm install` + `npx prisma migrate deploy`; the upload command auto-starts the backend afterwards):
+For SSH remotes and other browser-less environments (one-time `npm install` + `npx prisma migrate deploy`; the import command auto-starts the backend afterwards):
 
 ```bash
-# opencode: list / upload specific / interactive
+# opencode: list / import specific / interactive
 npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --list
-npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --session-id <id> --description "desc" --yes --json
+npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --session-id <id> --yes --json
 
 # Claude Code: directory scan / single file
 npx tsx src/cli/index.ts upload --file ~/.claude/projects/ --list
@@ -89,5 +88,3 @@ npx tsx src/cli/index.ts upload --file ~/.claude/projects/<hash>/<uuid>.jsonl --
 | `--description <text>` | Upload description |
 | `--yes` / `--json` | Skip confirmation / JSON output (script-friendly) |
 | `--list` | List available sessions only |
-
-After upload, click the **CANNBay** button in the Web UI to pick a paradigm directory and import — no manual clone needed.

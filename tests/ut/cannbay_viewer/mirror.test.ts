@@ -152,9 +152,9 @@ describe('push 鉴权解析（401 挑战式，绝不内嵌 URL）', () => {
     const { resolveLakeRemote, parseUrlCreds } = await import('../../../src/app/cannbay_viewer/_lib/lake/remote');
     const saved = process.env.CANNBAY2_PUSH_URL;
     try {
-      process.env.CANNBAY2_PUSH_URL = 'https://user%40x:p%40ss@atomgit.com/a/b.git';
+      process.env.CANNBAY2_PUSH_URL = 'https://user%40x:p%40ss@example.com/a/b.git';
       const r = resolveLakeRemote();
-      expect(r.pushUrl).toBe('https://atomgit.com/a/b.git');
+      expect(r.pushUrl).toBe('https://example.com/a/b.git');
       expect(r.pushAuth).toEqual({ username: 'user@x', password: 'p@ss' });
     } finally {
       if (saved === undefined) delete process.env.CANNBAY2_PUSH_URL;

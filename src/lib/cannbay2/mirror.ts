@@ -19,11 +19,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaultCannbay2Remote, escapeRegExp, normalizeDirPrefix, stripUrlCreds } from './remote';
-import type { Cannbay2Remote } from './remote';
+import type { Cannbay2Remote, PushAuth } from './remote';
 import { privateLfsBinDir, ensureLfsBinaryAvailable } from './lfs-setup';
 import { isProxyVersion } from '../shared/session-format';
 
-export { CANNBAY2_PULL_URL, CANNBAY2_PUSH_URL, CANNBAY2_BRANCH } from './remote';
 export type { Cannbay2Remote } from './remote';
 
 export function cannbay2CacheDir(remote?: Cannbay2Remote): string {
@@ -56,9 +55,9 @@ function runGitText(cmd: string, cwd: string): string {
 
 // ── blob 批量预取 ────────────────────────────────────────────────────
 // partial clone（--filter=blob:none）下 blob 按需懒取：每个缺失对象一次独立
-// HTTPS 协商（atomgit 实测 ~1s/个）。批量预取 = 一轮 git fetch <oids> 协商拉齐
+// HTTPS 协商（平台实测 ~1s/个）。批量预取 = 一轮 git fetch <oids> 协商拉齐
 // 全部缺失（实测 1601 个 meta 9.3s，懒取需 ~28min），与懒取走同一服务端能力
-// （uploadpack.allowAnySHA1InWant；atomgit 支持，本地 bare fixture 同配）。
+// （uploadpack.allowAnySHA1InWant；平台支持，本地 bare fixture 同配）。
 // 任何失败静默跳过 —— 后续逐对象 cat-file 懒取路径不变，行为不劣化。
 
 // 单次 fetch 的 OID 数（命令行长度安全：200 × 41B ≈ 8KB，Windows 限制内）
@@ -70,12 +69,13 @@ export function localObjectOids(dir: string): Set<string> {
   return new Set(out.toString('utf8').split('\n').map(l => l.trim()).filter(Boolean));
 }
 
-/** 把缺失 blob 分块批量拉齐。oid 白名单校验（拼进 shell 命令）。 */
-export function prefetchBlobs(dir: string, oids: string[]): void {
+/** 把缺失 blob 分块批量拉齐。oid 白名单校验（拼进 shell 命令）。私有仓经
+ * 一次性 credential helper 鉴权（同 clone/fetch 的 pullAuth 通道）。 */
+export function prefetchBlobs(dir: string, oids: string[], auth?: { username: string; password: string } | null): void {
   const valid = oids.filter(o => /^[0-9a-f]{40,64}$/.test(o));
   for (let i = 0; i < valid.length; i += FETCH_OID_CHUNK) {
     try {
-      runGit(`git fetch --quiet origin ${valid.slice(i, i + FETCH_OID_CHUNK).join(' ')}`, dir, 300_000);
+      runGitWithAuth(`git fetch --quiet origin ${valid.slice(i, i + FETCH_OID_CHUNK).join(' ')}`, dir, auth ?? null, 300_000);
     } catch { /* 服务端拒绝按 OID fetch 等 → 回退逐对象懒取 */ }
   }
 }
@@ -130,7 +130,12 @@ function cloneMirror(dir: string, remote: Cannbay2Remote): void {
   try {
     // --no-local：本地路径 clone 默认走硬链接、忽略 --filter（测试指向本地 bare 仓时
     // 会退化成全量镜像、物化不再是按需下载）；HTTPS 远端不受影响
-    runGit(`git clone --quiet --no-local --filter=blob:none --no-checkout "${remote.pullUrl}" "${tmp}"`, path.dirname(target), 600_000);
+    runGitWithAuth(
+      `git clone --quiet --no-local --filter=blob:none --no-checkout "${remote.pullUrl}" "${tmp}"`,
+      path.dirname(target),
+      remote.pullAuth,
+      600_000,
+    );
     // 走到这里必然持锁：旧目录只可能是已判定损坏的残留（fetch 失败 / 上次中断），
     // 没有合法并发读者，安全删除后让位。rename 前重建父目录：克隆耗时数分钟，
     // 期间父目录可能被外部清理掉。
@@ -161,11 +166,22 @@ function mirrorLocallyUsable(dir: string, remote: Cannbay2Remote): boolean {
  *  - origin 完好 + 引用可解析 → 瞬态失败（网络抖动 / 另一进程在同一镜像里
  *    上传时的 refs 锁竞争）→ 保留镜像（元数据可能略旧），绝不 rmSync 重建
  *    ——否则会炸掉在途上传的仓库；
- *  - 地址不符 / 引用缺失 → 配置级损坏或半成品 → 走重建自愈。 */
+ *  - 地址不符 / 引用缺失 → 配置级损坏或半成品 → 走重建自愈。
+ * origin 一致性在 fetch 之前校验：镜像路径与远端的绑定只靠目录约定（cacheDir
+ * 哈希），同一路径换远端（env 覆写换址 / 哈希碰撞外的人工挪用）时旧 origin
+ * 的 fetch 照样成功——不先验地址就会静默读写错误的仓库（2026-09-22 默认仓
+ * 迁址实测：主页仍显示旧仓 113 会话）。rev-parse 不在此处做：空仓克隆后
+ * 无 origin/<branch> 是合法中间态，fetch 它成功即认可。 */
 function tryFetchMirror(dir: string, remote: Cannbay2Remote): boolean {
   if (!fs.existsSync(path.join(dir, '.git'))) return false;
   try {
-    runGit(`git fetch --quiet origin ${remote.branch}`, dir);
+    const originUrl = runGitText('git remote get-url origin', dir).trim();
+    if (stripUrlCreds(originUrl) !== stripUrlCreds(remote.pullUrl)) return false;
+  } catch {
+    return false;
+  }
+  try {
+    runGitWithAuth(`git fetch --quiet origin ${remote.branch}`, dir, remote.pullAuth);
     return true;
   } catch {
     return mirrorLocallyUsable(dir, remote);
@@ -274,7 +290,7 @@ function parseCommitSubject(subject: string, author: string): { submitter: strin
 
 // ── ls-tree 输出解析（quotepath 防线）──────────────────────────────────
 // git 默认 core.quotepath 会把含非 ASCII 的整条路径加引号转义（如
-// "09_fa_op_gen/7\346\234\210/…"）——路径里只要有一段中文（trace_corpus
+// "09_fa_op_gen/7\346\234\210/…"）——路径里只要有一段中文（语料仓
 // 的 <类别>/<月份>/ 布局），按 "/" 切分就会得到带引号前缀的目录名，与
 // 纯 ASCII 路径推出的干净目录名并存（UI 两个同名目录，带引号的无效）。
 // 所有 ls-tree 一律 -z（NUL 分隔，路径永不转义/加引号）；decodeGitPath
@@ -352,7 +368,7 @@ function readSessionMetas(dir: string, remote: Cannbay2Remote): Map<string, { fr
     // 懒取 vs ~10s 批量）。失败回退懒取。
     const local = localObjectOids(dir);
     const missing = wanted.filter(w => !local.has(w.oid)).map(w => w.oid);
-    if (missing.length > 0) prefetchBlobs(dir, missing);
+    if (missing.length > 0) prefetchBlobs(dir, missing, remote.pullAuth);
     // spawnSync（非 execSync）：execSync 自定义 stdio 时不返回 stdout，且输入
     // 走 stdin 需要独立 pipe —— 这里要求拿回完整批量输出 buffer
     const batch = spawnSync('git', ['cat-file', '--batch'],
@@ -738,7 +754,7 @@ export function materializeSession(sid: string, remote: Cannbay2Remote = default
     // 167 缺失 ~80-95s 懒取 vs 7.2s 批量），再单进程分批写盘
     const local = localObjectOids(dir);
     const missing = entries.filter(e => !local.has(e.oid)).map(e => e.oid);
-    if (missing.length > 0) prefetchBlobs(dir, missing);
+    if (missing.length > 0) prefetchBlobs(dir, missing, remote.pullAuth);
     const planned: Array<{ oid: string; target: string }> = [];
     for (const e of entries) {
       const rel = targetRelOf(e.repoPath.slice(prefix.length));
@@ -1024,26 +1040,28 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
 }
 
 /**
- * 401 挑战-应答式 push：pushUrl 一律无凭据，凭据经一次性 credential helper
- * 供给——atomgit 网关已拒"请求直带密码"的内嵌 URL（proactive Basic 直接
- * CH.00905401 拒绝；同凭据经 401 挑战后重试可通过，2026-09-14 实测）。
- * helper 脚本只落 0700 临时目录、用后即删，凭据不进命令行（execSync 失败
- * 消息不含凭据）。`-c credential.helper=` 先清空继承链（全局 store 等），
- * 保证显式凭据确定性生效。pushAuth=null（本地 bare / 匿名推）直推。
- * LFS 模式：不用 --no-verify（pre-push 钩子 = LFS 对象上传通道，跳过即
- * 产生孤儿指针）；helper 的 -c 配置经 GIT_CONFIG_PARAMETERS 传给钩子，
- * git-lfs 的 batch API 鉴权与 git push 同源。
+ * Run a git command with a one-shot credential helper (401 challenge-response
+ * auth): URLs never carry embedded credentials — hosting gateways reject
+ * proactive Basic auth on the request line. The helper script lives in a 0700
+ * temp dir and is removed afterwards; credentials never appear on the command
+ * line (execSync failure messages stay clean). `-c credential.helper=` clears
+ * the inherited chain (global store etc.) so the explicit helper applies
+ * deterministically. auth=null runs the command as-is (local bare / anonymous).
+ * Returns the command stdout (ls-remote consumers read ref advertisements).
  */
-export function pushMirror(dir: string, remote: Cannbay2Remote): void {
-  const verify = remote.lfs ? '' : ' --no-verify';
-  const raw = remote.lfs ? { raw: true as const } : undefined;
-  if (!remote.pushAuth) {
-    runGit(`git push${verify} "${remote.pushUrl}" ${remote.branch}`, dir, 300_000, raw);
-    return;
+export function runGitWithAuth(
+  cmd: string,
+  cwd: string,
+  auth: PushAuth | null,
+  timeoutMs = 120_000,
+  opts?: { raw?: boolean },
+): Buffer {
+  if (!auth) {
+    return runGit(cmd, cwd, timeoutMs, opts);
   }
-  const { username, password } = remote.pushAuth;
+  const { username, password } = auth;
   if (/[\r\n]/.test(username) || /[\r\n]/.test(password)) {
-    throw new Error('push 凭据含换行符（credential helper 协议非法）');
+    throw new Error('git credentials contain newline (invalid for credential helper protocol)');
   }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-cannbay2-auth-'));
   try {
@@ -1053,13 +1071,27 @@ export function pushMirror(dir: string, remote: Cannbay2Remote): void {
       `#!/bin/sh\ncat <<'INSIGHTEOF'\nusername=${username}\npassword=${password}\nINSIGHTEOF\n`,
       { mode: 0o700 },
     );
-    runGit(
-      `git -c credential.helper= -c credential.helper="${helper}" push${verify} "${remote.pushUrl}" ${remote.branch}`,
-      dir,
-      300_000,
-      raw,
+    return runGit(
+      `git -c credential.helper= -c credential.helper="${helper}" ${cmd.replace(/^git /, '')}`,
+      cwd,
+      timeoutMs,
+      opts,
     );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * 401 挑战-应答式 push：pushUrl 一律无凭据，凭据经一次性 credential helper
+ * 供给——托管平台网关已拒"请求直带密码"的内嵌 URL（proactive Basic 直接
+ * 拒绝；同凭据经 401 挑战后重试可通过）。凭据不进命令行。
+ * LFS 模式：不用 --no-verify（pre-push 钩子 = LFS 对象上传通道，跳过即
+ * 产生孤儿指针）；helper 的 -c 配置经 GIT_CONFIG_PARAMETERS 传给钩子，
+ * git-lfs 的 batch API 鉴权与 git push 同源。
+ */
+export function pushMirror(dir: string, remote: Cannbay2Remote): void {
+  const verify = remote.lfs ? '' : ' --no-verify';
+  const raw = remote.lfs ? { raw: true as const } : undefined;
+  runGitWithAuth(`git push${verify} "${remote.pushUrl}" ${remote.branch}`, dir, remote.pushAuth, 300_000, raw);
 }

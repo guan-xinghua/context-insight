@@ -217,15 +217,16 @@ describe('start.sh 依赖实装守卫（旧 node_modules × 新依赖声明 → 
     expect(r.errText).toContain('non-fatal');
   });
 });
-// 启动关键路径不被 git-lfs 自举预取阻塞：start.sh 调 cpx install.sh 时必须
-// 钉 CPX_SKIP_LFS_SETUP=1（GitHub 直连受限时预取会阻塞 ~2min，实测拉长
-// "杀旧→Ready" 停机窗口）。源码级锁——env 前缀被移除即红。
-describe('start.sh cpx 安装步骤跳过 git-lfs 自举预取', () => {
-  it('PROXY_INSTALL 调用行带 CPX_SKIP_LFS_SETUP=1（启动关键路径零网络等待）', () => {
+// cpx 上传能力整体迁出后，其安装钩子不再做 git-lfs 预取——start.sh 调用行
+// 无需任何 env 前缀，启动关键路径天然零网络等待。源码级锁：调用行形如
+// `if bash "$PROXY_INSTALL" ...`（重构须同步本测试）。
+describe('start.sh cpx 安装步骤（上传链路已迁出，调用行零 env 前缀）', () => {
+  it('PROXY_INSTALL 调用行为裸 bash（无 env 前缀）', () => {
     const src = fs.readFileSync(START_SH, 'utf8');
-    const m = src.match(/^(\s*)if (\S+) bash "\$PROXY_INSTALL"/m);
-    expect(m, '未找到 PROXY_INSTALL 调用行（重构须同步本测试）').toBeTruthy();
-    expect(m![2]).toBe('CPX_SKIP_LFS_SETUP=1');
+    const m = src.match(/^(\s*)if bash "\$PROXY_INSTALL"/m);
+    expect(m, '未找到 PROXY_INSTALL 裸调用行（重构须同步本测试）').toBeTruthy();
+    // 任何 env 前缀形态都不得回潮（如 FOO=1 bash "$PROXY_INSTALL"）
+    expect(src).not.toMatch(/^\s*if \S+=\S+ bash "\$PROXY_INSTALL"/m);
   });
 });
 
@@ -247,11 +248,12 @@ describe('start.sh -k 击杀升级（SIGTERM 挂死 → SIGKILL 补刀）', () =
       });
       const exited = new Promise<number>((resolve) => fake.on('exit', (c) => resolve(c ?? -1)));
 
-      // 源码级单函数提取执行（不动 start.sh 其余逻辑）；先锁升级语义存在
-      const fn = execSync(
-        `sed -n '/^kill_all_insight() {/,/^}/p' ${JSON.stringify(START_SH)}`,
-        { encoding: 'utf8' },
-      );
+      // 源码级单函数提取执行（不动 start.sh 其余逻辑）；先锁升级语义存在。
+      // kill_all_insight 依赖 proc_cwd（cwd 锚定跨平台解析），须连带提取。
+      const fn = [
+        execSync(`sed -n '/^proc_cwd() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        execSync(`sed -n '/^kill_all_insight() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+      ].join('\n');
       expect(fn).toContain('kill -9');
       const runner = path.join(fakeRoot, 'runner.sh');
       fs.writeFileSync(runner, [
@@ -272,4 +274,162 @@ describe('start.sh -k 击杀升级（SIGTERM 挂死 → SIGKILL 补刀）', () =
       fs.rmSync(fakeRoot, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+describe('start.sh 单实例收口（默认=杀已有自家实例后固定 BASE_PORT，不端口漂移）', () => {
+  it('源级：kill_all_insight + ensure_base_port_free 无条件调用（无 KILL_EXISTING 门槛）', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    // KILL_EXISTING 变量整体退役（-k 仅历史别名）——门槛复活即红
+    expect(src).not.toContain('KILL_EXISTING');
+    // 收口调用对存在（无条件、紧跟）
+    expect(src).toMatch(/^kill_all_insight$/m);
+    expect(src).toMatch(/^ensure_base_port_free$/m);
+  });
+
+  it('源级：端口漂移顺延扫描整体退役（MAX_ATTEMPTS/trying next 消失）', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    expect(src).not.toContain('MAX_ATTEMPTS');
+    expect(src).not.toContain('trying next');
+  });
+
+  it('源级：smart-agent 恒 clean 模式（默认路径残留泄漏修复）', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    expect(src).toMatch(/pick-smart-agent-port\.sh.*"?\$SCRIPT_DIR"? clean/);
+    expect(src).not.toMatch(/pick-smart-agent-port\.sh.*echo clean \|\| echo keep/);
+  });
+
+  it('源级：无关占用 fail-fast 诊断（占用者 PID/命令行 + 不漂移指引）', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    expect(src).toContain('ensure_base_port_free() {');
+    expect(src).toContain('占用者 PID');
+    expect(src).toContain('单实例模式不做端口漂移');
+  });
+
+  it('行为级：无关进程占住端口 → 等待超时 fail-fast（exit 1 + 诊断含占用者 PID）', async () => {
+    const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'startsh-port-it-'));
+    try {
+      // 仿真无关 LISTEN 进程占住一个高位端口
+      const port = 21000 + Math.floor(Math.random() * 2000);
+      fs.writeFileSync(path.join(fakeRoot, 'holder.js'),
+        `require('net').createServer().listen(${port}, '127.0.0.1', () => setInterval(() => {}, 1000));\n`);
+      const holder = spawn(process.execPath, [path.join(fakeRoot, 'holder.js')], { stdio: 'ignore' });
+      await new Promise<void>((resolve) => {
+        const t = setInterval(() => {
+          try { (require('net') as typeof import('net')).connect(port, '127.0.0.1').on('error', () => {}).on('close', () => { clearInterval(t); resolve(); }).end(); } catch { /* */ }
+        }, 50);
+      });
+      expect(holder.pid).toBeGreaterThan(0);
+
+      // 单函数提取执行（与 -k 击杀升级测试同款纪律）：port_pid/port_busy/
+      // ensure_base_port_free + BASE_PIN 高位端口
+      const fns = [
+        execSync(`sed -n '/^port_pid() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        execSync(`sed -n '/^port_busy() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        execSync(`sed -n '/^ensure_base_port_free() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+      ].join('\n');
+      const runner = path.join(fakeRoot, 'runner.sh');
+      fs.writeFileSync(runner, [
+        `BASE_PORT=${port}`,
+        fns,
+        'ensure_base_port_free',
+        'echo "SHOULD_NOT_REACH"',
+      ].join('\n'));
+      const r = execSync(`bash ${JSON.stringify(runner)} 2>&1; echo "EXIT=$?"`, { encoding: 'utf8', timeout: 60_000 });
+      expect(r).toContain('EXIT=1');
+      expect(r).toContain('仍被占用');
+      expect(r).toContain(`PID ${holder.pid}`);
+      expect(r).not.toContain('SHOULD_NOT_REACH');
+      holder.kill('SIGKILL');
+    } finally {
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  it('行为级：端口空闲 → ensure_base_port_free 零等待通过（exit 0）', () => {
+    const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'startsh-port-free-'));
+    try {
+      const port = 23000 + Math.floor(Math.random() * 2000);
+      const fns = [
+        execSync(`sed -n '/^port_pid() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        execSync(`sed -n '/^port_busy() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        execSync(`sed -n '/^ensure_base_port_free() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+      ].join('\n');
+      const runner = path.join(fakeRoot, 'runner.sh');
+      fs.writeFileSync(runner, [`BASE_PORT=${port}`, fns, 'ensure_base_port_free', 'echo OK'].join('\n'));
+      const r = execSync(`bash ${JSON.stringify(runner)} 2>&1; echo "EXIT=$?"`, { encoding: 'utf8', timeout: 30_000 });
+      expect(r).toContain('EXIT=0');
+      expect(r).toContain('OK');
+    } finally {
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// macOS（无 /proc）单实例收口兜底（PR #38 审查意见）：kill_all_insight 原先
+// 只靠 readlink /proc/$pid/cwd 锚定——mac 上恒为空 → 自家实例永不命中 →
+// 旧生产实例占着 BASE_PORT 时 ensure_base_port_free 10s 超时硬失败，
+// 「杀旧重启」在主要开发环境（darwin）上不成立。proc_cwd 跨平台解析：
+// /proc readlink → lsof -a -p <pid> -d cwd -Fn（macOS 路径）。
+describe('start.sh 单实例收口 macOS 兜底（proc_cwd：/proc → lsof -d cwd）', () => {
+  it('源级：proc_cwd 定义存在；kill_all_insight 走 proc_cwd 锚定（不再裸 readlink /proc）；过期注释已清理', () => {
+    const src = fs.readFileSync(START_SH, 'utf8');
+    expect(src).toContain('proc_cwd() {');
+    const fn = execSync(`sed -n '/^kill_all_insight() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' });
+    expect(fn).toContain('proc_cwd "$pid"');
+    expect(fn).not.toContain('readlink "/proc');
+    // 「-k 的忙端口回退」语义已不存在（单实例不漂移）——注释复活即红
+    expect(src).not.toContain('忙端口回退');
+  });
+
+  it('行为级（Linux）：proc_cwd 经 /proc 解析活进程真实 cwd', () => {
+    const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'startsh-cwd-it-'));
+    try {
+      const proc = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: fakeRoot, stdio: 'ignore' });
+      try {
+        const fn = execSync(`sed -n '/^proc_cwd() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' });
+        expect(fn).not.toBe('');
+        const runner = path.join(fakeRoot, 'runner.sh');
+        fs.writeFileSync(runner, [fn, `echo "CWD=$(proc_cwd ${proc.pid})"`].join('\n'));
+        const r = execSync(`bash ${JSON.stringify(runner)}`, { encoding: 'utf8' });
+        expect(r.trim()).toBe(`CWD=${fakeRoot}`);
+      } finally {
+        proc.kill('SIGKILL');
+      }
+    } finally {
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('行为级（macOS 形态，stub lsof）：/proc 缺失时走 lsof -a -p <pid> -d cwd -Fn 并解析 n 行', () => {
+    const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'startsh-lsof-it-'));
+    try {
+      const stubBin = path.join(fakeRoot, 'bin');
+      fs.mkdirSync(stubBin, { recursive: true });
+      const lsofLog = path.join(fakeRoot, 'lsof.log');
+      fs.writeFileSync(path.join(stubBin, 'lsof'), [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> ${JSON.stringify(lsofLog)}`,
+        'echo "p999999999"',
+        'echo "fcwd"',
+        'echo "n/recorded/cwd/path"',
+        '',
+      ].join('\n'));
+      fs.chmodSync(path.join(stubBin, 'lsof'), 0o755);
+      const fn = execSync(`sed -n '/^proc_cwd() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' });
+      expect(fn).toContain('lsof -a -p "$pid" -d cwd -Fn');
+      const runner = path.join(fakeRoot, 'runner.sh');
+      // pid 999999999 不存在 → /proc 分支不命中 → lsof 分支（macOS 同形路径）
+      fs.writeFileSync(runner, [fn, 'echo "CWD=$(proc_cwd 999999999)"'].join('\n'));
+      const r = execSync(`bash ${JSON.stringify(runner)}`, {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${stubBin}:${process.env.PATH ?? ''}` },
+      });
+      expect(r.trim()).toBe('CWD=/recorded/cwd/path');
+      expect(fs.readFileSync(lsofLog, 'utf8')).toContain('-a -p 999999999 -d cwd -Fn');
+    } finally {
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  });
 });

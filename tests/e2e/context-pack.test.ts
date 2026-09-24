@@ -35,11 +35,11 @@ function read(rel: string): string {
 }
 
 // needle：禁止出现的品牌字面量；allow：先从文本中剥除的豁免串（如 v1 路由
-// 硬编码的真实仓 URL——guanxinghua/CANNBay.git 是仓库名不是品牌显示，替换会断链）
+// 硬编码的仓 URL——example.com/CANNBay.git 是仓库名不是品牌显示，替换会断链）
 const FORBIDDEN: Array<{ needle: string; allow?: string }> = [
   { needle: 'CANNBot-Insight' },
   { needle: 'CANNbay' },
-  { needle: 'CANNBay', allow: 'guanxinghua/CANNBay.git' },
+  { needle: 'CANNBay', allow: 'example.com/CANNBay.git' },
   { needle: '[cbi]' },
   { needle: '.cannbot-insight' },
 ]
@@ -106,10 +106,9 @@ describe('context 品牌变体打包（pack-context.mjs）', () => {
     expect(leaks, `品牌泄漏:\n${leaks.join('\n')}`).toEqual([])
   })
 
-  it('格式契约保留：source type / smart-agent 服务标识 / CANNBAY2 env 文档', () => {
+  it('格式契约保留：source type / smart-agent 服务标识 / env 文档', () => {
     expect(read('src/lib/branding.ts')).toContain('BRAND_SOURCE_TYPE = "cannbot-insight"')
     expect(read('smart-agent/server.py')).toContain('cannbot-smart-agent')
-    expect(read('README.md')).toContain('CANNBAY2_LFS')
     expect(read('bin/context-insight.mjs')).toContain("'.context-insight'")
   })
 })

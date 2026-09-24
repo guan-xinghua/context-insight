@@ -23,7 +23,7 @@
 //           x_cannbay 命名空间 / CANNBAY2_* 与 CANNBOT_* 环境变量名 /
 //           smart-agent 服务标识（cannbot-smart-agent，启动器 isSmartAgent 契约）/
 //           git 机器提交身份（cannbay2 mirror，数据仓内身份稳定）/
-//           v1 路由仓 URL（guanxinghua/CANNBay.git 是真实仓库名，非品牌显示，
+//           v1 路由仓 URL（真实仓库名，非品牌显示，
 //           不能替换——哨兵对其豁免）
 //
 // 每条规则带 minHits（防漂移哨兵）：源码重构后若必命中的规则命中 0 次，打包报错，

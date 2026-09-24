@@ -60,6 +60,7 @@ for (const [sid, firstLine] of [[SID_OK, '生成成功场景'], [SID_FAIL, '生�
 
 const prisma = new PrismaClient();
 const cannbay2 = await import('../../src/lib/cannbay2');
+const mirror = await import('../../src/lib/cannbay2/mirror');
 const route = await import('../../src/app/api/ingest/cannbay2/route');
 
 function makeRequest(body: unknown) {
@@ -109,8 +110,9 @@ describe('cannbay2 算子生成标注（opGen）round-trip', () => {
     const up2 = await uploadViaRoute(SID_FAIL, 'failure');
     expect(up2.ok, JSON.stringify(up2.data)).toBe(true);
 
-    // 仓内 meta 事实源：x_cannbay.data.opGen（明文 meta，直接从镜像 cat）
-    const cache = path.join(TMP, 'cache');
+    // 仓内 meta 事实源：x_cannbay.data.opGen（明文 meta，直接从镜像 cat）——
+    // 镜像在按远端哈希的缓存子目录（cannbay2CacheDir 取解析后的真实路径）
+    const cache = mirror.cannbay2CacheDir();
     for (const [sid, want] of [[SID_OK, 'success'], [SID_FAIL, 'failure']] as const) {
       const metaRaw = execSync(`git cat-file -p HEAD:others/${sid}/${sid}.meta.json`, { cwd: cache, encoding: 'utf-8' });
       const meta = JSON.parse(metaRaw);
@@ -142,7 +144,7 @@ describe('cannbay2 算子生成标注（opGen）round-trip', () => {
       expect(up2.ok, JSON.stringify(up2.data)).toBe(true);
       sessions = await listViaRoute();
       expect(sessions.find(s => s.sid === SID3)?.opGen ?? null).toBeNull();
-      const metaRaw = execSync(`git cat-file -p HEAD:others/${SID3}/${SID3}.meta.json`, { cwd: path.join(TMP, 'cache'), encoding: 'utf-8' });
+      const metaRaw = execSync(`git cat-file -p HEAD:others/${SID3}/${SID3}.meta.json`, { cwd: mirror.cannbay2CacheDir(), encoding: 'utf-8' });
       expect(JSON.parse(metaRaw).x_cannbay.data.opGen).toBeUndefined();
     } finally {
       try { await prisma.session.deleteMany({ where: { taskId: SID3 } }); } catch { /* ignore */ }

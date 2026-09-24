@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // cannbay2 读路径性能修复 IT：blob 批量预取 + 列表/目录合并读取。
-// 背景（atomgit 实测）：partial clone 懒取 = 每个缺失 blob 一次独立 HTTPS
+// 背景（平台实测）：partial clone 懒取 = 每个缺失 blob 一次独立 HTTPS
 // 协商（~1s/个）——列表 2817 个 meta 中 2370 缺失时 readSessionMetas 被
 // 120s 超时截断、type 列残缺；物化 167 缺失 blob 逐个懒取 ~80-95s。修复 =
 // 一轮 git fetch <oids> 批量拉齐（实测 1601 个 9.3s vs 懒取 ~28min）+

@@ -57,6 +57,7 @@ function buildRemote(): Cannbay2Remote {
     pullUrl: BARE_URL,
     pushUrl: BARE_URL,
     pushAuth: null,
+    pullAuth: null,
     branch: 'main',
     rootDir: 'sessions',
     cacheDir: CACHE,

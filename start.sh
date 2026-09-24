@@ -50,7 +50,6 @@ export DATABASE_URL="${DATABASE_URL:-file:$SCRIPT_DIR/prisma/dev.db}"
 UPDATE=false
 CLI=false
 CLI_CMD=""
-KILL_EXISTING=false
 FRESH=false
 ADVANCED=false
 # 默认生产模式（next build 缓存复用 + 请求零编译——dev 按需编译是 Turns tab
@@ -61,12 +60,13 @@ while getopts "uc:kfadp" opt; do
   case $opt in
     u) UPDATE=true ;;
     c) CLI=true; CLI_CMD="$OPTARG" ;;
-    k) KILL_EXISTING=true ;;
+    k) : ;;  # -k：历史别名——默认已是"杀旧重启"单实例语义，无需分支
     f) FRESH=true ;;
     a) ADVANCED=true ;;
     d) PROD=false ;;
     p) PROD=true ;;
-    *) echo "Usage: $0 [-u] [-k] [-f] [-a] [-d] [-c <command|tui>]  (-u: update; -k: kill port; -f: force rebuild; -a: show advanced tabs; -d: dev mode — default is production; -c: CLI mode)" >&2; exit 1 ;;
+    *) echo "Usage: $0 [-u] [-f] [-a] [-d] [-c <command|tui>]  (-u: update; -f: force rebuild; -a: show advanced tabs; -d: dev mode — default is production; -c: CLI mode)" >&2
+       echo "       -k 仍被接受（历史别名，语义=默认：杀已有自家实例后从 BASE_PORT 单实例重启）" >&2; exit 1 ;;
   esac
 done
 
@@ -112,9 +112,6 @@ install_deps_if_needed || exit 1
 # `./start.sh` (integrated) and `../cpx/install.sh` (standalone, capture works
 # without insight) share one code path. Non-fatal: if it fails, insight still
 # starts (just without a fresh cpx wrapper).
-# CPX_SKIP_LFS_SETUP=1：insight 启动是"等 Web UI 起来"的关键路径，跳过
-# postinstall 的 git-lfs 自举预取（GitHub 直连受限时会阻塞 ~2min）——自举
-# 推迟到首次上传时自动发生；独立 install.sh / npm 安装路径仍保留预取。
 PROXY_INSTALL="$SCRIPT_DIR/../cpx/install.sh"
 if [ -f "$PROXY_INSTALL" ]; then
   echo "[setup] Setting up proxy (cpx)..."
@@ -122,7 +119,7 @@ if [ -f "$PROXY_INSTALL" ]; then
   if [ "$UPDATE" = true ]; then PROXY_INSTALL_ARGS+=("-u"); fi
   mkdir -p "$SCRIPT_DIR/tmp"
   PROXY_LOG="$SCRIPT_DIR/tmp/cpx-install.log"
-  if CPX_SKIP_LFS_SETUP=1 bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
+  if bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
     echo "[setup] cpx ready ✓ (log: tmp/cpx-install.log)"
   else
     echo "[setup] proxy install failed (non-fatal):"
@@ -166,10 +163,9 @@ if [ "$UPDATE" = true ] || [ ! -f "prisma/dev.db" ]; then
   npx prisma migrate dev --name init
 fi
 
-# -k 语义：杀掉所有自家实例（dev 锁记录的 dev server 也算）后从 BASE_PORT
-# 起一个；默认路径零杀——只启动一个新的、端口顺延，任何现存进程都不碰
+# 单实例收口：dev 锁记录的 dev server 同在击杀范围（默认即收口，无 -k 门槛）
 LOCK_FILE=".next/dev/lock"
-if [ "$KILL_EXISTING" = true ] && [ -f "$LOCK_FILE" ]; then
+if [ -f "$LOCK_FILE" ]; then
   OLD_PID=$(python3 -c "import json; print(json.load(open('$LOCK_FILE'))['pid'])" 2>/dev/null || cat "$LOCK_FILE" | grep -o '"pid":[0-9]*' | grep -o '[0-9]*')
   if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
     echo "[start] Stopping existing dev server (PID $OLD_PID)..."
@@ -179,10 +175,9 @@ if [ "$KILL_EXISTING" = true ] && [ -f "$LOCK_FILE" ]; then
   rm -f "$LOCK_FILE"
 fi
 
-# 生产实例支持多开（用户常态：并行两个实例各占一端口）。旧实现在此按
-# PID 文件杀"上一实例"（单实例假设），双开时第二个启动会把第一个杀掉，
-# 已删。防端口漂移由下方端口扫描顺延承担；累积的僵尸实例用 -k 全量
-# 清理（kill_all_insight）。PID 文件仅作记录（launch 段写入最新实例）。
+# 单实例收口（2026-09-21 决策翻转）：此前的"多开常态"（并行实例各占端口）
+# 是端口漂移与僵尸实例累积的根源——默认路径改为杀已有自家实例后固定绑
+# BASE_PORT。PID 文件仅作记录（launch 段写入最新实例）。
 PROD_PID_FILE="$SCRIPT_DIR/tmp/next-prod.pid"
 
 BASE_PORT=21025
@@ -210,12 +205,50 @@ port_busy() {
   [ -n "$(port_pid "$port")" ]
 }
 
-# -k：杀掉所有自家实例（不限端口，扫进程表）——next 系（cmdline 含
+# 单实例端口收口：等待 BASE_PORT 释放（杀实例后内核回收套接字需要时间，
+# 含 TIME_WAIT 清理；10s 上限覆盖 SIGKILL 补刀后的收尾）。超时仍被占 =
+# 占用者是无关进程 → fail-fast 报占用者诊断——绝不端口漂移（漂移会断
+# cpx 自动导入的 INSIGHT_BASE=21025 探测与浏览器书签，静默换址比明确报错
+# 更伤）。next start EADDRINUSE 秒死会重演"主脚本 wait 立即返回再被 trap
+# 收尾"的事故链，硬绑同理不可取。
+ensure_base_port_free() {
+  local waited=0
+  while port_busy "$BASE_PORT"; do
+    if [ "$waited" -ge 10 ]; then
+      local holder_pid holder_cmd
+      holder_pid=$(port_pid "$BASE_PORT")
+      holder_cmd=$(ps -o command= -p "$holder_pid" 2>/dev/null || echo "未知（可能已退出，端口处 TIME_WAIT）")
+      echo "[start] ERROR: 端口 $BASE_PORT 在击杀自家实例后 ${waited}s 仍被占用。" >&2
+      echo "[start]   占用者 PID ${holder_pid}: ${holder_cmd}" >&2
+      echo "[start] 单实例模式不做端口漂移。请确认占用者后手动处理（kill ${holder_pid}），或修改 BASE_PORT。" >&2
+      exit 1
+    fi
+    sleep 0.5
+    waited=$(awk "BEGIN{print $waited + 0.5}")
+  done
+}
+
+# 进程 cwd 解析（kill_all_insight 锚定用）：Linux 走 /proc readlink；无 /proc
+# 的平台（macOS——单实例收口的主要开发环境）退 lsof -d cwd，锚定语义不变。
+# 只在 mac 上 readlink 恒空 → 函数恒不认定自家实例 → 杀旧重启退化为
+# ensure_base_port_free 10s 超时硬失败，「杀旧重启」在 mac 上不成立。
+proc_cwd() {
+  local pid=$1
+  if [ -e "/proc/$pid" ]; then
+    readlink "/proc/$pid/cwd" 2>/dev/null || true
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1
+  fi
+}
+
+# 杀掉所有自家实例（不限端口，扫进程表；单实例收口默认调用，-k 等价）——next 系（cmdline 含
 # next-server / next start / npx next）且 cwd 在本包，以及 cwd 在
 # smart-agent 的 python 进程（cmdline 锚定解释器：vim/less/grep server.py
 # 的命令行也含该字样，只凭 pgrep 会把编辑器一并 SIGTERM）。别人的 Next
-# 项目（cwd 不在包内）与无关进程不碰。/proc 读取失败（macOS）按不认定
-# 处理——端口清理交由下方 -k 的忙端口回退。
+# 项目（cwd 不在包内）与无关进程不碰。cwd 解析跨平台走 proc_cwd（/proc →
+# readlink；macOS → lsof -d cwd），读取失败（权限/进程已退出）按不认定处理
+# ——误杀别人的进程比漏杀更伤，漏杀兜底由 ensure_base_port_free 的占用者
+# 诊断 fail-fast 收口。
 #
 # 击杀升级（SIGTERM → 3s 宽限 → SIGKILL）：next-server 对 SIGTERM 走
 # graceful close——释放 LISTEN 但等存量 keep-alive 连接收尾，而浏览器在
@@ -225,10 +258,10 @@ port_busy() {
 kill_all_insight() {
   local pid cmd cwd killed="" pids=""
   for pid in $(pgrep -f 'next-server|next start|npx next' 2>/dev/null || true); do
-    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    cwd=$(proc_cwd "$pid")
     case "$cwd" in
       "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
-        echo "[start] -k: stopping insight instance (PID $pid)..."
+        echo "[start] 单实例收口: stopping insight instance (PID $pid)..."
         pids="$pids $pid"
         ;;
     esac
@@ -239,14 +272,14 @@ kill_all_insight() {
       python*) ;;
       *) continue ;;
     esac
-    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    cwd=$(proc_cwd "$pid")
     if [ "$cwd" = "$SCRIPT_DIR/smart-agent" ]; then
-      echo "[start] -k: stopping smart-agent (PID $pid)..."
+      echo "[start] 单实例收口: stopping smart-agent (PID $pid)..."
       pids="$pids $pid"
     fi
   done
   if [ -z "$pids" ]; then
-    echo "[start] -k: no existing insight instance found"
+    echo "[start] 单实例收口: no existing insight instance found"
     return 0
   fi
   for pid in $pids; do
@@ -261,40 +294,22 @@ kill_all_insight() {
   done
   for pid in $pids; do
     if kill -0 "$pid" 2>/dev/null; then
-      echo "[start] -k: SIGTERM 未收尾，SIGKILL 补刀 (PID $pid)..."
+      echo "[start] 单实例收口: SIGTERM 未收尾，SIGKILL 补刀 (PID $pid)..."
       kill -9 "$pid" 2>/dev/null || true
       killed=1
     fi
   done
-  [ -n "$killed" ] || echo "[start] -k: no existing insight instance found"
+  [ -n "$killed" ] || echo "[start] 单实例收口: no existing insight instance found"
 }
 
-# -k: 杀掉所有自家实例后优先 BASE_PORT；等待超时后仍被占（macOS 无
-# /proc 杀不掉任何实例、或占用者是设计上不杀的无关进程）则回退顺延扫描，
-# 不在忙端口上硬绑——next start EADDRINUSE 秒死会重演"主脚本 wait 立即
-# 返回再被 trap 收尾"的事故链。默认零杀、端口顺延
-if [ "$KILL_EXISTING" = true ]; then
-  kill_all_insight
-  for _ in $(seq 1 20); do
-    port_busy "$BASE_PORT" || break
-    sleep 0.5
-  done
-fi
-
-MAX_ATTEMPTS=128
-for i in $(seq 0 $((MAX_ATTEMPTS - 1))); do
-  PORT=$((BASE_PORT + i))
-  if (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
-    echo "[start] Port $PORT is in use, trying next..."
-    continue
-  fi
-  break
-done
-
-if [ $PORT -ge $((BASE_PORT + MAX_ATTEMPTS)) ]; then
-  echo "[start] ERROR: No available port in range $BASE_PORT-$((BASE_PORT + MAX_ATTEMPTS - 1))" >&2
-  exit 1
-fi
+# 单实例收口：杀掉所有自家实例（kill_all_insight：SIGTERM→3s 宽限→SIGKILL
+# 补刀，cwd 锚定跨平台走 proc_cwd——/proc readlink / macOS lsof -d cwd，
+# 只杀本包 next-server + smart-agent）→ 等 BASE_PORT 释放（10s 上限）。
+# 超时仍被占 = 占用者是无关进程 → fail-fast 报占用者诊断——绝不端口漂移
+# （漂移会断 cpx 自动导入的 INSIGHT_BASE=21025 探测与浏览器书签，静默换
+# 址比明确报错更伤）
+kill_all_insight
+ensure_base_port_free
 
 # Launch Python smart-agent (v2 backend) in background.
 # 端口选择与存量进程处置交给 scripts/pick-smart-agent-port.sh（可独立行为测试）：
@@ -305,7 +320,10 @@ AGENT_PID=""
 AGENT_LOG="$SCRIPT_DIR/tmp/smart-agent.log"
 
 if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
-  AGENT_PORT=$(bash "$SCRIPT_DIR/scripts/pick-smart-agent-port.sh" "$BASE_PORT" "$PORT" "$SCRIPT_DIR" "$([ "$KILL_EXISTING" = true ] && echo clean || echo keep)")
+  # 恒 clean：单实例语义下旧 smart-agent 总在击杀回收范围（keep 模式是默认
+  # 路径 smart-agent 残留泄漏的来源——实测 2026-09-21：21026 python3 从
+  # 上午存活到晚间）
+  AGENT_PORT=$(bash "$SCRIPT_DIR/scripts/pick-smart-agent-port.sh" "$BASE_PORT" "$PORT" "$SCRIPT_DIR" clean)
   if [ -n "$AGENT_PORT" ]; then
     mkdir -p "$SCRIPT_DIR/tmp"
     (cd "$SCRIPT_DIR/smart-agent" && CANNBOT_AGENT_PORT=$AGENT_PORT python3 server.py) > "$AGENT_LOG" 2>&1 &
@@ -331,27 +349,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 二次定端口（smart-agent 已 LISTEN 其端口，普通扫描自然避开它）。
-# 注意：此处不再重复 -k kill——旧实现把上方 -k 分支整段复制了一份，
-# kill 跑两遍且无 LISTEN 过滤，会误杀与端口 ESTABLISHED 的客户端进程
-# （"把自己杀掉"事故来源）；-k 路径 PORT 已定为 BASE_PORT，直接用。
-if [ "$KILL_EXISTING" != true ]; then
-  MAX_ATTEMPTS=128
-  for i in $(seq 0 $((MAX_ATTEMPTS - 1))); do
-    PORT=$((BASE_PORT + i))
-    if (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
-      echo "[start] Port $PORT is in use, trying next..."
-      continue
-    fi
-    break
-  done
-
-  if [ $PORT -ge $((BASE_PORT + MAX_ATTEMPTS)) ]; then
-    echo "[start] ERROR: No available port in range $BASE_PORT-$((BASE_PORT + MAX_ATTEMPTS - 1))" >&2
-    exit 1
-  fi
-fi
-
+# 端口已由上方 ensure_base_port_free 定死为 BASE_PORT（单实例不漂移）；
+# smart-agent 端口由 pick 脚本避让 PORT 自选。
 echo "[start] Launching CANNBot-Insight on port $PORT..."
 
 # 生产模式（默认）：next build + next start。dev 模式对 API 路由按需编译——

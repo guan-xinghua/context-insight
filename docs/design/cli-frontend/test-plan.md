@@ -221,9 +221,9 @@ describe('InsightClient API methods', () => {
         json: async () => ({ items: [], total: 0, page: 1 }),
       });
 
-      await client.listSessions({ user: 'guanxinghua', pageSize: 20 });
+      await client.listSessions({ user: 'demo-user', pageSize: 20 });
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain('user=guanxinghua');
+      expect(calledUrl).toContain('user=demo-user');
       expect(calledUrl).toContain('pageSize=20');
     });
   });
@@ -801,10 +801,10 @@ describe('sessions command', () => {
   it('passes --user filter to client', async () => {
     mockListSessions.mockResolvedValue({ items: [], total: 0 });
     const cmd = sessionsCommand();
-    await cmd.parseAsync(['node', 'test', '--user', 'guanxinghua']);
+    await cmd.parseAsync(['node', 'test', '--user', 'demo-user']);
 
     expect(mockListSessions).toHaveBeenCalledWith(
-      expect.objectContaining({ user: 'guanxinghua' }),
+      expect.objectContaining({ user: 'demo-user' }),
     );
   });
 
@@ -2178,7 +2178,7 @@ export const mockSessionList: SessionListItem[] = [
     totalSkillLoadCount: 8,
     totalSubagentCount: 3,
     model: 'claude-3.5-sonnet',
-    user: 'guanxinghua',
+    user: 'demo-user',
   },
   {
     sessionId: 'ses_002',
@@ -2193,7 +2193,7 @@ export const mockSessionList: SessionListItem[] = [
     totalSkillLoadCount: 4,
     totalSubagentCount: 1,
     model: 'glm-5',
-    user: 'guanxinghua',
+    user: 'demo-user',
   },
   {
     sessionId: 'ses_003',
@@ -2208,7 +2208,7 @@ export const mockSessionList: SessionListItem[] = [
     totalSkillLoadCount: 12,
     totalSubagentCount: 5,
     model: 'deepseek-v4',
-    user: 'guanxinghua',
+    user: 'demo-user',
   },
   {
     sessionId: 'ses_004',
@@ -2238,7 +2238,7 @@ export const mockSessionList: SessionListItem[] = [
     totalSkillLoadCount: 6,
     totalSubagentCount: 2,
     model: 'gpt-4o',
-    user: 'guanxinghua',
+    user: 'demo-user',
   },
 ];
 ```

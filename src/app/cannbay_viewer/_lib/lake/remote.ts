@@ -9,29 +9,32 @@
 // 数据湖远端解析（vendor 自 insight cannbay2/remote.ts 的只读子集，决策
 // §10-2 先冗余后收敛）：env > 硬编码默认。镜像目录默认与 insight cannbay2
 // 共用（见 defaultCacheDir），env 口径一致。唯一写路径 = 实验记录追加
-// （notes），push 走独立 pushUrl（与 insight/cpx 同一枚共享凭据，env
-// CANNBAY2_PUSH_URL 覆写）。分支/目录会拼进 shell git 命令，白名单校验与
+// （notes）；push 凭据不再内置（共享令牌已出源）——统一走 cannbay2/auth
+// 解析链（env 完整 URL > env 分离对 > cannbay-auth.json 已存凭据，与
+// insight/cpx 同一份存储）。分支/目录会拼进 shell git 命令，白名单校验与
 // insight 同款；错误消息出边界前必须 redact（execSync 失败携带完整命令行）。
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { parseUrlCreds, resolvePushAuth } from '@/lib/cannbay2/auth';
+
+export { parseUrlCreds } from '@/lib/cannbay2/auth';
 
 export const CANNBAY2_PULL_URL = process.env.CANNBAY2_REMOTE_URL
-  ?? 'https://atomgit.com/duanbingzhe/cannbay3.git';
+  ?? 'https://example.com/cannbay-lake.git';
 export const CANNBAY2_BRANCH = process.env.CANNBAY2_BRANCH ?? 'main';
-
-// push 凭据密文（与 insight cannbay2/remote.ts、cpx cannbay/remote.ts 同一枚，
-// 三处冗余由各自测试锁行为一致）；测试用 CANNBAY2_PUSH_URL 指向本地 bare 仓
-const CANNBAY2_PUSH_URL_ENCODED = 'aHR0cHM6Ly9kdWFuYmluZ3poZTpvU1I1aTF3WXZ5dlZpUmdMbXdna3NDeG5AYXRvbWdpdC5jb20vZHVhbmJpbmd6aGUvY2FubmJheTMuZ2l0';
-
-export function envPushUrl(): string {
-  return process.env.CANNBAY2_PUSH_URL ?? Buffer.from(CANNBAY2_PUSH_URL_ENCODED, 'base64').toString();
-}
 
 export interface LakeRemote {
   pullUrl: string;
   /** 无凭据 push 地址：凭据走 credential helper（pushAuth），绝不内嵌 URL */
   pushUrl: string;
-  /** push 凭据（env URL 内置共享令牌解析而来）；null = 匿名推 */
+  /** push 凭据（env URL / env 分离对 / 已存凭据解析而来）；null = 匿名推 */
   pushAuth: PushAuth | null;
+  /**
+   * Pull credentials for private remotes: applied to clone/fetch via a
+   * one-shot credential helper (same 401-challenge channel as push). Null =
+   * pull anonymously.
+   */
+  pullAuth: PushAuth | null;
   branch: string;
   cacheDir: string;
 }
@@ -95,29 +98,34 @@ function normalizePushUrl(address: string): string {
   return trimmed.replace(/\/+$/, '');
 }
 
-/** push 凭据（解析自 env URL 的 user:pass）；null = 匿名推（本地 bare 等） */
+/** push 凭据（env 完整 URL 内嵌凭据 / env 分离对 / cannbay-auth.json）；
+ *  null = 匿名推（本地 bare 等） */
 export interface PushAuth { username: string; password: string }
 
-// 从 URL 剥出凭据：pushUrl 一律无凭据，凭据经一次性 credential helper 供给
-// ——atomgit 网关拒绝"请求直带密码"的内嵌 URL（proactive Basic 直接拒；
-// 同凭据经 401 挑战后重试可通过，与 cannbay2 pushMirror 2026-09-14 实测同源）
-export function parseUrlCreds(url: string): { credless: string; auth: PushAuth | null } {
-  const m = url.match(/^(https?:\/\/)([^/@:\s]+):([^@\s]+)@/i);
-  if (!m) return { credless: url, auth: null };
-  return {
-    credless: url.slice(0, m[1].length) + url.slice(m[0].length),
-    auth: { username: decodeURIComponent(m[2]), password: decodeURIComponent(m[3]) },
-  };
-}
-
 export function resolveLakeRemote(): LakeRemote {
-  const { credless, auth } = parseUrlCreds(normalizePushUrl(envPushUrl()));
+  const pullUrl = normalizeGitAddress(CANNBAY2_PULL_URL);
+  // push 目标：env CANNBAY2_PUSH_URL 覆写（credless 部分）> pull 地址；
+  // 凭据经 cannbay2/auth 解析链（测试用 env 覆写本地 bare 同一条路）
+  const pushOverride = process.env.CANNBAY2_PUSH_URL?.trim();
+  const { credless, auth } = pushOverride
+    ? parseUrlCreds(normalizePushUrl(pushOverride))
+    : { credless: pullUrl, auth: resolvePushAuth(pullUrl) };
+  const branch = validateBranch(CANNBAY2_BRANCH);
+  // 镜像目录按远端 URL+分支哈希（与 insight cannbay2 同公式 → 默认仓共用
+  // 同一镜像，大文件只落一处）：历史不哈希直用缓存根，默认仓迁址后旧镜像
+  // origin 仍指旧仓、fetch 照样成功——列表会静默读错误仓库（2026-09-22
+  // 迁址实测），且与 insight 修复后的哈希目录分叉
+  const cacheDir = path.join(
+    defaultCacheDir(),
+    createHash('sha1').update(`${pullUrl}|${branch}`).digest('hex').slice(0, 12),
+  );
   return {
-    pullUrl: normalizeGitAddress(CANNBAY2_PULL_URL),
+    pullUrl,
     pushUrl: credless,
     pushAuth: auth,
-    branch: validateBranch(CANNBAY2_BRANCH),
-    cacheDir: defaultCacheDir(),
+    pullAuth: pushOverride ? resolvePushAuth(pullUrl) : auth,
+    branch,
+    cacheDir,
   };
 }
 
