@@ -22,6 +22,38 @@ export interface ActiveTimeTurnRow {
   role: string
 }
 
+/**
+ * 事件聚类：区间按开始时间排序，相邻间隔 > gapMs（默认 5min）即断开成新的活跃段。
+ * 返回合并后的活跃段 [{start,end}]；相邻段之间的空档即休眠。
+ * - Wall Clock 拆分（computeActiveTimeSplit）用它汇总；
+ * - 泳道图用它按「每条泳道一组区间」重聚类（阈值可调）。
+ */
+export function clusterActiveSegments(
+  intervals: Array<[number, number]>,
+  gapMs: number = ACTIVE_GAP_THRESHOLD_MS,
+): Array<{ start: number; end: number }> {
+  const ivs = intervals
+    .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b))
+    .map(([a, b]) => (a <= b ? [a, b] : [b, a]) as [number, number])
+    .sort((x, y) => x[0] - y[0])
+  if (ivs.length === 0) return []
+  const segments: Array<{ start: number; end: number }> = []
+  let curStart = ivs[0][0]
+  let curEnd = ivs[0][1]
+  for (let i = 1; i < ivs.length; i++) {
+    const [s, e] = ivs[i]
+    if (s - curEnd > gapMs) {
+      segments.push({ start: curStart, end: curEnd })
+      curStart = s
+      curEnd = e
+    } else if (e > curEnd) {
+      curEnd = e
+    }
+  }
+  segments.push({ start: curStart, end: curEnd })
+  return segments
+}
+
 export async function computeSessionActiveSplit(
   fetchTurns: () => Promise<ActiveTimeTurnRow[]>,
   sessionStartMs: number,
@@ -42,32 +74,15 @@ export function computeActiveTimeSplit(
   sessionStartMs: number,
   sessionEndMs: number | null
 ): ActiveTimeSplit | null {
-  const ivs = intervals
-    .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b))
-    .map(([a, b]) => (a <= b ? [a, b] : [b, a]) as [number, number])
-    .sort((x, y) => x[0] - y[0])
-  if (ivs.length === 0) return null
-  if (ivs.length === 1 && ivs[0][0] === ivs[0][1]) return null
-  const start = Math.min(sessionStartMs, ivs[0][0])
-  const end = Math.max(sessionEndMs ?? ivs[ivs.length - 1][1], ivs[ivs.length - 1][1])
+  const segments = clusterActiveSegments(intervals)
+  // 单个时间点（零跨度）算不出活跃/非活跃，返回 null 交调用方回落墙钟。
+  if (segments.length === 0) return null
+  if (segments.length === 1 && segments[0].start === segments[0].end) return null
+  const start = Math.min(sessionStartMs, segments[0].start)
+  const end = Math.max(sessionEndMs ?? segments[segments.length - 1].end, segments[segments.length - 1].end)
   const wallMs = Math.max(0, end - start)
   let activeMs = 0
-  let clusterCount = 0
-  let clusterStart = ivs[0][0]
-  let prevEnd = ivs[0][1]
-  for (let i = 1; i < ivs.length; i++) {
-    const [s, e] = ivs[i]
-    if (s - prevEnd > ACTIVE_GAP_THRESHOLD_MS) {
-      activeMs += prevEnd - clusterStart
-      clusterCount++
-      clusterStart = s
-      prevEnd = e
-    } else if (e > prevEnd) {
-      prevEnd = e
-    }
-  }
-  activeMs += prevEnd - clusterStart
-  clusterCount++
+  for (const seg of segments) activeMs += seg.end - seg.start
   if (activeMs > wallMs) activeMs = wallMs
-  return { wallMs, activeMs, inactiveMs: wallMs - activeMs, clusterCount }
+  return { wallMs, activeMs, inactiveMs: wallMs - activeMs, clusterCount: segments.length }
 }

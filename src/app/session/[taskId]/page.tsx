@@ -88,6 +88,11 @@ interface SessionData {
     model: string | null
     createdAt: string
     latencyMs: number
+    // turns 跨度（首条 turn 的 createdAt → 末条 turn 的 completedAt，含休眠空档）
+    span?: { start: number; end: number } | null
+    // 每个 turn 的原始区间（不合并）：前端按「休眠阈值」档位重新聚类成活跃段画深色，
+    // 其余部分画浅色休眠。阈值可调故这里只给原始区间。
+    activeIntervals?: Array<{ start: number; end: number }>
     firstPrompt: string | null
   }>
   skills: Array<{

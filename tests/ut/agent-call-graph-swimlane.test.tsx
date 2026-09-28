@@ -1,21 +1,20 @@
 // Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
-// This program is free software: you can redistribute it and/or modify it under the terms and conditions of
+// This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
-// Please refer to the License for details. You may not use this file except in compliance with the License.
+// Please refer to the License for details. You should not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // @vitest-environment happy-dom
 
-// Overview 泳道 IT（本轮 UX 修复）：
-// 1) 分行：装箱必须按「渲染矩形」（left% + 最小宽度地板 2%），不能按原始时间
-//    跨度——切片跨度（start→next）首尾相接、时间上永不重叠，按时间装箱恒为单轨，
-//    多行机制（trackCount/laneHeight）沦为死代码；被地板撑宽的短条在同一行互相
-//    压盖（现场：65h 跨度 68 agents，design 泳道单行压盖 8 层，只有最顶层可点）。
-//    压盖的条分行；首尾相接的顺序条保持同轨，不因逐条错位而轨道爆炸。
-// 2) 悬停详情：同泳道大量同名条（如 65 个 design）仅靠 agentName 无法区分，
-//    tooltip 须带上该 execution 的首个任务 prompt（API 已返回 firstPrompt）。
+// Overview 泳道 IT（slots 布局）：
+// 1) 泳道 = 1 条「主 agent」+ N（5）个「并发槽 N」。subagent 按开始时间丢进「最早空闲」
+//    的槽——并发的分到不同槽，后续不重叠的复用回前面的槽。
+// 2) 同槽内渲染矩形重叠时往下分轨（>5 并发挤槽兜底），不同轨 top 不同、互不压盖。
+// 3) 「休眠阈值」档位切换只在前端重聚类活跃段：阈值越大，段越少（更多连成一片）。
+// 4) 悬停详情：同泳道大量同名条仅靠 agentName 无法区分，tooltip 须带上该 execution 的
+//    首个任务 prompt（API 已返回 firstPrompt）。
 import { describe, it, expect, afterEach } from 'vitest'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -32,6 +31,8 @@ afterEach(() => {
   container = null
 })
 
+interface Span { start: number; end: number }
+
 function mkAgent(over: {
   executionId: string
   createdAt: string
@@ -40,6 +41,8 @@ function mkAgent(over: {
   agentSessionId?: string
   agentName?: string
   firstPrompt?: string | null
+  span?: Span | null
+  activeIntervals?: Span[]
 }) {
   return {
     executionId: over.executionId,
@@ -55,11 +58,15 @@ function mkAgent(over: {
     model: 'glm-5.3',
     createdAt: over.createdAt,
     latencyMs: over.latencyMs,
+    span: over.span ?? null,
+    activeIntervals: over.activeIntervals ?? [],
     firstPrompt: over.firstPrompt ?? null,
   }
 }
 
 const T0 = '2026-09-15T21:34:48.000Z'
+const T = (offsetMs: number) => new Date(Date.parse(T0) + offsetMs).toISOString()
+const at = (offsetMs: number) => Date.parse(T0) + offsetMs
 
 async function renderGraph(agents: ReturnType<typeof mkAgent>[]) {
   container = document.createElement('div')
@@ -68,84 +75,125 @@ async function renderGraph(agents: ReturnType<typeof mkAgent>[]) {
   await act(async () => {
     root!.render(createElement(AgentCallGraph, { agents, bridges: [], onViewTurns: () => {} }))
   })
-  return [...container.querySelectorAll<HTMLElement>('.absolute.rounded-sm')]
+  return container
 }
 
-describe('AgentCallGraph 泳道分行（渲染矩形装箱）', () => {
-  it('地板撑宽后压盖的条分行：并发起跑 subA/subB 不同 top，后续顺序条回收低轨', async () => {
-    // total = 73s；slices: root 10s / subA 1s / subB 59s / subC 3s(latency 兜底)
-    // subA 渲染 [13.70%, 15.70%]（1.37% 被地板撑到 2%），subB 起点 15.07% 落在其内 → 压盖
-    // 修复前：切片时间相接 → 全部 track 0，subA/subB 同 top 互相压盖
+const barsInLane = (el: HTMLElement, lane: string) =>
+  [...el.querySelectorAll<HTMLElement>(`[data-lane="${lane}"] [data-bar]`)]
+    .map(b => b.getAttribute('data-bar')!)
+
+describe('AgentCallGraph 泳道分行（slots 布局）', () => {
+  it('泳道固定为「主 agent + 并发槽 1..5」；并发的分不同槽，后续复用最早空闲槽', async () => {
     const agents = [
       mkAgent({ executionId: 'root', createdAt: T0, latencyMs: 5_000, isSubagent: false, agentName: 'build' }),
-      mkAgent({ executionId: 'subA', createdAt: '2026-09-15T21:34:58.000Z', latencyMs: 5_100, agentSessionId: 'ses_g1' }),
-      mkAgent({ executionId: 'subB', createdAt: '2026-09-15T21:34:59.000Z', latencyMs: 5_100, agentSessionId: 'ses_g2' }),
-      mkAgent({ executionId: 'subC', createdAt: '2026-09-15T21:35:58.000Z', latencyMs: 3_000, agentSessionId: 'ses_g3' }),
+      // subA/subB 并发（重叠）→ 必须落不同槽；subC 明显更晚 → 复用回槽 1
+      mkAgent({ executionId: 'subA', createdAt: T(10_000), latencyMs: 5_000, agentSessionId: 'ses_g1', span: { start: at(10_000), end: at(15_000) } }),
+      mkAgent({ executionId: 'subB', createdAt: T(12_000), latencyMs: 5_000, agentSessionId: 'ses_g2', span: { start: at(12_000), end: at(17_000) } }),
+      mkAgent({ executionId: 'subC', createdAt: T(100_000), latencyMs: 5_000, agentSessionId: 'ses_g3', span: { start: at(100_000), end: at(105_000) } }),
     ]
-    const bars = await renderGraph(agents)
-    expect(bars.length).toBe(4)
+    const el = await renderGraph(agents)
 
-    const near = (got: number, want: number) => Math.abs(got - want) < 0.1
-    const top = (b: HTMLElement) => parseFloat(b.style.top)
-    const left = (b: HTMLElement) => parseFloat(b.style.left)
+    // 6 条泳道：主 agent + 并发槽 1..5（即便空槽也在）
+    const labels = [...el.querySelectorAll<HTMLElement>('[data-lane-label]')]
+    expect(labels.map(l => l.getAttribute('data-lane-label'))).toEqual(
+      ['__root', 'slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5'])
+    expect(labels.map(l => l.textContent)).toEqual(
+      ['主 agent', '并发槽 1', '并发槽 2', '并发槽 3', '并发槽 4', '并发槽 5'])
 
-    // DOM 顺序：总控(root) → 通用泳道 packed 顺序（subA, subB, subC）
-    expect(near(left(bars[1]), (10 / 73) * 100)).toBe(true)
-    expect(near(left(bars[2]), (11 / 73) * 100)).toBe(true)
-    expect(top(bars[1])).toBe(3)          // subA → 轨 0
-    expect(top(bars[2])).toBe(3 + 12 + 3) // subB → 轨 1（压盖 → 分行，修复前同轨压盖）
-    expect(top(bars[3])).toBe(3)          // subC 起点 95.89% 早于轨 0 末端 → 回收轨 0
-
-    // 通用泳道 2 轨 → laneHeight = 2*12 + 3*3 = 33px；总控单轨 = max(22, 18) = 22px
-    expect(bars[1].parentElement!.style.height).toBe('33px')
-    expect(bars[0].parentElement!.style.height).toBe('22px')
+    expect(barsInLane(el, '__root')).toEqual(['root'])
+    expect(barsInLane(el, 'slot-1')).toEqual(['subA', 'subC']) // 并发避开、后续复用
+    expect(barsInLane(el, 'slot-2')).toEqual(['subB'])
+    expect(barsInLane(el, 'slot-3')).toEqual([])
   })
 
-  it('首尾相接的顺序长条同轨不分行（轨道防爆回归）', async () => {
-    // sub1 切片 60s 无地板膨胀 [13.70%, 95.89%]，sub2 起点 95.89% 恰好相接 → 同轨
+  it('并发超过槽位数时挤进最早空闲槽 → 同槽内重叠的条分轨（top 不同）', async () => {
+    // 6 个并发 subagent，5 个槽装满后第 6 个回落到槽 1 → 槽 1 内两条重叠 → 分 2 轨
     const agents = [
       mkAgent({ executionId: 'root', createdAt: T0, latencyMs: 5_000, isSubagent: false, agentName: 'build' }),
-      mkAgent({ executionId: 'sub1', createdAt: '2026-09-15T21:34:58.000Z', latencyMs: 5_100, agentSessionId: 'ses_g1' }),
-      mkAgent({ executionId: 'sub2', createdAt: '2026-09-15T21:35:58.000Z', latencyMs: 3_000, agentSessionId: 'ses_g2' }),
+      ...[0, 1, 2, 3, 4, 5].map(i => mkAgent({
+        executionId: `s${i + 1}`,
+        createdAt: T(2_000 + i * 100),
+        latencyMs: 30_000,
+        agentSessionId: `ses_g${i + 1}`,
+        span: { start: at(2_000 + i * 100), end: at(32_000 + i * 100) },
+      })),
     ]
-    const bars = await renderGraph(agents)
-    expect(bars.length).toBe(3)
-    const top = (b: HTMLElement) => parseFloat(b.style.top)
-    expect(top(bars[1])).toBe(3)
-    expect(top(bars[2])).toBe(3)
-    expect(bars[1].parentElement!.style.height).toBe('22px')
+    const el = await renderGraph(agents)
+
+    const lane1 = el.querySelector<HTMLElement>('[data-lane="slot-1"]')!
+    const laneBars = [...lane1.querySelectorAll<HTMLElement>('[data-bar]')]
+    expect(laneBars.map(b => b.getAttribute('data-bar'))).toEqual(['s1', 's6'])
+
+    const topOf = (bar: HTMLElement) =>
+      parseFloat(bar.querySelector<HTMLElement>('.cursor-pointer')!.style.top)
+    expect(topOf(laneBars[0])).not.toBe(topOf(laneBars[1])) // 分轨，不再压盖
+    // 2 轨 → laneHeight = 2*12 + 3*3 = 33px
+    expect(lane1.style.height).toBe('33px')
+
+    // 分轨只是「画在不同 top」，两根条子的横向范围仍然重叠；外层定位 div 铺满整条
+    // 泳道高且参与命中测试，就会盖掉另一轨条子的交互层。所以外层必须
+    // pointer-events-none，命中测试只能落在浅色底子元素（pointer-events-auto）上。
+    for (const bar of laneBars) {
+      expect(bar.classList.contains('pointer-events-none')).toBe(true)
+      expect(bar.querySelector<HTMLElement>('.cursor-pointer')!.classList.contains('pointer-events-auto'))
+        .toBe(true)
+    }
+  })
+
+  it('休眠阈值档位：阈值放大后相邻活跃段合并（段数变少）', async () => {
+    // 两个 turn：[0, 60s] 与 [11min, 12min]，间隔 10min
+    const agents = [
+      mkAgent({
+        executionId: 'root', createdAt: T0, latencyMs: 60_000, isSubagent: false, agentName: 'build',
+        span: { start: at(0), end: at(20 * 60_000) },
+        activeIntervals: [
+          { start: at(0), end: at(60_000) },
+          { start: at(11 * 60_000), end: at(12 * 60_000) },
+        ],
+      }),
+    ]
+    const el = await renderGraph(agents)
+    const darkOf = (id: string) =>
+      el.querySelectorAll(`[data-bar="${id}"] .pointer-events-none`).length
+
+    // 默认 5min 阈值：间隔 10min > 5min → 2 段
+    expect(darkOf('root')).toBe(2)
+
+    // 切 15min：间隔 10min ≤ 15min → 合并成 1 段
+    const btn = [...el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(b => b.textContent === '15min')!
+    await act(async () => { btn.click() })
+    expect(darkOf('root')).toBe(1)
   })
 
   it('悬停同名 subagent 条：tooltip 显示 agentName + 该 execution 的首个任务 prompt', async () => {
     const agents = [
       mkAgent({ executionId: 'root', createdAt: T0, latencyMs: 5_000, isSubagent: false, agentName: 'build' }),
       mkAgent({
-        executionId: 'sub1', createdAt: '2026-09-15T21:34:58.000Z', latencyMs: 5_100,
-        agentSessionId: 'ses_g1', agentName: 'design',
+        executionId: 'sub1', createdAt: T(10_000), latencyMs: 5_100, agentSessionId: 'ses_g1', agentName: 'design',
         firstPrompt: '为 NPU 编译器后端设计寄存器分配算法的内存布局优化方案',
       }),
       mkAgent({
-        executionId: 'sub2', createdAt: '2026-09-15T21:35:58.000Z', latencyMs: 3_000,
-        agentSessionId: 'ses_g2', agentName: 'design',
+        executionId: 'sub2', createdAt: T(70_000), latencyMs: 3_000, agentSessionId: 'ses_g2', agentName: 'design',
         firstPrompt: 'review tiling 流水线的调度冲突',
       }),
     ]
-    const bars = await renderGraph(agents)
-    expect(container!.querySelector('.pointer-events-none')).toBeNull()
+    const el = await renderGraph(agents)
+    expect(el.querySelector('[data-tooltip]')).toBeNull()
 
-    await act(async () => {
-      bars[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    })
-    const tip1 = container!.querySelector<HTMLElement>('.pointer-events-none')
+    const hover = async (id: string) => {
+      const hit = el.querySelector<HTMLElement>(`[data-bar="${id}"] .cursor-pointer`)!
+      await act(async () => { hit.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+      return el.querySelector<HTMLElement>('[data-tooltip]')
+    }
+
+    const tip1 = await hover('sub1')
     expect(tip1).not.toBeNull()
     expect(tip1!.textContent).toContain('design')
     expect(tip1!.textContent).toContain('寄存器分配算法')
     expect(tip1!.textContent).not.toContain('tiling')
 
-    await act(async () => {
-      bars[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    })
-    const tip2 = container!.querySelector<HTMLElement>('.pointer-events-none')
+    const tip2 = await hover('sub2')
     expect(tip2!.textContent).toContain('tiling 流水线')
     expect(tip2!.textContent).not.toContain('寄存器分配')
   })

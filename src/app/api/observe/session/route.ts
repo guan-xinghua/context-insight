@@ -119,6 +119,62 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ── 每个 agent 的「turns 跨度」+「原始活跃区间」──────────────────
+    // span：身份与 Turns 页签的 subagent 分组一致（subagentSessionId = transcript
+    //   文件名 stem），跨度 = 首条 turn 的 createdAt_ts → 末条 turn 的 completedAt。
+    //   **含休眠空档**，所以一根条子 = 这个 subagent 的一生。
+    // intervals：每个 turn 的原始 [start, end]，**不合并、不截断**——休眠阈值
+    //   （单条 turn 最多算多久活跃 + 相邻间隔多大算断开）由前端预设档位控制，
+    //   调档位在前端重聚类，无需重新请求。前端拿 span 画整根浅色底、拿聚类后
+    //   的活跃段画深色覆盖，休眠就自然显出来了。
+    // proxy 与否的判定只此一处（下面 computeSessionActiveSplit 的 latency 展开
+    // 同一口径）。native 行绝不展开——见本条下方注释。
+    const isProxySession = isProxyVersion(session.version);
+    const turnTimes = await prisma.turn.findMany({
+      where: { sessionId: session.id },
+      select: { isSubagent: true, subagentSessionId: true, createdAt_ts: true, completedAt: true, latencyMs: true },
+    });
+    // 身份键必须让 root 与任何 subagent 互不重叠：subagentSessionId 在 schema 里
+    // 可空（isSubagent=true + null 行），`?? ''` 会与 root 的 key 撞车，把这类 turn
+    // 并进主 agent 的 span / activeIntervals（主条子跨度与活跃段被污染）。其余按
+    // subagentSessionId 分组的查询（本文件 L111、turns/route.ts L121、
+    // agent-role-name-map.ts L40）都是 `{ not: null }` 口径——这里用哨兵前缀保持
+    // 同一口径，同时不丢数据（不会被任何 execution 命中，也就不参与绘制）。
+    const keyOf = (isSubagent: boolean, agentSessionId: string | null) =>
+      isSubagent ? `sub:${agentSessionId ?? ''}` : 'root';
+    const spanByKey = new Map<string, { start: number; end: number }>();
+    const intervalsByKey = new Map<string, Array<{ start: number; end: number }>>();
+    for (const t of turnTimes) {
+      const key = keyOf(t.isSubagent, t.subagentSessionId);
+      const rawStart = t.createdAt_ts ?? t.completedAt;
+      if (!rawStart) continue;
+      const start = rawStart.getTime();
+      const end = Math.max(start, (t.completedAt ?? rawStart).getTime());
+      // proxy（cpx 捕获）assistant 行的 completedAt 系统性缺失：createdAt_ts
+      // 就是响应完成时刻，在途窗口是 [t - latencyMs, t]（latencyMs = wire
+      // duration_ms）——与 session-duration.ts 的 turnWindow 同口径。不补起点
+      // 的话每条 interval 都塌成零宽 [t, t]，前端 filter(end > start) 把它们
+      // 全丢掉（或被兜底画成整根实色），活跃/休眠可视化整体失效。
+      // native 行不适用：它的 completedAt 缺失时 latencyMs 可能是「到下一轮的
+      // 间隔」（含小时级空闲段），展开会把空闲画成活跃。
+      const intervalStart = isProxySession && !t.completedAt && t.latencyMs > 0
+        ? start - t.latencyMs
+        : start;
+
+      const sp = spanByKey.get(key);
+      if (!sp) spanByKey.set(key, { start, end });
+      else { sp.start = Math.min(sp.start, start); sp.end = Math.max(sp.end, end); }
+
+      const arr = intervalsByKey.get(key) ?? [];
+      arr.push({ start: intervalStart, end });
+      intervalsByKey.set(key, arr);
+    }
+    const spanFor = (isSubagent: boolean, agentSessionId: string | null) =>
+      spanByKey.get(keyOf(isSubagent, agentSessionId)) ?? null;
+    const activeIntervalsFor = (isSubagent: boolean, agentSessionId: string | null) =>
+      intervalsByKey.get(keyOf(isSubagent, agentSessionId)) ?? [];
+
+
     const agents = session.executions.map((e) => ({
       executionId: e.id,
       agentName: e.agentName,
@@ -133,6 +189,8 @@ export async function GET(request: NextRequest) {
       model: e.model,
       createdAt: e.createdAt.toISOString(),
       latencyMs: e.latencyMs,
+      span: spanFor(e.isSubagent, e.agentSessionId),
+      activeIntervals: activeIntervalsFor(e.isSubagent, e.agentSessionId),
       firstPrompt: e.isSubagent
         ? (subFirstPrompts.get(e.agentSessionId ?? '') ?? null)
         : rootFirstPrompt,
@@ -154,7 +212,7 @@ export async function GET(request: NextRequest) {
       }),
       session.startTime.getTime(),
       session.endTime ? session.endTime.getTime() : null,
-      isProxyVersion(session.version)
+      isProxySession
     );
     // LLM 活跃时间：assistant turn 在途窗口区间并集（root + subagent 合并去重叠）。
     // proxy 行 completedAt 缺失，computeLlmActiveMs 用 createdAt - latencyMs 推窗口起点。

@@ -293,11 +293,13 @@ describe("compare-perf — session API firstPrompt query optimization", () => {
     expect(subAgents.length).toBeGreaterThan(0)
     expect(subAgents[0].firstPrompt).not.toBeNull()
 
-    // Headline: 1 root findFirst + 3 findMany（subagent prompts + Wall Clock 活跃
-    // 拆分的全 turn 时间戳 + llmActiveMs 的 assistant 窗口——各选精简字段，
-    // 不取 content；均单次，非 N+1）.
+    // Headline: 1 root findFirst + 4 findMany（subagent prompts + 泳道图
+    // span/activeIntervals 的 turn 时间戳 + Wall Clock 活跃拆分的全 turn 时间戳 +
+    // llmActiveMs 的 assistant 窗口——各选精简字段，不取 content；均单次，非 N+1）.
+    // 注意：+1 是泳道图（AgentCallGraph）上线时新增的一次全 turn 查询；若后续与
+    // Wall Clock 拆分合流，可把这个数降回 3。
     expect(counts.turnFindFirst).toBe(1)
-    expect(counts.turnFindMany).toBe(3)
+    expect(counts.turnFindMany).toBe(4)
   })
 
   it("session API response shape is preserved (agents[].firstPrompt, skills, totals)", async () => {
