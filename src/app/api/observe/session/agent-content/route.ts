@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       select: { id: true, taskId: true, sourcePath: true },
     });
 
-    // ① system 注入恢复（sourcePath 指向本地 jsonl——本机 cpx 捕获与 cannbay
+    // ① system 注入恢复（sourcePath 指向本地 jsonl——本机 cpx 捕获与 lake
     //    materialized 布局一致（<sid>/subagents/），listSubagentSessions 统一发现）
     const recoverFromSystem = () => {
       if (!session?.sourcePath) return null;

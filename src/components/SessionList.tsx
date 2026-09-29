@@ -24,7 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { UploadToCannbayDialog, type UploadCannbayTarget } from '@/components/UploadToCannbayDialog';
+import { UploadToLakeDialog, type UploadLakeTarget } from '@/components/UploadToLakeDialog';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -182,7 +182,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   // 上传弹窗（共享组件）：目标会话 + 开关；上传结果经回调回填行内状态图标
-  const [uploadTarget, setUploadTarget] = useState<UploadCannbayTarget | null>(null)
+  const [uploadTarget, setUploadTarget] = useState<UploadLakeTarget | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
 
   function openUploadDialog(item: SessionListItem) {
@@ -443,7 +443,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <UploadToCannbayDialog
+      <UploadToLakeDialog
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         target={uploadTarget}

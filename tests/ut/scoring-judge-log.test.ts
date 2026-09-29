@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 评分 LLM 过程日志（cc-judge-round）IT：并发按 subagent 布局存放（交错单流会把
-// request/response 配对打乱）、形状锁（cannbay 规范：信封 + x_cannbay 声明式分发）、
+// request/response 配对打乱）、形状锁（lake 规范：信封 + x_cannbay 声明式分发）、
 // 重试链留痕、主流/子代理流可被 claude-jsonl 管线导入且结果与调用一一对应、
 // runner 端到端落盘、日志失败绝不阻断评分、用户目录迁移。
 
@@ -55,6 +55,7 @@ function subagentsDirOf(mainFile: string): string {
 interface JournalLine {
   type: string;
   message: { content: string | Array<{ type?: string; content?: string; input?: Record<string, unknown> }>; [key: string]: unknown };
+  x_lake?: { schema?: string; version?: number; data?: Record<string, unknown> };
   x_cannbay?: { schema?: string; version?: number; data?: Record<string, unknown> };
 }
 function readJsonl(file: string): JournalLine[] {
@@ -138,18 +139,18 @@ describe('judge 过程日志：并发子代理布局 + 重试链留痕', () => {
       expect(res.type).toBe('assistant');
       expect(res.message.model).toBe('judge-model');
       expect(String(res.message.content).startsWith('[judge-error]')).toBe(true);
-      expect(res.x_cannbay!.schema).toBe('cc-judge-round');
-      expect(res.x_cannbay!.version).toBe(1);
-      expect(res.x_cannbay!.data).toMatchObject({ runId: journal!.runId, sessionId: 'sess-judge', dimensionId: 'D1', itemId: 'D1.goalCoverage', itemName: '目标覆盖对账', attempt, maxTokens });
+      expect((res.x_lake ?? res.x_cannbay)!.schema).toBe('cc-judge-round');
+      expect((res.x_lake ?? res.x_cannbay)!.version).toBe(1);
+      expect((res.x_lake ?? res.x_cannbay)!.data).toMatchObject({ runId: journal!.runId, sessionId: 'sess-judge', dimensionId: 'D1', itemId: 'D1.goalCoverage', itemName: '目标覆盖对账', attempt, maxTokens });
     }
-    expect(res1.x_cannbay!.data!.retryReason).toBe('empty-content');
-    expect(res2.x_cannbay!.data!.retryReason).toBe('timeout');
-    expect(res2.x_cannbay!.data!.status).toBeUndefined();
+    expect((res1.x_lake ?? res1.x_cannbay)!.data!.retryReason).toBe('empty-content');
+    expect((res2.x_lake ?? res2.x_cannbay)!.data!.retryReason).toBe('timeout');
+    expect((res2.x_lake ?? res2.x_cannbay)!.data!.status).toBeUndefined();
 
     // cc-subagent-meta 同值双写（规范 §4.5）
     const metaJson = JSON.parse(fs.readFileSync(subFile.replace(/\.jsonl$/, '.meta.json'), 'utf-8'));
     expect(metaJson.x_cannbay).toMatchObject({ schema: 'cc-subagent-meta', version: 1, data: { name: '目标覆盖对账', agentType: 'scoring-judge', subagentSessionId: 'D1.goalCoverage' } });
-    expect(metaJson.toolUseId).toBe(metaJson.x_cannbay.data.toolUseId);
+    expect(metaJson.toolUseId).toBe((metaJson.x_lake ?? metaJson.x_cannbay).data.toolUseId);
   });
 
   it('成功路径：content 原文、usage 进信封、token 只记成功那次', async () => {
@@ -161,9 +162,9 @@ describe('judge 过程日志：并发子代理布局 + 重试链留痕', () => {
     const res = readJsonl(path.join(subagentsDirOf(journal!.file), 'D1.goalCoverage.jsonl')).at(-1)!;
     expect(res.message.content).toBe('{"score": 8, "reason": "ok", "evidence": []}');
     expect(res.message.usage).toEqual({ input_tokens: 11, output_tokens: 7 });
-    expect(res.x_cannbay!.data).toMatchObject({ attempt: 1, maxTokens: 4096, status: 200, stopReason: 'stop' });
-    expect(res.x_cannbay!.data!.contentChars).toBe(String(res.message.content).length);
-    expect(res.x_cannbay!.data!.error).toBeUndefined();
+    expect((res.x_lake ?? res.x_cannbay)!.data).toMatchObject({ attempt: 1, maxTokens: 4096, status: 200, stopReason: 'stop' });
+    expect((res.x_lake ?? res.x_cannbay)!.data!.contentChars).toBe(String(res.message.content).length);
+    expect((res.x_lake ?? res.x_cannbay)!.data!.error).toBeUndefined();
   });
 });
 
@@ -261,7 +262,7 @@ describe('judge 过程日志：runner 端到端', () => {
     const footerLine = main.at(-1)!;
     expect(String(footerLine.message.content)).toContain('评分运行');
     expect(footerLine.message.content).not.toContain('{');   // 人话，不是裸 JSON
-    expect(footerLine.x_cannbay!.data).toMatchObject({ kind: 'judge-run-footer', judgeCalls: card!.judgeCost!.calls });
+    expect((footerLine.x_lake ?? footerLine.x_cannbay)!.data).toMatchObject({ kind: 'judge-run-footer', judgeCalls: card!.judgeCost!.calls });
     // 主流对 LLM 层子项记派发 + 结果；真实发起了调用的子项才有子代理流；结果 status 与卡上一致
     const results = main.filter(l => l.type === 'user' && Array.isArray(l.message.content) && l.message.content[0]?.type === 'tool_result')
       .map(l => JSON.parse(String((l.message.content as Array<{ content?: string }>)[0]?.content)));

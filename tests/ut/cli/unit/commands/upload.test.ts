@@ -221,7 +221,7 @@ describe('uploadCommand', () => {
   });
 
   describe('client.uploadSession method', () => {
-    it('sends POST to /api/ingest/cannbay2 with action=upload + taskId + description', async () => {
+    it('sends POST to /api/ingest/lake with action=upload + taskId + description', async () => {
       const client = new InsightClient('http://localhost:21025', { retries: 0, timeout: 5000 });
 
       mockUploadSession.mockResolvedValueOnce(sampleUploadResult);

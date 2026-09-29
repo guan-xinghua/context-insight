@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 方案一 IT（同 sid 双会话共存）：先导 cannbay wire 捕获、再导同 sid 的 claude
+// 方案一 IT（同 sid 双会话共存）：先导 lake wire 捕获、再导同 sid 的 claude
 // 原生会话文件——两者是同一场对话的两种记录（wire 回放 vs 本地逐条），在
 // (taskId, framework) 唯一索引下以记录类区分各占一行、互不合并：
 //   ① 原生 → 新行（claude-code）；捕获 → 另一新行（claude-code-proxy），两行共存

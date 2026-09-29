@@ -237,7 +237,7 @@ export class InsightClient {
 
   async uploadSession(taskId: string, description: string, category?: string, baseline?: boolean, framework?: string): Promise<ApiUploadResponse> {
     // framework：同 sid 双行（方案一）消歧——不带会裸 taskId 任选一行上传
-    return this.request<ApiUploadResponse>('POST', '/api/ingest/cannbay2', undefined, {
+    return this.request<ApiUploadResponse>('POST', '/api/ingest/lake', undefined, {
       action: 'upload',
       taskId,
       description,
@@ -249,7 +249,7 @@ export class InsightClient {
 
   // 数据仓顶层目录清单（范式目录注册表；排除 sessions 由调用方处理）
   async listRemoteDirs(prefix?: string): Promise<{ dirs: string[] }> {
-    return this.request<{ dirs: string[] }>('POST', '/api/ingest/cannbay2', undefined, {
+    return this.request<{ dirs: string[] }>('POST', '/api/ingest/lake', undefined, {
       action: 'dirs',
       ...(prefix ? { prefix } : {}),
     });

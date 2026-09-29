@@ -42,8 +42,8 @@ describe('E2E: opencode-db import → observe', () => {
 
   beforeAll(async () => {
     for (const sid of OPENCODE_SESSION_IDS) {
-      // cannbay2.test.ts 并行操作同一 fixture 会话（导入后 deleteMany 再重导），
-      // 裸调会在其删除窗口内撞 P2025——与 cannbay2 同用竞态重试
+      // lake.test.ts 并行操作同一 fixture 会话（导入后 deleteMany 再重导），
+      // 裸调会在其删除窗口内撞 P2025——与 lake 同用竞态重试
       const result = await withDbRaceRetry(() => importSession(OPENCODE_DB, sid, prisma, OPENCODE_DB, 'opencode-db'));
       if (result.imported) importedSessionIds.push(sid);
     }

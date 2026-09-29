@@ -302,8 +302,8 @@ describe('start.sh 单实例收口（默认=杀已有自家实例后固定 BASE_
   it('源级：无关占用 fail-fast 诊断（占用者 PID/命令行 + 不漂移指引）', () => {
     const src = fs.readFileSync(START_SH, 'utf8');
     expect(src).toContain('ensure_base_port_free() {');
-    expect(src).toContain('占用者 PID');
-    expect(src).toContain('单实例模式不做端口漂移');
+    expect(src).toContain('held by PID');
+    expect(src).toContain('Single-instance mode does not port-drift');
   });
 
   it('行为级：无关进程占住端口 → 等待超时 fail-fast（exit 1 + 诊断含占用者 PID）', async () => {
@@ -337,7 +337,7 @@ describe('start.sh 单实例收口（默认=杀已有自家实例后固定 BASE_
       ].join('\n'));
       const r = execSync(`bash ${JSON.stringify(runner)} 2>&1; echo "EXIT=$?"`, { encoding: 'utf8', timeout: 60_000 });
       expect(r).toContain('EXIT=1');
-      expect(r).toContain('仍被占用');
+      expect(r).toContain('still occupied');
       expect(r).toContain(`PID ${holder.pid}`);
       expect(r).not.toContain('SHOULD_NOT_REACH');
       holder.kill('SIGKILL');

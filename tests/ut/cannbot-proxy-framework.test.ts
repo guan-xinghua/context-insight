@@ -9,7 +9,7 @@
 // cannbot proxy 捕获全链路 IT（proxy/CANNBOT-DESIGN.md §7）：cannbot 是 opencode
 // 系 fork（openai 协议、X-Session-Id 头、UA cannbot/*）。验证统一分类器 Gen6
 // 判定 → importSession 落库 framework='cannbot' / version='<UA版本>-cannbot-proxy'
-// → isClaudeFormatSession / 徽标谓词成立 → cannbay2 上传 type 列可见。
+// → isClaudeFormatSession / 徽标谓词成立 → lake 上传 type 列可见。
 import { describe, it, expect, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import fs from 'node:fs';

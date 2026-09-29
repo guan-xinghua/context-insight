@@ -85,7 +85,7 @@
 │  AI 分析: analyzer.ts (OpenAI 兼容) │ trajectory-analyzer.ts                 │
 │  上下文: context-window-config.ts   │ Web ContextTracker.tsx (需手动同步)    │
 │  导出:   export-service.ts │ markdown-exporter.ts │ agent-io-export.ts       │
-│  归档:   cannbay-archive.ts │ zip-store.ts │ file-restore / file-reads.ts    │
+│  归档:   lake-archive.ts │ zip-store.ts │ file-restore / file-reads.ts    │
 │  版本:   version.ts (展示版本，非 package.json)                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -171,7 +171,7 @@ flowchart TB
         AI["AI analyzer.ts<br/>(OpenAI 兼容)"]
         CTX["context-window-config"]
         EXP["export / markdown / agent-io"]
-        ARC["cannbay-archive / zip-store"]
+        ARC["lake-archive / zip-store"]
         VER["version.ts"]
     end
 

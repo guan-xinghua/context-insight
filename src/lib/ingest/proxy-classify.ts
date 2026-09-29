@@ -18,10 +18,11 @@
 //   Gen6  + cannbot（opencode 系 CANN fork，openai 协议）：source:"cannbot-proxy"、
 //          meta.framework:"cannbot"（proxy/CANNBOT-DESIGN.md）
 //
-// 信号优先级（cannbay-schema-spec §6 双轨：声明式权威 > legacy 行级）：
+// 信号优先级（lake-schema-spec §6 双轨：声明式权威 > legacy 行级）：
 //   meta.json cc-session-meta（文件级） > 行级 source 标记 > wire 指纹兜底
 import fs from 'node:fs';
 import { parseJsonlLines, extractSystemText, type ContentBlock } from './adapters/claude-jsonl';
+import { readEnvelope } from '@/lib/shared/envelope';
 
 export type ProxyAgentFramework = 'opencode' | 'claude-code' | 'codex' | 'cannbot' | null;
 
@@ -68,9 +69,9 @@ export function proxyRecordingFrameworkFromVersion(version: string | null | unde
 }
 
 /** meta.json cc-session-meta 声明的内容（producer=cpx 时 framework/ccVersion 有效）。
- *  全部 meta.json 消费方（分类器 / 导入 ccVersion / cannbay2 重导入 patch）共用，
+ *  全部 meta.json 消费方（分类器 / 导入 ccVersion / lake 重导入 patch）共用，
  *  不再各自内联 JSON 解析。governed：cpx 压缩时打的"字节流已经落盘咽喉
- *  redactor 全量清洗"标记（spec §4.4）——cannbay2 上传直传快路径的信任凭证。 */
+ *  redactor 全量清洗"标记（spec §4.4）——lake 上传直传快路径的信任凭证。 */
 export interface CcSessionMeta {
   producer: string | null;
   framework: string | null;
@@ -83,10 +84,8 @@ export function readCcSessionMeta(jsonlPath: string): CcSessionMeta | null {
   const metaPath = jsonlPath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
   try {
     if (!fs.existsSync(metaPath)) return null;
-    const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as {
-      x_cannbay?: { schema?: string; version?: number; data?: { producer?: string; framework?: string; ccVersion?: string; governed?: boolean } };
-    };
-    const xb = raw.x_cannbay;
+    const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    const xb = readEnvelope(raw) as { schema: string; version: number; data?: { producer?: string; framework?: string; ccVersion?: string; governed?: boolean } } | undefined;
     if (!xb || xb.schema !== 'cc-session-meta' || xb.version !== 1) return null;
     return {
       producer: xb.data?.producer ?? null,
@@ -117,14 +116,14 @@ export function classifyProxyCapture(jsonlPath: string): ProxyClassification {
   const lines = parseJsonlLines(jsonlPath);
   let lineMarker: string | null = null;
   let hasWireFingerprint = false;
-  let hasXCannbay = false;
+  let hasXLake = false;
   let systemText: string | null = null;
 
   for (const l of lines) {
     const s = (l as { source?: unknown }).source;
     if (lineMarker == null && typeof s === 'string' && s.endsWith('-proxy')) lineMarker = s;
-    const xb = (l as { x_cannbay?: { data?: { system?: unknown } } }).x_cannbay;
-    if (xb != null) hasXCannbay = true;
+    const xb = readEnvelope(l);
+    if (xb != null) hasXLake = true;
     const sys = xb?.data?.system ?? (l as { system?: unknown }).system;
     if (sys != null && (typeof sys === 'string' ? sys.length > 0 : Array.isArray(sys))) {
       hasWireFingerprint = true;
@@ -135,9 +134,9 @@ export function classifyProxyCapture(jsonlPath: string): ProxyClassification {
 
   // 2. 行级 source 标记 —— 需 wire 证据交叉校验：真实 cpx 捕获（任意代际）
   // 至少带 system/tools wire 字段或 x_cannbay 声明。历史上 DB 导出件曾错误
-  // 标 source:'claude-proxy'（a25ebdfd 修复前上传的污染件仍留在 cannbay 仓），
+  // 标 source:'claude-proxy'（a25ebdfd 修复前上传的污染件仍留在 lake 仓），
   // 只有裸标记无任何 wire 数据 → 判为导出件，不算 proxy 捕获。
-  if (lineMarker && (hasWireFingerprint || hasXCannbay)) {
+  if (lineMarker && (hasWireFingerprint || hasXLake)) {
     return {
       isProxy: true,
       marker: lineMarker,
@@ -145,7 +144,7 @@ export function classifyProxyCapture(jsonlPath: string): ProxyClassification {
       via: 'source-line',
     };
   }
-  if (lineMarker && !hasWireFingerprint && !hasXCannbay) {
+  if (lineMarker && !hasWireFingerprint && !hasXLake) {
     // 污染导出件降级为 insight-export 语义（不标 proxy 徽标，不触发覆盖度）
     return { isProxy: false, marker: null, framework: null, via: null };
   }

@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 评分 LLM 调用过程日志（可维护性）：逐 attempt 落盘请求/响应，超时/空正文这类
-// 偶发问题可事后复现。格式走 cannbay 捕获规范（docs/cannbay-schema-spec.md）：
+// 偶发问题可事后复现。格式走 lake 捕获规范（docs/lake-schema-spec.md）：
 // 信封冻结 + 扩展进 x_cannbay（payload schema `cc-judge-round` v1）。
 // 布局按捕获的 subagent 形态（并发 3 路交错写单流会把 request/response 配对打乱，
 // 子项各成一个子代理流则天然顺序配对）：
@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { JudgeCallMeta } from './assembler/types';
 import { CANNBOT_HOME, migrateLegacyDir } from './store';
+import { envelopeFields } from '@/lib/shared/envelope';
 
 export const JUDGE_SCHEMA = 'cc-judge-round';
 export const JUDGE_SCHEMA_VERSION = 1;
@@ -33,7 +34,7 @@ export const JUDGE_RUN_SCHEMA_VERSION = 1;
 /** 请求行 content 里 system 与 user 的分隔标记（重放时按此拆回两个 role） */
 export const JUDGE_SYSTEM_USER_SPLIT = '\n\n<<<judge-system|judge-user>>>\n\n';
 
-/** cc-judge-round v1 的 data 载荷（类型定义义务，见 cannbay-schema-spec.md §4.6） */
+/** cc-judge-round v1 的 data 载荷（类型定义义务，见 lake-schema-spec.md §4.6） */
 export interface JudgeRoundData {
   runId: string;
   sessionId: string;
@@ -92,12 +93,12 @@ export function nativeUserLine(content: string): string {
   return JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content } });
 }
 
-/** run 头/尾行：人话进 content（Turns 里直接可读），机器载荷进 x_cannbay（cc-judge-run v1） */
+/** run 头/尾行：人话进 content（Turns 里直接可读），机器载荷进信封（cc-judge-run v1） */
 export function judgeRunLine(text: string, data: Record<string, unknown>): string {
   return JSON.stringify({
     type: 'user', timestamp: new Date().toISOString(),
     message: { role: 'user', content: text },
-    x_cannbay: { schema: JUDGE_RUN_SCHEMA, version: JUDGE_RUN_SCHEMA_VERSION, data },
+    ...envelopeFields({ schema: JUDGE_RUN_SCHEMA, version: JUDGE_RUN_SCHEMA_VERSION, data }),
   });
 }
 
@@ -128,11 +129,12 @@ export function judgeResultLine(runId: string, meta: JudgeCallMeta, payloadJson:
   });
 }
 
-/** cc-subagent-meta v1（顶层旧字段与 x_cannbay.data 同值双写，规范 §4.5） */
+/** cc-subagent-meta v1（顶层旧字段与信封 data 同值双写，规范 §4.5） */
 export function subagentMetaLine(runId: string, meta: JudgeCallMeta): string {
   const toolUseId = `j-${runId}-${meta.itemId}`;
   const base = { toolUseId, name: meta.itemName, agentType: 'scoring-judge', subagentSessionId: meta.itemId };
-  return JSON.stringify({ ...base, x_cannbay: { schema: 'cc-subagent-meta', version: 1, data: base } });
+  const env = { schema: 'cc-subagent-meta', version: 1, data: base };
+  return JSON.stringify({ ...base, ...envelopeFields(env) });
 }
 
 /** 请求行：content = system + 分隔标记 + user（可原样重放） */
@@ -164,7 +166,7 @@ export function judgeResponseLine(
       model,
       usage: { input_tokens: o.promptTokens ?? 0, output_tokens: o.completionTokens ?? 0 },
     },
-    x_cannbay: { schema: JUDGE_SCHEMA, version: JUDGE_SCHEMA_VERSION, data },
+    ...envelopeFields({ schema: JUDGE_SCHEMA, version: JUDGE_SCHEMA_VERSION, data: data as unknown as Record<string, unknown> }),
   });
 }
 

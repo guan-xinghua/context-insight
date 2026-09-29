@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readCaptureBuffer, readCaptureText as readArchivedText } from '@/lib/compression';
+import { readEnvelope } from '@/lib/shared/envelope';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
 
 // Shared scan helpers (claude-format concepts, also reused by the proxy
@@ -67,12 +68,11 @@ export interface ClaudeJsonlLine {
   ttftMs?: number;
   deduped?: boolean;
   originalChars?: number;
-  // x_cannbay 声明式扩展（docs/cannbay-schema-spec.md）：信封外一切扩展的
-  // 权威源，双轨期与上方 legacy 顶层字段并存 —— 读方一律 x_cannbay 优先。
-  x_cannbay?: XCannbay;
+  // x_lake/x_cannbay 信封字段：读方一律经 shared/envelope readEnvelope 双名
+  // 解析（键名与优先级单一真身），此处不再逐字段声明
 }
 
-export interface XCannbay {
+export interface XLake {
   schema: string;
   version: number;
   data: {
@@ -110,7 +110,7 @@ const TURN_PAYLOAD_VERSIONS: Record<string, number[]> = {
   'cc-wire-round': [1],
   'cc-db-turn': [1],
 };
-export function isTurnPayload(xb: XCannbay | undefined): boolean {
+export function isTurnPayload(xb: XLake | undefined): boolean {
   if (!xb) return false;
   const vs = TURN_PAYLOAD_VERSIONS[xb.schema];
   return !!vs && typeof xb.version === 'number' && vs.includes(xb.version);
@@ -122,7 +122,7 @@ const META_PAYLOAD_VERSIONS: Record<string, number[]> = {
   'cc-subagent-meta': [1],
   'cc-session-meta': [1],
 };
-export function isMetaPayload(xb: XCannbay | undefined, schema: string): boolean {
+export function isMetaPayload(xb: XLake | undefined, schema: string): boolean {
   if (!xb || xb.schema !== schema) return false;
   const vs = META_PAYLOAD_VERSIONS[schema];
   return !!vs && typeof xb.version === 'number' && vs.includes(xb.version);
@@ -538,8 +538,8 @@ export function collectSubagentToolUseMappings(dirPath: string, sessionId: strin
     try {
       if (fs.existsSync(metaPath)) {
         const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-        // x_cannbay.data 优先（cc-subagent-meta，version 门禁守过），顶层旧字段 fallback（legacy 文件）
-        const xb = meta?.x_cannbay;
+        // 双名信封优先（cc-subagent-meta，version 门禁守过），顶层旧字段 fallback（legacy 文件）
+        const xb = readEnvelope(meta) as XLake | undefined;
         const data = xb && isMetaPayload(xb, 'cc-subagent-meta') ? xb.data : null;
         const toolUseId = data?.toolUseId ?? meta.toolUseId;
         if (toolUseId) {
@@ -557,7 +557,7 @@ function isValidISO(timestamp: string): boolean {
 
 function extractVersionFromLines(lines: ClaudeJsonlLine[]): string | null {
   for (const line of lines) {
-    const xv = line.x_cannbay?.data?.ccVersion;
+    const xv = (readEnvelope(line) as XLake | undefined)?.data?.ccVersion;
     if (xv) return xv;
     if (line.version) return line.version;
   }
@@ -742,14 +742,15 @@ export function buildAssistantInteraction(
     // turn-split 写 Turn.finishReason，走标准管线进 DB（非扩展层覆盖）。
     if (al.stopReason) mergedFinishReason = al.stopReason;
     if (al.duration_ms != null) explicitDurationMs = al.duration_ms;
-    // 生成文件标记：cpx 捕获（*-proxy）与 cannbay2 DB 导出（insight-export）。
+    // 生成文件标记：cpx 捕获（*-proxy）与 lake DB 导出（insight-export）。
     // 两者都声明 duration_ms 承载真实 latency（completed 置 undefined 让
     // turn-split fallback 到 interaction.latency）；仅 *-proxy 计入
     // Session.version（proxySourceOf 只认 -proxy 后缀，导出件不误标代理徽标）。
     if (!isProxy && typeof al.source === 'string'
       && (al.source.endsWith('-proxy') || al.source === 'insight-export')) isProxy = true;
-    // x_cannbay 声明式通道（优先）：同一信息的权威源 + legacy 没有的 reasoningTokens
-    const xbTurn = isTurnPayload(al.x_cannbay) ? al.x_cannbay!.data : null;
+    // 声明式信封通道（优先）：同一信息的权威源 + legacy 没有的 reasoningTokens
+    const xbRaw = readEnvelope(al) as XLake | undefined;
+    const xbTurn = isTurnPayload(xbRaw) ? xbRaw!.data : null;
     if (xbTurn) {
       isProxy = true;
       if (xbTurn.stopReason != null) mergedFinishReason = xbTurn.stopReason;

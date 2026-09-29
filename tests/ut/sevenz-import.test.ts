@@ -8,7 +8,7 @@
 
 // 7z at rest 导入 IT：cpx 新代际产物 .jsonl.7z 直接导入；sourcePath 指向明文
 // 但盘上只有 .7z 的互找；存量 .jsonl.gz 永续可读。与 cpx 侧 writer-compression
-// / cannbay-upload（⑧ gz→7z 迁移）共同覆盖双端三形态。
+// / lake-upload（⑧ gz→7z 迁移）共同覆盖双端三形态。
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';

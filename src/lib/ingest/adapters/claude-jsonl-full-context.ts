@@ -21,6 +21,7 @@ import {
   type ClaudeJsonlLine,
   type ContentBlock,
 } from './claude-jsonl';
+import { readEnvelope } from '@/lib/shared/envelope';
 import { classifyProxyCapture } from '../proxy-classify';
 import {
   parseClaudeAvailableSkills,
@@ -123,7 +124,7 @@ function readFullContextUncached(filePath: string): FullContext | null {
   let foundExt = false;
   for (const line of lines) {
     if (foundExt || line.type !== 'assistant') continue;
-    const xb = (line as { x_cannbay?: { data?: { system?: unknown; tools?: unknown } } }).x_cannbay;
+    const xb = readEnvelope(line);
     const sysAny = xb?.data?.system ?? (line as { system?: unknown }).system;
     const toolsAny = xb?.data?.tools ?? (line as { tools?: unknown }).tools;
     if (Array.isArray(toolsAny) && toolsAny.length > 0) {
@@ -183,10 +184,10 @@ function readTurnRequestParamsUncached(filePath: string, turnIndex: number): Tur
     if (l.type !== 'assistant') continue;
     assistantSeen++;
     if (assistantSeen !== turnIndex) continue;
-    const xb = (l as { x_cannbay?: { schema?: string; version?: number; data?: { requestParams?: { temperature?: number; maxTokens?: number; model?: string | null } } } }).x_cannbay;
+    const xb = readEnvelope(l);
     // version 门禁（spec §6）：只认 cc-wire-round v1
     if (!xb || xb.schema !== 'cc-wire-round' || xb.version !== 1) continue;
-    const rp = xb.data?.requestParams;
+    const rp = xb.data?.requestParams as { temperature?: number; maxTokens?: number; model?: string | null } | undefined;
     return {
       temperature: rp?.temperature ?? null,
       maxTokens: rp?.maxTokens ?? null,
@@ -213,7 +214,7 @@ export function readAvailableSkills(
   }
   const candidates: string[] = [];
   for (const line of lines) {
-    const xb = (line as { x_cannbay?: { data?: { system?: unknown } } }).x_cannbay;
+    const xb = readEnvelope(line);
     const sysAny = xb?.data?.system ?? (line as { system?: unknown }).system;
     if (typeof sysAny === 'string' && sysAny) candidates.push(sysAny);
     const msg = line.message;

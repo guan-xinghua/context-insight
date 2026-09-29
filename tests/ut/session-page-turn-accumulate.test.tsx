@@ -9,7 +9,7 @@
 // @vitest-environment happy-dom
 // 交互级复现 IT（客户现场 bug）：Turns 页逐个点击 turn，LLM Input 块随点击
 // 数累积（点#2→1 块，#3→2 块，#4→3 块，再点#2→4 块），只有最后一块可展开。
-// 加载真实 session 页面组件 + 回放真实 API 数据（ses_066d0d8aa，cannbay2
+// 加载真实 session 页面组件 + 回放真实 API 数据（ses_066d0d8aa，lake
 // materialized 的 2954-turn 大会话，取前 30 条裁剪驱动），模拟完整点击序列，
 // 断言任意时刻 LLM Input 块数量恒为 1。
 

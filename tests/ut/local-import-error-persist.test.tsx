@@ -11,10 +11,10 @@
 // 整页 reload，报错一闪而过用户看不到。修复后：全部成功才自动关闭；有任何
 // 失败则驻留结果视图，报错完整展示（独立换行、不截断），用户手动 Done 关闭。
 // 覆盖两条导入链路（共享同一套 allDone/hasError 状态机）：
-//   ① CANNbay 导入（handleImportCannbay）——客户现场 Main jsonl missing 形态
+//   ① lake 导入（handleImportLake）——客户现场 Main jsonl missing 形态
 //   ② 本地单文件 JSONL 导入（handleLoadSessions 直导分支）
 
-import { describe, it, expect, afterEach, beforeAll, vi } from 'vitest'
+import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
@@ -28,18 +28,30 @@ const HISTORY_KEY = 'cannbot-import-history'
 
 let root: Root | null = null
 
-const CANNBAY_ERROR = `Main jsonl missing for session "${SID}.native"`
+const LAKE_ERROR = `Main jsonl missing for session "${SID}.native"`
 const LOCAL_ERROR = 'No parseable records (corrupt file)'
 const reloadSpy = vi.fn()
 
+const seedLakeConfig = (): void => {
+  // 单源预检种子：fetch mock 已应答 /api/settings/lake-config（configured）
+}
+
+afterAll(() => {
+  localStorage.clear()
+})
+
 beforeAll(() => {
   localStorage.clear()
+  seedLakeConfig()
   vi.stubGlobal('location', { ...window.location, reload: reloadSpy })
   ;(globalThis as { fetch: typeof fetch }).fetch = (() => {
     const json = (data: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } }))
     return ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.includes('/api/ingest/cannbay2')) {
+      if (url.includes('/api/settings/lake-config')) {
+        return json({ configured: true, address: 'https://example.com/lake.git', branch: 'main' })
+      }
+      if (url.includes('/api/ingest/lake')) {
         const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
         if (body.action === 'list') {
           return json({
@@ -50,7 +62,7 @@ beforeAll(() => {
           })
         }
         if (body.action === 'import') {
-          return json({ error: CANNBAY_ERROR }, 500)
+          return json({ error: LAKE_ERROR }, 500)
         }
         return json({})
       }
@@ -67,6 +79,7 @@ afterEach(() => {
   root = null
   document.body.innerHTML = ''
   localStorage.clear()
+  seedLakeConfig()
 })
 
 async function flush(ms = 160): Promise<void> {
@@ -106,7 +119,7 @@ async function renderAndOpen(): Promise<void> {
 }
 
 describe('导入失败驻留 + 报错完整可见（不自动关闭）', () => {
-  it('CANNbay 导入失败：报错可见、对话框不自动关闭、有 Done 手动关闭', async () => {
+  it('lake 导入失败：报错可见、对话框不自动关闭、有 Done 手动关闭', async () => {
     await renderAndOpen()
     await aclick(findButtonByText(BAY_NAME))
     await flush(250)
@@ -121,12 +134,12 @@ describe('导入失败驻留 + 报错完整可见（不自动关闭）', () => {
 
     // 报错完整可见（独立换行展示真实错误，非「详见控制台」占位）
     const bodyText = document.body.textContent ?? ''
-    expect(bodyText).toContain(CANNBAY_ERROR)
+    expect(bodyText).toContain(LAKE_ERROR)
     expect(bodyText).toContain('Failed')
 
     // 越过 1s 自动关闭窗口后仍驻留：不自动 Done（无 reload、无 history）
     await flush(1600)
-    expect(document.body.textContent ?? '').toContain(CANNBAY_ERROR)
+    expect(document.body.textContent ?? '').toContain(LAKE_ERROR)
     expect(reloadSpy).not.toHaveBeenCalled()
     expect(localStorage.getItem(HISTORY_KEY)).toBeNull()
     // Done 按钮在，供用户看清报错后手动关闭
@@ -135,7 +148,7 @@ describe('导入失败驻留 + 报错完整可见（不自动关闭）', () => {
     // 手动 Done 关闭对话框（此时无成功项，不写 history、不 reload）
     await aclick(findButtonByText('Done'))
     await flush(100)
-    expect(document.body.textContent ?? '').not.toContain(CANNBAY_ERROR)
+    expect(document.body.textContent ?? '').not.toContain(LAKE_ERROR)
   })
 
   it('本地 JSONL 导入失败：报错可见、不自动关闭', async () => {

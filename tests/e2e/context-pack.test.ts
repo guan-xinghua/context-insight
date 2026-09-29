@@ -34,12 +34,12 @@ function read(rel: string): string {
   return fs.readFileSync(path.join(extracted, rel), 'utf8')
 }
 
-// needle：禁止出现的品牌字面量；allow：先从文本中剥除的豁免串（如 v1 路由
-// 硬编码的仓 URL——example.com/CANNBay.git 是仓库名不是品牌显示，替换会断链）
+// needle：禁止出现的品牌字面量；allow：先从文本中剥除的豁免串（当前无豁免
+// ——v1 仓 URL 豁免已随该路由退役而删除）
 const FORBIDDEN: Array<{ needle: string; allow?: string }> = [
   { needle: 'CANNBot-Insight' },
   { needle: 'CANNbay' },
-  { needle: 'CANNBay', allow: 'example.com/CANNBay.git' },
+  { needle: 'CANNBay' },
   { needle: '[cbi]' },
   { needle: '.cannbot-insight' },
 ]

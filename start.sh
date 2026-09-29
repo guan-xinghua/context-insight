@@ -114,13 +114,12 @@ install_deps_if_needed || exit 1
 # starts (just without a fresh cpx wrapper).
 PROXY_INSTALL="$SCRIPT_DIR/../cpx/install.sh"
 if [ -f "$PROXY_INSTALL" ]; then
-  echo "[setup] Setting up proxy (cpx)..."
   PROXY_INSTALL_ARGS=()
   if [ "$UPDATE" = true ]; then PROXY_INSTALL_ARGS+=("-u"); fi
   mkdir -p "$SCRIPT_DIR/tmp"
   PROXY_LOG="$SCRIPT_DIR/tmp/cpx-install.log"
   if bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
-    echo "[setup] cpx ready ✓ (log: tmp/cpx-install.log)"
+    echo "[setup] cpx ready"
   else
     echo "[setup] proxy install failed (non-fatal):"
     tail -n 20 "$PROXY_LOG"
@@ -156,7 +155,7 @@ fi
 
 # Advanced tabs toggle (subagents, interactions, AI workflow)
 export NEXT_PUBLIC_SHOW_ADVANCED_TABS="${ADVANCED}"
-echo "[setup] Advanced tabs: ${ADVANCED} (use -a flag to enable)"
+[ "$ADVANCED" = true ] && echo "[setup] Advanced tabs enabled"
 
 if [ "$UPDATE" = true ] || [ ! -f "prisma/dev.db" ]; then
   echo "[setup] Running Prisma migration..."
@@ -217,10 +216,10 @@ ensure_base_port_free() {
     if [ "$waited" -ge 10 ]; then
       local holder_pid holder_cmd
       holder_pid=$(port_pid "$BASE_PORT")
-      holder_cmd=$(ps -o command= -p "$holder_pid" 2>/dev/null || echo "未知（可能已退出，端口处 TIME_WAIT）")
-      echo "[start] ERROR: 端口 $BASE_PORT 在击杀自家实例后 ${waited}s 仍被占用。" >&2
-      echo "[start]   占用者 PID ${holder_pid}: ${holder_cmd}" >&2
-      echo "[start] 单实例模式不做端口漂移。请确认占用者后手动处理（kill ${holder_pid}），或修改 BASE_PORT。" >&2
+      holder_cmd=$(ps -o command= -p "$holder_pid" 2>/dev/null || echo "unknown (may have exited, port in TIME_WAIT)")
+      echo "[start] ERROR: port $BASE_PORT still occupied after ${waited}s." >&2
+      echo "[start]   held by PID ${holder_pid}: ${holder_cmd}" >&2
+      echo "[start] Single-instance mode does not port-drift. Kill it (kill ${holder_pid}) or change BASE_PORT." >&2
       exit 1
     fi
     sleep 0.5
@@ -261,7 +260,6 @@ kill_all_insight() {
     cwd=$(proc_cwd "$pid")
     case "$cwd" in
       "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
-        echo "[start] 单实例收口: stopping insight instance (PID $pid)..."
         pids="$pids $pid"
         ;;
     esac
@@ -274,14 +272,11 @@ kill_all_insight() {
     esac
     cwd=$(proc_cwd "$pid")
     if [ "$cwd" = "$SCRIPT_DIR/smart-agent" ]; then
-      echo "[start] 单实例收口: stopping smart-agent (PID $pid)..."
       pids="$pids $pid"
     fi
   done
-  if [ -z "$pids" ]; then
-    echo "[start] 单实例收口: no existing insight instance found"
-    return 0
-  fi
+  [ -z "$pids" ] && return 0
+  echo "[start] Stopping old instances (PID$pids)"
   for pid in $pids; do
     kill "$pid" 2>/dev/null || true
     killed=1
@@ -294,12 +289,11 @@ kill_all_insight() {
   done
   for pid in $pids; do
     if kill -0 "$pid" 2>/dev/null; then
-      echo "[start] 单实例收口: SIGTERM 未收尾，SIGKILL 补刀 (PID $pid)..."
+      echo "[start] Force killing PID $pid (ignored SIGTERM)"
       kill -9 "$pid" 2>/dev/null || true
       killed=1
     fi
   done
-  [ -n "$killed" ] || echo "[start] 单实例收口: no existing insight instance found"
 }
 
 # 单实例收口：杀掉所有自家实例（kill_all_insight：SIGTERM→3s 宽限→SIGKILL
@@ -331,7 +325,7 @@ if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
     export CANNBOT_AGENT_URL="http://localhost:$AGENT_PORT"
     for i in $(seq 1 10); do
       if curl -s "http://localhost:$AGENT_PORT/health" > /dev/null 2>&1; then
-        echo "[start] smart-agent ready (port $AGENT_PORT, PID $AGENT_PID, log $AGENT_LOG)"
+        echo "[start] smart-agent ready (port $AGENT_PORT)"
         break
       fi
       sleep 0.5
@@ -351,7 +345,7 @@ trap cleanup EXIT INT TERM
 
 # 端口已由上方 ensure_base_port_free 定死为 BASE_PORT（单实例不漂移）；
 # smart-agent 端口由 pick 脚本避让 PORT 自选。
-echo "[start] Launching CANNBot-Insight on port $PORT..."
+echo "[start] Launching on port $PORT..."
 
 # 生产模式（默认）：next build + next start。dev 模式对 API 路由按需编译——
 # "某个 turn 首次点击数秒"的主因即此；生产模式启动时一次性构建，请求零编译。
@@ -367,13 +361,10 @@ if [ "$PROD" = true ] && [ "$CLI" != true ]; then
     STALE=$(find src prisma public package.json next.config.ts tsconfig.json -newer .next/BUILD_ID ! -path "public/export-view.js" -print -quit 2>/dev/null || true)
     if [ -z "$STALE" ]; then
       NEED_BUILD=false
-      echo "[start] Production build cached (.next/BUILD_ID up to date) — skip"
-    else
-      echo "[start] Sources changed since last build ($STALE ...) — rebuilding"
+      echo "[start] Build cached — skip"
     fi
   fi
   if [ "$NEED_BUILD" = true ]; then
-    echo "[start] Production build (next build)..."
     mkdir -p "$SCRIPT_DIR/tmp"
     BUILD_LOG="$SCRIPT_DIR/tmp/next-build.log"
     if ! npm run build > "$BUILD_LOG" 2>&1; then
@@ -381,15 +372,14 @@ if [ "$PROD" = true ] && [ "$CLI" != true ]; then
       tail -n 40 "$BUILD_LOG" >&2
       exit 1
     fi
-    COMPILED=$(grep -o 'Compiled successfully in [0-9.]*m\?s' "$BUILD_LOG" | head -1)
-    echo "[start] Build OK${COMPILED:+ — $COMPILED} (full log: tmp/next-build.log)"
+    COMPILED=$(grep -o 'Compiled successfully in [0-9.]*m\?s' "$BUILD_LOG" | head -1 | sed 's/Compiled successfully in //')
+    echo "[start] Build OK${COMPILED:+ ($COMPILED)}"
   fi
   NEXT_CMD="start"
 fi
 
 # Build the embedded export-view bundle (self-contained interactive HTML export)
-echo "[setup] Building export-view bundle..."
-npm run build:export-view >/dev/null 2>&1 || echo "  [warn] export-view build failed — HTML export disabled until npm run build:export-view succeeds"
+npm run build:export-view >/dev/null 2>&1 || echo "[start] export-view build failed — HTML export disabled"
 
 if [ "$CLI" = true ]; then
   SERVER_URL="http://localhost:$PORT"
@@ -417,14 +407,13 @@ else
   NEXT_PID=$!
   if [ "$NEXT_CMD" = "start" ]; then echo "$NEXT_PID" > "$PROD_PID_FILE"; fi
 
-  echo "[start] Waiting for server (port $PORT)..."
+  echo "[start] Waiting for server..."
   for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
       echo "[start] Server ready (port $PORT)"
       # WSL: use Windows cmd.exe to open browser
       if grep -qi microsoft /proc/version 2>/dev/null && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
         /mnt/c/Windows/System32/cmd.exe /c start "http://localhost:$PORT" 2>/dev/null || true
-      # xdg-open / sensible-browser 需图形会话;无 DISPLAY 的远程/无头 VM 会静默失败,故加守卫跳过
       elif [ -n "$DISPLAY" ] && command -v xdg-open > /dev/null 2>&1; then
         xdg-open "http://localhost:$PORT" 2>/dev/null || true
       elif [ "$(uname)" = "Darwin" ] && command -v open > /dev/null 2>&1; then
@@ -432,10 +421,7 @@ else
       elif [ -n "$DISPLAY" ] && command -v sensible-browser > /dev/null 2>&1; then
         sensible-browser "http://localhost:$PORT" 2>/dev/null || true
       else
-        # 无图形会话(远程/无头 VM):服务器开不了你本机浏览器,端口转发后本地访问
-        echo "[start] 无图形会话(远程/无头 VM)——服务器无法启动你本机浏览器。"
-        echo "[start] 若已端口转发(如 ssh -L $PORT:localhost:$PORT)或走 VS Code Remote,在本地浏览器打开:"
-        echo "[start]   http://localhost:$PORT"
+        echo "[start] No graphical session — open in your local browser: http://localhost:$PORT"
       fi
       break
     fi

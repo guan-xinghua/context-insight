@@ -25,7 +25,7 @@ const server = http.createServer((req, res) => {
   const auth = req.headers.authorization ?? '';
   fs.appendFileSync(authlog, `${JSON.stringify({ ts: Date.now(), auth })}\n`);
   if (auth !== expected) {
-    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="cannbay-it"' });
+    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="lake-it"' });
     res.end('auth required');
     return;
   }

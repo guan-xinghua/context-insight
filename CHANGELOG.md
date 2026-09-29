@@ -4,6 +4,27 @@
 
 ## [Unreleased]
 
+### Changed
+- 【数据湖配置单源化：服务端 lake-config.json 唯一配置源】"当前用哪个数据仓"不再依赖浏览器与部署环境——设置页保存的地址/分支/目录落本机服务端 `~/.cannbot-insight/lake-config.json`（与凭据 lake-auth.json 同目录），导入/上传/CANNBay Viewer/CLI 全机共读同一份：换浏览器、Viewer 服务端加载均直接生效（此前 Viewer 只认环境变量，与设置页配置脱节导致加载不出来）。**breaking**：`LAKE_REMOTE_URL` / `LAKE_BRANCH` / `LAKE_PUSH_URL` / `LAKE_USERNAME`+`LAKE_TOKEN` 环境变量通道退役（旧私仓部署形态；CI/脚本改为直接写 lake-config.json + lake-auth.json 两个文件）；请求体 config 仅设置页"测试连接/浏览分支/浏览目录"等编辑态探测消费，数据动作（列表/导入/上传）一律服务端解析。同轮修复：viewer 范式优化目标文件（`<范式>/<范式>.jsonl`）不再被误判为根级会话——此前会导致导入范式选择器冒出「根目录」幻影桶、该范式从清单消失（现场 op-fusion 案例）；根级会话识别只认上传管道产物形态（.jsonl.7z/.jsonl.gz/.meta.json）
+
+### Changed
+- 【数据湖链路平台化 P1：中性命名统一（模块/路由/环境变量/凭据仓/品牌显示名）】数据湖功能与特定数据仓实现解耦，全面中性命名——模块 `src/lib/lake/`（原数据仓模块目录）、配置 `lake-config.ts`、API 路由 `/api/ingest/lake` 与 `/api/settings/lake-auth`、页面 `lake_viewer`（旧路由保留跳转）；环境变量前缀统一为 `LAKE_*`（**breaking**：旧前缀不再识别，部署脚本需迁移，对照表见内部文档）；凭据仓文件更名为 `lake-auth.json`（旧名文件读兜底——存量凭据无感迁移，读旧写新，首次保存即落新文件）；品牌显示名改中性常量（Data Lake / Lake Viewer，双品牌同值，对应打包翻转规则退役、泄漏哨兵针保留防回潮）；数据仓地址**无占位默认**：未配置（环境变量空且请求无地址）时 fail-fast 指引配置入口，不再静默指向示例地址（旧版请求体预设形状同步退役）。另退役遗留 v1 硬编码远端导入路由（`import-from-lake` 前身，零调用方；其 symlink 逃逸防护经核验不适用于现代物化路径——blob 内容写普通文件，无链接跟随面）。线上数据格式（`x_cannbay` 信封与 `cc-*` schema 名）保持不变，兼容期后另行双名迁移
+
+### Changed
+- 【数据湖链路平台化 P2：双栈统一单一引擎】viewer 侧并行湖实现（镜像/远端/notes 三文件副本）整体并入 `src/lib/lake/` 单一引擎——异步克隆栈（进度上报、`ensureMirrorAsync` 锁外长克隆+短锁交换、`runGitAsync` 进程组击杀）、详细列表（`listSessionsDetailed`：meta 指标快照富形态 + 批量 `cat-file --batch` 预取 + 首传 commit 归属 walk）、notes 记录链（`lib/lake/notes.ts`）全部归位引擎；`runGit` 扩展 env/input 选项（git plumbing 场景）；`LAKE_VIEWER_CACHE_DIR` 作为最前优先级兼容链并入统一 cacheDir 决议（双栈时代测试隔离入口零改动）；范式模式显式开关以引擎 `paradigmRoots` 单一决议点达成。viewer 目录只留 UI 聚合层（runs/insight-data/format）。镜像缓存统一后 session 大文件只落一处、冷启动异步/同步锁互斥语义保持（回归哨兵锁死）。门禁：ut 1554+2 skipped / e2e 299+6 skipped / tsc 干净 / eslint 零 error
+
+### Changed
+- 【数据湖链路平台化 P3：信封双名 + 平台适配收口 + 规范文档更名】捕获/导出 jsonl 扩展字段信封引入新键 `x_lake`——写侧双名过渡（同一信封对象挂 `x_lake` + 旧键两处，老版本读方零损失；cpx 三个 emitter ×14 写点、insight 导出/编排 ×4 写点、评分日志 ×3 写点）、读侧新键优先旧键兜底（线上存量数据零迁移，全链 17 个读点：ingest 双 adapter / 镜像 meta 批读×2 / 编排补列 / 评分装配 / agent 恢复 / wire 轮次 API 等）；下个大版本退役旧键。平台差异收口 `lib/lake/platform.ts` 唯一居所（host 归一 / 错误码分诊片段 / 令牌属主反查——引擎其余部分零平台假设，其他托管平台无需适配文件即用通用语义）。格式规范文档更名 `lake-schema-spec.md`（双包全部引用同步）。门禁：insight ut 1554+2 skipped / e2e 299+6 skipped / cpx ut 173 / e2e 10 / 双包 tsc 干净 / eslint 零新增（2 存量基线）
+
+### Added
+- 【平台中性哨兵（P1-P3 防回潮锁，词表源 sensitive-info-audit）】`lake-zero-builtin.test.ts` 新增两组 CI 哨兵：①双包 src 词表扫描归零——私仓/组织/用户名/预设名/env 旧前缀/品牌变体任意命中即红；cannbay 裸形态仅白名单三上下文放行（`x_cannbay` 双名信封键、`cannbay-auth.json` 读兜底字面量、schema spec 文档名）——离开双名语境的 cannbay 即回潮；②cpx 信封写点双名锁——每个旧键写点前 25 行窗口内必须有配对 `x_lake` 写点（写侧不双名则老版本读方丢信封）。回潮即红、合入门禁拦截
+
+### Changed
+- 【数据仓配置前移到使用现场（Import 点 Data Lake / 会话页上传）——设置页降级为管理主场】新增 \`unconfigured\` 语境的引导式配置弹窗：Import Session 点 Data Lake 源或会话页点上传时，地址未配置（env 与设置页均空）直接弹出**带地址输入框**的连接弹窗（客户端预检零网络往返），填地址+凭据保存后自动重试原操作——首次使用全程不离开导入流、不再被"请前往设置页"的指路打断。凭据缺失/无效语境维持原弹窗（仅凭据输入，地址只读）。设置页保留为管理主场（事后改地址/看已存凭据/分支目录高级项）。存储同源：地址 localStorage lake-config（与设置页同键同值），凭据服务端 lake-auth.json。测试种子策略：`LAKE_REMOTE_URL` env 注入放行预检（localStorage 留空保范式多根模式——自定义地址会关范式模式跳过目录选择步，种子踩坑记录）。门禁：ut 1559+2 skipped / e2e 299+6 skipped
+
+### Changed
+- 【品牌显示名复原：CANNbay / CANNBay Viewer】平台化 P1 曾将 BAY_NAME/BAY_VIEWER_NAME 改为中性名（Data Lake/Lake Viewer）——按用户决策复原品牌名：`BAY_NAME = "CANNbay"`（context 变体 `contextBay`）、`BAY_VIEWER_NAME = "CANNBay Viewer"`（context 变体 `contextBay Viewer`）——品牌名是产品显示名不是敏感词（pack-context 翻转为 context 变体，context-pack 哨兵验证零泄漏）。设置页标题复原 `{BAY_NAME} 数据之湖`；pack-context 两条精确字面量翻转规则复原（`"CANNbay"`→`"contextBay"`、`"CANNBay Viewer"`→`"contextBay Viewer"`）；export-view 产物重生成。平台中性哨兵同步适配：CANNbay/CANNBay 从全局禁词改为品牌字面量白名单制（branding.ts/pack-context.mjs/context-pack.test.ts 三个合法居所以外出现品牌字面量即回潮——应经 BAY_NAME 常量引用）。门禁：ut 1559+2 skipped / e2e 299+6 skipped / context-pack 品牌哨兵 4/4
+
 ### Fixed
 - 【私有数据仓分支下拉 / 测试连接修复】分支列表与「测试连接」改为与服务端已存凭据（`cannbay-auth.json`）同通道鉴权（401 挑战-应答）：表单留空也能列出私有仓分支、有效已存凭据不再被误报「连接失败」；gitcode 上无法确认令牌属主时如实提示「凭据未能验证」而非伪称已验证；无凭据指引由已移除的 `cpx auth` 更正为 `cbi auth`
 

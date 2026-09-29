@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 首页列表「活跃 / 墙钟」列的批量取数：单查询取本页会话 turns → 逐会话委托
-// computeSessionActiveSplit（与会话详情 Wall Clock 拆分、cannbay viewer 耗时列
+// computeSessionActiveSplit（与会话详情 Wall Clock 拆分、lake viewer 耗时列
 // 同一实现，展开规则不复制）。
 import { prisma } from '@/lib/db';
 import { computeSessionActiveSplit, type ActiveTimeTurnRow } from '@/lib/active-time';

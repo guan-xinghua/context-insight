@@ -14,6 +14,7 @@ import type { PrismaClient } from '@prisma/client';
 import { isClaudeFormatSession } from '@/lib/shared/session-format';
 import { parseJsonlLines } from '@/lib/ingest/adapters/claude-jsonl';
 import { readFullContext, readAvailableSkills, type FullContext } from '@/lib/ingest/adapters/claude-jsonl-full-context';
+import { readEnvelope } from '@/lib/shared/envelope';
 import { extractFilePath } from '@/lib/file-restore';
 import type { RedactionEvent, ScoreExecution, ScoreToolCall, ScoreTurn, WireSummary } from './types';
 
@@ -230,7 +231,7 @@ function detectRedactionEvents(sourcePath: string | null): RedactionEvent[] {
   try {
     const lines = parseJsonlLines(sourcePath);
     lines.forEach((line, i) => {
-      const xb = (line as { x_cannbay?: { data?: { redactions?: unknown } } }).x_cannbay;
+      const xb = readEnvelope(line);
       const arr = xb?.data?.redactions;
       if (!Array.isArray(arr)) return;
       for (const r of arr) {

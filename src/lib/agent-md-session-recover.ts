@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import { listSubagentSessions, parseJsonlLines } from '@/lib/ingest/adapters/claude-jsonl';
+import { readEnvelope } from '@/lib/shared/envelope';
 
 /**
  * agent .md 的**会话内 system 注入恢复**（proxy 扩展层，server-only）。
@@ -65,11 +66,8 @@ function extractSystemFromSubagentJsonl(filePath: string): string | null {
   }
   for (const line of lines) {
     if (line.type !== 'assistant') continue;
-    const l = line as {
-      system?: unknown;
-      x_cannbay?: { data?: { system?: unknown } };
-    };
-    const sysAny = l.x_cannbay?.data?.system ?? l.system;
+    const l = line as { system?: unknown };
+    const sysAny = readEnvelope(line)?.data?.system ?? l.system;
     if (typeof sysAny === 'string' && sysAny.trim()) return sysAny;
     if (Array.isArray(sysAny)) {
       // ContentBlock[] 形态：拼接 text 块
@@ -100,9 +98,8 @@ function readMetaAgentType(subFilePath: string): string | null {
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as {
       agentType?: unknown;
-      x_cannbay?: { data?: { agentType?: unknown } };
     };
-    const at = meta.x_cannbay?.data?.agentType ?? meta.agentType;
+    const at = readEnvelope(meta)?.data?.agentType ?? meta.agentType;
     return typeof at === 'string' && at ? at : null;
   } catch {
     return null;

@@ -9,8 +9,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { BRAND_NAME, BRAND_SLUG, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
-import { loadCannbayConfig, cannbayRemoteInput, isDefaultCannbayRemote, DEFAULT_CANNBAY_ADDRESS } from '@/lib/cannbay-config'
-import { CannbayTokenDialog } from "@/components/CannbayTokenDialog"
+import { serverLakeConfigStatus } from '@/lib/lake-token-prompt'
+import { LakeTokenDialog } from "@/components/LakeTokenDialog"
 import {
   Dialog,
   DialogContent,
@@ -97,7 +97,7 @@ export function sortDirEntries(entries: DirEntry[], asc: boolean): DirEntry[] {
   })
 }
 
-interface CannbaySession {
+interface LakeSession {
   sid: string
   fileCount: number
   author: string
@@ -118,7 +118,7 @@ interface CannbaySession {
 }
 
 /** 同 sid 双记录：列表选择键 = sid@recording（同一 sid 的捕获与原生各占一条目） */
-function cannbayEntryKey(s: Pick<CannbaySession, 'sid' | 'recording'>): string {
+function lakeEntryKey(s: Pick<LakeSession, 'sid' | 'recording'>): string {
   return `${s.sid}@${s.recording ?? 'capture'}`
 }
 
@@ -128,7 +128,7 @@ function previewOf(previews: SessionPreview[], s: { sessionId: string; recording
   return previews.find(p => p.id === s.sessionId && (p.recording ?? undefined) === (s.recording ?? undefined))
 }
 
-type Step = "input" | "browse" | "select" | "cannbay" | "importing"
+type Step = "input" | "browse" | "select" | "lake" | "importing"
 
 function formatSize(size: number): string {
   if (size < 1024) return `${size}B`
@@ -151,8 +151,8 @@ function formatTokens(n: number): string {
   return `${(n / 1000000).toFixed(2)}M`
 }
 
-// cannbay2 路由错误（带结构化 code）：凭据类错误附设置页指引，其余原样
-function cannbayErrorMessage(data: { error?: string; code?: string }): string {
+// lake 路由错误（带结构化 code）：凭据类错误附设置页指引，其余原样
+function lakeErrorMessage(data: { error?: string; code?: string }): string {
   const base = String(data.error ?? "Import failed")
   if (["no-credentials", "auth-failed", "forbidden"].includes(data.code ?? "")) {
     return `${base} —— 请在弹窗中配置凭据后重试`
@@ -164,7 +164,7 @@ export function LocalFileImport() {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>("input")
   const [filePath, setFilePath] = useState("/")
-  const [sourceType, setSourceType] = useState<"opencode-db" | "claude-jsonl" | "cannbay" | typeof BRAND_SOURCE_TYPE>("claude-jsonl")
+  const [sourceType, setSourceType] = useState<"opencode-db" | "claude-jsonl" | "lake" | typeof BRAND_SOURCE_TYPE>("claude-jsonl")
   const [sessions, setSessions] = useState<SessionPreview[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // 会话选择步的 keyword/sessionID 过滤（firstQuery 或 id 子串，大小写不敏感）
@@ -177,21 +177,23 @@ export function LocalFileImport() {
   const [currentDir, setCurrentDir] = useState<string | null>(null)
   const [parentDir, setParentDir] = useState<string | null>(null)
   const [browseLoading, setBrowseLoading] = useState(false)
-  // Load Sessions 扫描目录/读库期间的前端反馈（对齐 browseLoading/cannbayLoading）
+  // Load Sessions 扫描目录/读库期间的前端反馈（对齐 browseLoading/lakeLoading）
   const [sessionsLoading, setSessionsLoading] = useState(false)
-  const [cannbaySessions, setCannbaySessions] = useState<CannbaySession[]>([])
-  const [cannbayScope, setCannbayScope] = useState("")
-  const [cannbaySelected, setCannbaySelected] = useState<Set<string>>(new Set())
-  const [cannbayLoading, setCannbayLoading] = useState(false)
-  const [cannbayFilter, setCannbayFilter] = useState("")
+  const [lakeSessions, setLakeSessions] = useState<LakeSession[]>([])
+  const [lakeScope, setLakeScope] = useState("")
+  const [lakeSelected, setLakeSelected] = useState<Set<string>>(new Set())
+  const [lakeLoading, setLakeLoading] = useState(false)
+  const [lakeFilter, setLakeFilter] = useState("")
+  // 服务端单源配置快照（handleOpenLake 时取回：scope 展示 + File Path 列拼路径）
+  const [lakeRemoteInfo, setLakeRemoteInfo] = useState<{ address: string; branch: string }>({ address: "", branch: "main" })
   // 范式优先导入：先选范式目录（数据仓顶层目录即注册表），再看该范式下会话。
-  // null = 范式选择阶段；'__none__' = 未标注（存量 sessions/ 区）；其余 = 范式目录名
-  const [cannbayParadigms, setCannbayParadigms] = useState<string[]>([])
-  const [cannbayParadigm, setCannbayParadigm] = useState<string | null>(null)
+  // null = 范式选择阶段；'__none__' = 根目录（根级会话，缺省上传位）；其余 = 范式目录名
+  const [lakeParadigms, setLakeParadigms] = useState<string[]>([])
+  const [lakeParadigm, setLakeParadigm] = useState<string | null>(null)
   // 数据仓凭据引导弹窗：列表/导入的凭据类失败（私有仓无凭据/
   // 凭据无效）反应弹出；保存走服务端，一次配置全机生效
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
-  const [tokenReason, setTokenReason] = useState<"no-credentials" | "auth-failed" | "forbidden">("no-credentials")
+  const [tokenReason, setTokenReason] = useState<"unconfigured" | "no-credentials" | "auth-failed" | "forbidden">("no-credentials")
 
   function resetState() {
     setStep("input")
@@ -207,12 +209,12 @@ export function LocalFileImport() {
     setParentDir(null)
     setBrowseLoading(false)
     setSessionsLoading(false)
-    setCannbaySessions([])
-    setCannbaySelected(new Set())
-    setCannbayLoading(false)
-    setCannbayFilter("")
-    setCannbayParadigms([])
-    setCannbayParadigm(null)
+    setLakeSessions([])
+    setLakeSelected(new Set())
+    setLakeLoading(false)
+    setLakeFilter("")
+    setLakeParadigms([])
+    setLakeParadigm(null)
   }
 
   async function browseDirectory(dirPath: string) {
@@ -388,24 +390,30 @@ export function LocalFileImport() {
   // （后端单根模式，任意顶层目录不是范式注册表）——只拉列表，直接进会话表。
   // list 一次请求同时返回 sessions + dirs（顶层目录）：后端单轮 mirror fetch
   // 服务两份数据（原先 dirs/list 两路各 fetch 一次 ~1s×2）
-  async function handleOpenCannbay() {
-    setCannbayLoading(true)
+  async function handleOpenLake() {
+    // 未配置预检：服务端 lake-config.json（单源）未配 → 弹引导（unconfigured
+    // 语境带地址输入），保存后经 onSaved 自动重试本函数——首次使用全程不
+    // 离开导入流
+    const server = await serverLakeConfigStatus()
+    if (!server.configured) {
+      setTokenReason('unconfigured')
+      setTokenDialogOpen(true)
+      return
+    }
+    setLakeRemoteInfo({ address: server.address, branch: server.branch })
+    setLakeLoading(true)
     setError(null)
-    setCannbaySessions([])
-    setCannbaySelected(new Set())
-    setCannbayParadigms([])
-    setCannbayParadigm(null)
-    const cfg = loadCannbayConfig()
-    const paradigmEnabled = isDefaultCannbayRemote(cfg)
-    const addr = cfg?.address.trim() && cfg.address.trim() !== DEFAULT_CANNBAY_ADDRESS ? cfg.address.trim() : "默认仓"
-    setCannbayScope(paradigmEnabled
-      ? `${addr} · 分支 ${cfg?.branch.trim() || "main"}`
-      : `${addr} · 分支 ${cfg?.branch.trim() || "main"} · 目录 /${cfg?.directory.trim() || "sessions"}`)
+    setLakeSessions([])
+    setLakeSelected(new Set())
+    setLakeParadigms([])
+    setLakeParadigm(null)
+    const paradigmEnabled = true
+    setLakeScope(`${server.address || "服务端配置"} · 分支 ${server.branch}`)
     try {
-      const listRes = await fetch("/api/ingest/cannbay2", {
+      const listRes = await fetch("/api/ingest/lake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "list", ...cannbayRemoteInput(cfg) }),
+        body: JSON.stringify({ action: "list" }),
       })
       const listData = await listRes.json()
       if (!listRes.ok) {
@@ -414,35 +422,38 @@ export function LocalFileImport() {
           setTokenReason(listData.code as "no-credentials" | "auth-failed" | "forbidden")
           setTokenDialogOpen(true)
         }
-        throw new Error(cannbayErrorMessage(listData))
+        throw new Error(lakeErrorMessage(listData))
       }
       if (paradigmEnabled) {
-        const paradigms = ((listData.dirs ?? []) as string[]).filter(d => d !== "sessions")
+        // 全仓顶层目录即范式注册表（sessions/ 存量区特判已退役）；根级
+        // 会话目录（缺省上传位）不进注册表——按会话清单剔除
+        const rootFolders = new Set((listData.sessions ?? []).filter((s: LakeSession) => !s.paradigm).map((s: LakeSession) => s.sid + (s.recording === "native" ? ".native" : "")))
+        const paradigms = ((listData.dirs ?? []) as string[]).filter(d => !rootFolders.has(d))
         if (paradigms.length === 0) {
           setError("数据仓暂无范式目录：请先在数据仓顶层新建范式目录")
           return
         }
-        setCannbayParadigms(paradigms)
+        setLakeParadigms(paradigms)
       }
-      setCannbaySessions(listData.sessions ?? [])
-      // 自定义远端直接进会话表（未标注 = 单根全量）；默认仓停在范式选择阶段
-      setCannbayParadigm(paradigmEnabled ? null : "__none__")
-      setStep("cannbay")
+      setLakeSessions(listData.sessions ?? [])
+      // 恒范式优先：停在范式选择阶段（选中后本地过滤，切换零延迟）
+      setLakeParadigm(null)
+      setStep("lake")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error")
     } finally {
-      setCannbayLoading(false)
+      setLakeLoading(false)
     }
   }
 
-  function pickCannbayParadigm(p: string) {
-    setCannbayParadigm(p)
-    setCannbayFilter("")
-    setCannbaySelected(new Set())
+  function pickLakeParadigm(p: string) {
+    setLakeParadigm(p)
+    setLakeFilter("")
+    setLakeSelected(new Set())
   }
 
-  function toggleCannbaySelection(filename: string) {
-    setCannbaySelected(prev => {
+  function toggleLakeSelection(filename: string) {
+    setLakeSelected(prev => {
       const next = new Set(prev)
       if (next.has(filename)) next.delete(filename)
       else next.add(filename)
@@ -450,21 +461,21 @@ export function LocalFileImport() {
     })
   }
 
-  async function handleImportCannbay() {
-    if (cannbaySelected.size === 0) return
+  async function handleImportLake() {
+    if (lakeSelected.size === 0) return
     setStep("importing")
 
     // 选择键 = sid@recording（同 sid 双记录各一条目）；导入按各自记录类定位目录。
     // 复合键只用于选择集与状态更新定位（key 字段）——sessionId 一律真实 sid：
     // 共享路径（ImportHistory taskId / dbMeta / 列表 label / delete-session）
     // 全部按裸 sid 消费，复合键外泄会让删除 404 静默失败、File Path 列错显
-    const keys = Array.from(cannbaySelected)
-    const byKey = new Map(cannbaySessions.map(s => [cannbayEntryKey(s), s]))
+    const keys = Array.from(lakeSelected)
+    const byKey = new Map(lakeSessions.map(s => [lakeEntryKey(s), s]))
     const selectedEntries = keys
       .map(k => byKey.get(k))
-      .filter((s): s is CannbaySession => s != null)
+      .filter((s): s is LakeSession => s != null)
     setImportStatuses(selectedEntries.map(e => ({
-      key: cannbayEntryKey(e),
+      key: lakeEntryKey(e),
       sessionId: e.sid,
       recording: e.recording ?? 'capture',
       paradigm: e.paradigm ?? null,
@@ -481,10 +492,10 @@ export function LocalFileImport() {
       const sid = entry?.sid ?? key.split('@')[0]
       const recording = entry?.recording ?? 'capture'
       try {
-        const res = await fetch("/api/ingest/cannbay2", {
+        const res = await fetch("/api/ingest/lake", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "import", sid, recording, ...cannbayRemoteInput(loadCannbayConfig()) }),
+          body: JSON.stringify({ action: "import", sid, recording }),
         })
         const data = await res.json()
         const result = res.ok ? data.result : null
@@ -495,7 +506,7 @@ export function LocalFileImport() {
         }
         setImportStatuses(prev => prev.map(s =>
           s.key === key
-            ? { ...s, status: ok ? "success" as const : "error" as const, message: ok ? importResultMessage(result) : cannbayErrorMessage(data), framework: result?.framework ?? undefined, version: result?.version ?? undefined }
+            ? { ...s, status: ok ? "success" as const : "error" as const, message: ok ? importResultMessage(result) : lakeErrorMessage(data), framework: result?.framework ?? undefined, version: result?.version ?? undefined }
             : s))
         if (ok) {
           importedPreviews.push({
@@ -615,18 +626,13 @@ export function LocalFileImport() {
   const handleDone = useCallback(() => {
     const hasSuccess = importStatuses.some(s => s.status === "success")
     if (hasSuccess) {
-      // File Path 列显示真实仓路径：目录 = 范式目录（默认仓条目实际在
-      // <paradigm>/<sid>[.native]/，存量区/自定义远端回落 cfg.directory），
+      // File Path 列显示真实仓路径：目录 = 范式目录（条目实际在
+      // <paradigm>/<sid>[.native]/，根级会话回落 cfg.directory || 根），
       // 记录类决定 <sid> vs <sid>.native
-      const cannbayRepoRef = (sid: string, recording?: "capture" | "native", paradigm?: string | null): string => {
-        const cfg = loadCannbayConfig()
-        const addr = cfg?.address.trim() && cfg.address.trim() !== DEFAULT_CANNBAY_ADDRESS
-          ? cfg.address.trim()
-          : DEFAULT_CANNBAY_ADDRESS
-        const branch = cfg?.branch.trim() || "main"
-        const dir = paradigm ?? (cfg?.directory.trim() || "sessions")
+      const lakeRepoRef = (sid: string, recording?: "capture" | "native", paradigm?: string | null): string => {
         const dirName = recording === "native" ? `${sid}.native` : sid
-        return `${BAY_NAME}@${addr.replace(/^https?:\/\//, "")}@${branch}:${dir}/${dirName}`
+        const addr = lakeRemoteInfo.address.replace(/^https?:\/\//, "")
+        return `${BAY_NAME}@${addr}@${lakeRemoteInfo.branch}:${paradigm ? `${paradigm}/` : ""}${dirName}`
       }
       const entries: ImportHistoryEntry[] = importStatuses.map(s => {
         const session = previewOf(sessions, s)
@@ -638,8 +644,8 @@ export function LocalFileImport() {
           turnCount: session?.turnCount ?? 0,
           status: s.status === "success" ? "success" as const : "error" as const,
           query: session?.firstQuery ?? null,
-          filePath: sourceType === "cannbay" ? cannbayRepoRef(s.sessionId, s.recording, s.paradigm) : filePath.trim(),
-          sourceType: sourceType === "cannbay" ? BRAND_SOURCE_TYPE : sourceType,
+          filePath: sourceType === "lake" ? lakeRepoRef(s.sessionId, s.recording, s.paradigm) : filePath.trim(),
+          sourceType: sourceType === "lake" ? BRAND_SOURCE_TYPE : sourceType,
           framework: s.framework ?? null,
           version: s.version ?? null,
         }
@@ -687,7 +693,7 @@ export function LocalFileImport() {
             {step === "input" && `Import session data from local files or ${BAY_NAME}`}
             {step === "browse" && "Browse directories and select a file to import"}
             {step === "select" && "Select sessions to import"}
-            {step === "cannbay" && (cannbayParadigm == null ? "选择范式目录（数据仓顶层目录）" : "选择该范式下的会话导入")}
+            {step === "lake" && (lakeParadigm == null ? "选择范式目录（数据仓顶层目录）" : "选择该范式下的会话导入")}
             {step === "importing" && (allDone
               ? (hasError ? "Import finished — some sessions failed (details above)" : "Import complete")
               : `Importing ${importStatuses.filter(s => s.status === "success" || s.status === "error").length}/${importStatuses.length} sessions...`)}
@@ -714,16 +720,16 @@ export function LocalFileImport() {
                   SQLite (auto)
                 </Button>
                 <Button
-                  variant={sourceType === "cannbay" ? "default" : "outline"}
+                  variant={sourceType === "lake" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => { setSourceType("cannbay"); handleOpenCannbay() }}
+                  onClick={() => { setSourceType("lake"); handleOpenLake() }}
                 >
                   <GlobeIcon className="size-3.5 mr-1" />
                   {BAY_NAME}
                 </Button>
               </div>
             </div>
-            {sourceType !== "cannbay" && (
+            {sourceType !== "lake" && (
             <div>
               <label className="text-sm font-medium mb-1.5 block">File Path</label>
               <div className="flex gap-2">
@@ -790,20 +796,20 @@ export function LocalFileImport() {
               </div>
             </div>
             )}
-            {sourceType === "cannbay" && !cannbayLoading && cannbayParadigms.length === 0 && !error && (
+            {sourceType === "lake" && !lakeLoading && lakeParadigms.length === 0 && !error && (
               <div className="text-sm text-muted-foreground py-4 text-center">
                 <GlobeIcon className="size-5 mx-auto mb-2 text-blue-500" />
                 <p>从 {BAY_NAME} 数据仓选择范式目录，导入该范式下的会话</p>
                 <p className="text-xs mt-1">范式目录 = 数据仓顶层目录；其他用户上传的会话按范式归类</p>
               </div>
             )}
-            {sourceType === "cannbay" && cannbayLoading && (
+            {sourceType === "lake" && lakeLoading && (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <LoaderIcon className="size-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Fetching sessions from {BAY_NAME}...</span>
               </div>
             )}
-            {sourceType !== "cannbay" && sessionsLoading && (
+            {sourceType !== "lake" && sessionsLoading && (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <LoaderIcon className="size-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Loading sessions...</span>
@@ -985,22 +991,22 @@ export function LocalFileImport() {
           </div>
         )}
 
-        {step === "cannbay" && cannbayParadigm == null && (
+        {step === "lake" && lakeParadigm == null && (
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">当前远端：{cannbayScope}</p>
+            <p className="text-xs text-muted-foreground">当前远端：{lakeScope}</p>
             <div className="grid grid-cols-3 gap-2 max-h-[320px] overflow-y-auto">
-              {cannbaySessions.some(s => !s.paradigm) && (
-                <Button variant="outline" size="sm" className="justify-between h-auto py-2" onClick={() => pickCannbayParadigm("__none__")}>
-                  <span className="truncate">未标注</span>
-                  <span className="text-xs text-muted-foreground shrink-0 ml-1">{cannbaySessions.filter(s => !s.paradigm).length}</span>
+              {lakeSessions.some(s => !s.paradigm) && (
+                <Button variant="outline" size="sm" className="justify-between h-auto py-2" onClick={() => pickLakeParadigm("__none__")}>
+                  <span className="truncate">根目录</span>
+                  <span className="text-xs text-muted-foreground shrink-0 ml-1">{lakeSessions.filter(s => !s.paradigm).length}</span>
                 </Button>
               )}
-              {cannbayParadigms.map(p => (
-                <Button key={p} variant="outline" size="sm" className="justify-between h-auto py-2" onClick={() => pickCannbayParadigm(p)}>
+              {lakeParadigms.map(p => (
+                <Button key={p} variant="outline" size="sm" className="justify-between h-auto py-2" onClick={() => pickLakeParadigm(p)}>
                   <span className="truncate" title={p}>{p}</span>
                   <span className="text-xs text-muted-foreground shrink-0 ml-1">
-                    {cannbaySessions.some(s => s.isBaseline && s.paradigm === p) ? '基准✓ ' : ''}
-                    {cannbaySessions.filter(s => s.paradigm === p).length}
+                    {lakeSessions.some(s => s.isBaseline && s.paradigm === p) ? '基准✓ ' : ''}
+                    {lakeSessions.filter(s => s.paradigm === p).length}
                   </span>
                 </Button>
               ))}
@@ -1010,26 +1016,26 @@ export function LocalFileImport() {
           </div>
         )}
 
-        {step === "cannbay" && cannbayParadigm != null && (
+        {step === "lake" && lakeParadigm != null && (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              当前远端：{cannbayScope}
-              {cannbayParadigms.length > 0 && (
-                <> · 范式目录 <span className="font-medium text-foreground">{cannbayParadigm === "__none__" ? "未标注（存量区）" : cannbayParadigm}</span></>
+              当前远端：{lakeScope}
+              {lakeParadigms.length > 0 && (
+                <> · 范式目录 <span className="font-medium text-foreground">{lakeParadigm === "__none__" ? "根目录" : lakeParadigm}</span></>
               )}
             </p>
             <div className="flex items-center gap-2">
               <Input
                 placeholder="Search by query, user, commit message, or task ID..."
-                value={cannbayFilter}
-                onChange={(e) => setCannbayFilter(e.target.value)}
+                value={lakeFilter}
+                onChange={(e) => setLakeFilter(e.target.value)}
                 className="flex-1"
               />
               <SearchIcon className="size-4 text-muted-foreground shrink-0" />
             </div>
             {(() => {
-              const q = cannbayFilter.toLowerCase()
-              const scoped = cannbaySessions.filter(s => (s.paradigm ?? "__none__") === cannbayParadigm)
+              const q = lakeFilter.toLowerCase()
+              const scoped = lakeSessions.filter(s => (s.paradigm ?? "__none__") === lakeParadigm)
               const filtered = scoped
                 .filter(s =>
                   !q || s.description?.toLowerCase().includes(q)
@@ -1040,22 +1046,22 @@ export function LocalFileImport() {
                 .slice()
                 // baseline 会话（该范式评分基准）置顶，其余按提交时间倒序
                 .sort((a, b) => Number(b.isBaseline === true) - Number(a.isBaseline === true) || (b.commitTime || "").localeCompare(a.commitTime || ""))
-              const allFilteredSelected = filtered.length > 0 && filtered.every(s => cannbaySelected.has(cannbayEntryKey(s)))
+              const allFilteredSelected = filtered.length > 0 && filtered.every(s => lakeSelected.has(lakeEntryKey(s)))
               return (
                 <>
                   <div className="flex items-center gap-2 mb-2">
                     <Checkbox checked={allFilteredSelected} onCheckedChange={() => {
-                      // 键与行选择一致（cannbayEntryKey）：同 sid 双记录两条目各自独立勾选
+                      // 键与行选择一致（lakeEntryKey）：同 sid 双记录两条目各自独立勾选
                       if (allFilteredSelected) {
-                        setCannbaySelected(prev => {
+                        setLakeSelected(prev => {
                           const next = new Set(prev)
-                          for (const s of filtered) next.delete(cannbayEntryKey(s))
+                          for (const s of filtered) next.delete(lakeEntryKey(s))
                           return next
                         })
                       } else {
-                        setCannbaySelected(prev => {
+                        setLakeSelected(prev => {
                           const next = new Set(prev)
-                          for (const s of filtered) next.add(cannbayEntryKey(s))
+                          for (const s of filtered) next.add(lakeEntryKey(s))
                           return next
                         })
                       }
@@ -1086,9 +1092,9 @@ export function LocalFileImport() {
                           </TableRow>
                         )}
                         {filtered.map(s => (
-                          <TableRow key={cannbayEntryKey(s)} className={cannbaySelected.has(cannbayEntryKey(s)) ? "bg-primary/5" : ""}>
+                          <TableRow key={lakeEntryKey(s)} className={lakeSelected.has(lakeEntryKey(s)) ? "bg-primary/5" : ""}>
                             <TableCell className="px-2 w-[36px]">
-                              <Checkbox checked={cannbaySelected.has(cannbayEntryKey(s))} onCheckedChange={() => toggleCannbaySelection(cannbayEntryKey(s))} />
+                              <Checkbox checked={lakeSelected.has(lakeEntryKey(s))} onCheckedChange={() => toggleLakeSelection(lakeEntryKey(s))} />
                             </TableCell>
                             <TableCell className="px-2 text-xs py-2 align-middle">
                               <span className="block truncate" title={s.description || s.sid}>
@@ -1148,7 +1154,7 @@ export function LocalFileImport() {
                 </>
               )
             })()}
-            {cannbaySelected.size === 0 && (
+            {lakeSelected.size === 0 && (
               <p className="text-sm text-muted-foreground">Select at least one session to import</p>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -1207,7 +1213,7 @@ export function LocalFileImport() {
         )}
 
         <DialogFooter>
-          {step === "input" && sourceType !== "cannbay" && (
+          {step === "input" && sourceType !== "lake" && (
             <Button onClick={handleLoadSessions} disabled={!filePath.trim() || sessionsLoading}>
               {sessionsLoading ? (
                 <span className="flex items-center gap-1.5">
@@ -1219,9 +1225,9 @@ export function LocalFileImport() {
               )}
             </Button>
           )}
-          {step === "input" && sourceType === "cannbay" && (
-            <Button onClick={handleOpenCannbay} disabled={cannbayLoading}>
-              {cannbayLoading ? "Fetching..." : `Fetch from ${BAY_NAME}`}
+          {step === "input" && sourceType === "lake" && (
+            <Button onClick={handleOpenLake} disabled={lakeLoading}>
+              {lakeLoading ? "Fetching..." : `Fetch from ${BAY_NAME}`}
             </Button>
           )}
           {step === "select" && (
@@ -1234,24 +1240,24 @@ export function LocalFileImport() {
               </Button>
             </>
           )}
-          {step === "cannbay" && cannbayParadigm == null && (
-            <Button variant="outline" onClick={() => { setStep("input"); setSourceType("cannbay"); setError(null) }}>
+          {step === "lake" && lakeParadigm == null && (
+            <Button variant="outline" onClick={() => { setStep("input"); setSourceType("lake"); setError(null) }}>
               Back
             </Button>
           )}
-          {step === "cannbay" && cannbayParadigm != null && (
+          {step === "lake" && lakeParadigm != null && (
             <>
-              {cannbayParadigms.length > 0 ? (
-                <Button variant="outline" onClick={() => { setCannbayParadigm(null); setCannbayFilter(""); setCannbaySelected(new Set()); }}>
+              {lakeParadigms.length > 0 ? (
+                <Button variant="outline" onClick={() => { setLakeParadigm(null); setLakeFilter(""); setLakeSelected(new Set()); }}>
                   范式选择
                 </Button>
               ) : (
-                <Button variant="outline" onClick={() => { setStep("input"); setSourceType("cannbay"); setError(null) }}>
+                <Button variant="outline" onClick={() => { setStep("input"); setSourceType("lake"); setError(null) }}>
                   Back
                 </Button>
               )}
-              <Button onClick={handleImportCannbay} disabled={cannbaySelected.size === 0}>
-                Import {cannbaySelected.size > 0 ? `${cannbaySelected.size} Selected` : ""}
+              <Button onClick={handleImportLake} disabled={lakeSelected.size === 0}>
+                Import {lakeSelected.size > 0 ? `${lakeSelected.size} Selected` : ""}
               </Button>
             </>
           )}
@@ -1261,7 +1267,7 @@ export function LocalFileImport() {
         </DialogFooter>
       </DialogContent>
       {/* 数据仓令牌引导弹窗（叠加在导入弹窗之上；保存成功自动收起） */}
-      <CannbayTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} reason={tokenReason} />
+      <LakeTokenDialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen} reason={tokenReason} onSaved={() => { if (tokenReason === 'unconfigured') { setTokenDialogOpen(false); handleOpenLake() } }} />
     </Dialog>
   )
 }

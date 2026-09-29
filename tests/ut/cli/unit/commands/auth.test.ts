@@ -15,19 +15,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runAuthAction } from '@/cli/commands/auth';
-import { getStoredCredentials, listStoredRemotes } from '@/lib/cannbay2/auth';
-import { DEFAULT_CANNBAY_ADDRESS } from '@/lib/cannbay-config';
+import { getStoredCredentials, listStoredRemotes } from '@/lib/lake/auth';
+import { writeServerLakeConfig } from '@/lib/lake/server-config';
 
 let home: string;
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'cbi-auth-it-'));
-  for (const k of ['CANNBOT_PROXY_DIR', 'CANNBAY2_PUSH_URL', 'CANNBAY2_USERNAME', 'CANNBAY2_TOKEN']) {
+  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN', 'LAKE_REMOTE_URL']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
   process.env.CANNBOT_PROXY_DIR = path.join(home, 'proxy');
+  // 单源：回车默认地址 = 服务端 lake-config.json 的当前远端（夹具零真实地址）
+  writeServerLakeConfig({ address: 'https://example.com/env-lake.git' });
 });
 
 afterAll(() => {
@@ -50,10 +52,10 @@ describe('cbi auth 交互流程', () => {
     });
     expect(code).toBe(0);
     expect(mutedQueries.join()).toContain('不回显');
-    // 回车落默认仓（断言经 DEFAULT_CANNBAY_ADDRESS 常量引用，夹具零真实地址）
-    expect(getStoredCredentials(DEFAULT_CANNBAY_ADDRESS))
+    // 回车落服务端配置的当前远端（夹具零真实地址）
+    expect(getStoredCredentials('https://example.com/env-lake.git'))
       .toEqual({ username: 'wangwu', password: 'cli-credential-998877' });
-    const hit = listStoredRemotes().find(r => r.url === DEFAULT_CANNBAY_ADDRESS.replace(/\/+$/, ''));
+    const hit = listStoredRemotes().find(r => r.url === 'https://example.com/env-lake.git'.replace(/\/+$/, ''));
     expect(hit?.verifiedAt).toBeTruthy();
   });
 

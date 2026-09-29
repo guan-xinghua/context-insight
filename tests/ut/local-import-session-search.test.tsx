@@ -9,7 +9,7 @@
 // @vitest-environment happy-dom
 // Import Session 会话选择步搜索 IT：SQLite (auto) 载入 sessions 后，选择表
 // 上方提供 keyword / sessionID 过滤（firstQuery 或 id 子串、大小写不敏感），
-// 全选作用于当前过滤视图（与 CANNBay 列表同款语义），空结果显示 no-match
+// 全选作用于当前过滤视图（与 lake 列表同款语义），空结果显示 no-match
 // 提示。驱动真实 LocalFileImport 组件走完 input → select 全链路。
 
 import { describe, it, expect, afterEach, beforeAll } from 'vitest'
@@ -25,7 +25,7 @@ let root: Root | null = null
 const PREVIEW = [
   { id: 'ses_alpha-0001', createdAt: '2026-09-01T10:00:00Z', endedAt: '2026-09-01T11:00:00Z', firstQuery: '帮我修复登录页的 Bug', turnCount: 5, totalTokens: 12000 },
   { id: 'ses_beta-0002', createdAt: '2026-09-01T12:00:00Z', endedAt: null, firstQuery: '生成 BenchHarness 算子', turnCount: 8, totalTokens: 34000 },
-  { id: 'ses_gamma-0003', createdAt: '2026-09-02T09:00:00Z', endedAt: '2026-09-02T09:30:00Z', firstQuery: '分析 cannbay 上传失败原因', turnCount: 3, totalTokens: 9000 },
+  { id: 'ses_gamma-0003', createdAt: '2026-09-02T09:00:00Z', endedAt: '2026-09-02T09:30:00Z', firstQuery: '分析 lake 上传失败原因', turnCount: 3, totalTokens: 9000 },
 ]
 
 beforeAll(() => {
@@ -111,7 +111,7 @@ describe('Import Session 选择步搜索（keyword / sessionID）', () => {
     setInputValue(search, '上传失败')
     await flush()
     expect(visibleRowCount()).toBe(1)
-    expect(document.body.textContent).toContain('分析 cannbay 上传失败原因')
+    expect(document.body.textContent).toContain('分析 lake 上传失败原因')
   })
 
   it('sessionID 子串过滤 + 空结果提示 + 全选作用于过滤视图', async () => {

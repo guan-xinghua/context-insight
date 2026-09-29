@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { isClaudeFormatSession } from '@/lib/shared/session-format';
 import { parseJsonlLines } from '@/lib/ingest/adapters/claude-jsonl';
+import { readEnvelope } from '@/lib/shared/envelope';
 
 // Wire-rounds view: rebuild each WIRE REQUEST directly from the capture
 // jsonl, independent of the DB/import pipeline. The file stores each message
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
     for (const line of lines) {
       if (line.type === 'assistant' && line.message) {
         if (!pending) {
-          const xb = (line as { x_cannbay?: { schema?: string; version?: number; data?: { roundIndex?: number } } }).x_cannbay;
+          const xb = readEnvelope(line);
           pending = { msgsSnapshot: snapshot(), blocks: [], model: line.message.model ?? null, usage: line.message.usage ?? null, ts: line.timestamp ?? null, text: '', xb };
         }
         const blocks = Array.isArray(line.message.content) ? line.message.content : [];

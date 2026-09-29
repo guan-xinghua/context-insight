@@ -163,7 +163,7 @@ export default async function Home({
           </div>
           <div className="flex items-center gap-3">
             <LocalFileImport />
-            <a href="/cannbay_viewer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
+            <a href="/lake_viewer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
               <EyeIcon className="size-4 text-cyan-500" />
               {BAY_VIEWER_NAME}
             </a>

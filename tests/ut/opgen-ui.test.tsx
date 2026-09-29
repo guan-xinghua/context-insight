@@ -10,9 +10,9 @@
 // 算子生成标注 UI IT：
 //   ① SessionList 上传弹窗——「算子生成结果」三态选择器（不标注/成功/失败），
 //      勾选"成功"后确认上传 → 请求体携带 opGen:'success'；缺省不携带
-//   ② LocalFileImport CANNBay 列表——「算子生成」列渲染 成功/失败/— 徽标
+//   ② LocalFileImport lake 列表——「算子生成」列渲染 成功/失败/— 徽标
 
-import { describe, it, expect, afterEach, beforeAll, vi } from 'vitest'
+import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
@@ -30,11 +30,19 @@ vi.mock('next/navigation', () => ({
 let root: Root | null = null
 const uploadBodies: Array<Record<string, unknown>> = []
 
+// 单源预检：fetch mock 应答 /api/settings/lake-config（configured），localStorage 不参与
+afterAll(() => {
+  localStorage.clear()
+})
+
 beforeAll(() => {
   ;(globalThis as { fetch: typeof fetch }).fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     const json = (data: unknown) => Promise.resolve(new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } }))
-    if (url.includes('/api/ingest/cannbay2')) {
+    if (url.includes('/api/settings/lake-config')) {
+      return json({ configured: true, address: 'https://example.com/lake.git', branch: 'main' })
+    }
+    if (url.includes('/api/ingest/lake')) {
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
       if (body.action === 'dirs') return json({ dirs: ['others'] })
       if (body.action === 'list') {
@@ -163,7 +171,7 @@ describe('算子生成标注 UI', () => {
     container.remove()
   })
 
-  it('② CANNBay 列表：「算子生成」列 成功/失败/— 三态徽标', async () => {
+  it('② lake 列表：「算子生成」列 成功/失败/— 三态徽标', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)

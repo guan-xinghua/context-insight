@@ -331,12 +331,12 @@ describe("audit-skillsift route", () => {
     expect(args.some((a: unknown) => typeof a === "string" && (a as string).endsWith("session.json"))).toBe(true)
   })
 
-  it("framework=opencode + sourcePath=jsonl（cannbay 导入/proxy 捕获）→ --transcript（喂法按 sourcePath 形态，不看 framework）", async () => {
-    // 回归：ses_0515cc95（cannbay 导入，meta framework=opencode，sourcePath 是物化 jsonl）
+  it("framework=opencode + sourcePath=jsonl（lake 导入/proxy 捕获）→ --transcript（喂法按 sourcePath 形态，不看 framework）", async () => {
+    // 回归：ses_0515cc95（lake 导入，meta framework=opencode，sourcePath 是物化 jsonl）
     // 走 --db 被 sift 当 sqlite 打开 → OpencodeDbError → exit 3 必失败。
     fakePrisma.session.findFirst.mockResolvedValue({
       id: "ses_cuid_1",
-      sourcePath: "/tmp/cannbay2-cache/materialized/ses_xxx.jsonl",
+      sourcePath: "/tmp/lake-cache/materialized/ses_xxx.jsonl",
       framework: "opencode",
     })
     seedSkillBody()

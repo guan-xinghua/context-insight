@@ -27,7 +27,7 @@ describe('recoverAgentMdFromSystem（system 注入恢复——正常会话主路
     for (const f of fs.readdirSync(path.join(FIXTURE_DIR, 'ses_norm_fixture', 'subagents'))) {
       if (!f.endsWith('.meta.json')) continue;
       const meta = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'ses_norm_fixture', 'subagents', f), 'utf-8'));
-      const at = meta.x_cannbay?.data?.agentType ?? meta.agentType;
+      const at = (meta.x_lake ?? meta.x_cannbay)?.data?.agentType ?? meta.agentType;
       if (at) agentTypes.add(at);
     }
     expect(agentTypes.size).toBe(19);

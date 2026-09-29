@@ -19,8 +19,8 @@ import { spawnSync } from 'node:child_process';
 import {
   authFilePath, clearStoredCredentials, getStoredCredentials,
   listStoredRemotes, maskToken, setStoredCredentials,
-} from '@/lib/cannbay2/auth';
-import { DEFAULT_CANNBAY_ADDRESS } from '@/lib/cannbay-config';
+} from '@/lib/lake/auth';
+import { readServerLakeConfig } from '@/lib/lake/server-config';
 import { formatSuccess, formatWarning } from '../utils/colors';
 
 export interface AuthDeps {
@@ -157,8 +157,8 @@ export async function runAuthAction(opts: AuthOptions, deps: AuthDeps = {}): Pro
   }));
   const muted = deps.questionMuted ?? mutedQuestion;
 
-  let url = (await question(`远端地址（回车 = ${DEFAULT_CANNBAY_ADDRESS}）: `)).trim();
-  if (!url) url = DEFAULT_CANNBAY_ADDRESS;
+  let url = (await question('远端地址（回车 = 使用服务端配置的当前数据仓）: ')).trim();
+  if (!url) url = readServerLakeConfig()?.address ?? '';
   const existing = getStoredCredentials(url);
   if (existing) log(`注意：该远端已有配置（凭据 ${maskToken(existing.password)}），本次保存将覆盖`);
   let username = (await question(`用户名（回车 = ${defaultUsername() || '必填'}）: `)).trim();

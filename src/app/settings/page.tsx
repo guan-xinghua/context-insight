@@ -17,19 +17,16 @@ import { BRAND_NAME, BAY_NAME } from "@/lib/branding"
 import { VERSION_DISPLAY } from "@/lib/version"
 import { AIProviderConfigPanel } from "@/components/observe/AIProviderConfigPanel"
 import {
-  loadCannbayConfig,
-  saveCannbayConfig,
-  clearCannbayConfig,
-  cannbayRemoteInput,
+  loadLakeConfig,
+  clearLakeConfig,
   planCredentialAction,
-  DEFAULT_CANNBAY_ADDRESS,
-  type CannbayConfig,
-  type CannbayAuthMode,
-} from "@/lib/cannbay-config"
+  type LakeConfig,
+  type LakeAuthMode,
+} from "@/lib/lake-config"
 
 export default function SettingsPage() {
   const [address, setAddress] = useState("")
-  const [authMode, setAuthMode] = useState<CannbayAuthMode>("none")
+  const [authMode, setAuthMode] = useState<LakeAuthMode>("none")
   const [account, setAccount] = useState("")
   const [password, setPassword] = useState("")
   const [token, setToken] = useState("")
@@ -52,36 +49,55 @@ export default function SettingsPage() {
   const [branchError, setBranchError] = useState<string | null>(null)
 
   useEffect(() => {
-    // 渲染期零读 localStorage（hydration 契约，同 v1.84 AIProviderConfigPanel）；
-    // microtask 填充：挂载后首帧补值，不与 SSR 首渲染竞争
-    queueMicrotask(() => {
-      const saved = loadCannbayConfig()
-      if (saved) {
-        setAddress(saved.address)
-        setAuthMode(saved.authMode)
-        setAccount(saved.account)
-        setPassword(saved.password)
-        setToken(saved.token)
-        setBranch(saved.branch)
-        setDirectory(saved.directory)
-        setSavedFlag(true)
-      } else {
-        setAddress(DEFAULT_CANNBAY_ADDRESS)
-        setBranch("main")
+    // 渲染期零读 localStorage（hydration 契约，同 v1.84 AIProviderConfigPanel）。
+    // 单源架构：服务端 lake-config.json 为准（全机生效）；未配置时用 legacy
+    // localStorage 值预填表单（存量用户保存一次即完成迁移）。凭据形态字段
+    // （authMode/账号/令牌）不落服务端配置文件，从 legacy 预填或空
+    void (async () => {
+      const legacy = loadLakeConfig()
+      try {
+        const res = await fetch("/api/settings/lake-config")
+        const data = await res.json() as { configured?: boolean; address?: string; branch?: string; directory?: string }
+        if (data.configured && data.address) {
+          setAddress(data.address)
+          setBranch(data.branch?.trim() || "main")
+          setDirectory(data.directory ?? "")
+          setSavedFlag(true)
+        } else if (legacy) {
+          setAddress(legacy.address)
+          setBranch(legacy.branch)
+          setDirectory(legacy.directory)
+        } else {
+          setBranch("main")
+        }
+      } catch {
+        if (legacy) {
+          setAddress(legacy.address)
+          setBranch(legacy.branch)
+          setDirectory(legacy.directory)
+        } else {
+          setBranch("main")
+        }
+      }
+      if (legacy) {
+        setAuthMode(legacy.authMode)
+        setAccount(legacy.account)
+        setPassword(legacy.password)
+        setToken(legacy.token)
       }
       setHydrated(true)
-    })
+    })()
   }, [])
 
-  // 服务端凭据状态（cannbay-auth.json）：按当前地址展示已配置的令牌脱敏信息
+  // 服务端凭据状态（lake-auth.json）：按当前地址展示已配置的令牌脱敏信息
   useEffect(() => {
     if (!hydrated) return
     let active = true
-    fetch("/api/settings/cannbay-auth")
+    fetch("/api/settings/lake-auth")
       .then(r => r.json())
       .then((data: { remotes?: Array<{ url: string; username: string; tokenMasked: string; verifiedAt?: string }> }) => {
         if (!active) return
-        const key = (address.trim() || DEFAULT_CANNBAY_ADDRESS).replace(/\/+$/, "")
+        const key = address.trim().replace(/\/+$/, "")
         const hit = data.remotes?.find(r => r.url === key || r.url === `${key}.git` || r.url.replace(/\.git$/, "") === key.replace(/\.git$/, ""))
         setAuthStatus(hit ?? null)
       })
@@ -89,7 +105,7 @@ export default function SettingsPage() {
     return () => { active = false }
   }, [hydrated, address])
 
-  const config: CannbayConfig = {
+  const config: LakeConfig = {
     address: address.trim(),
     authMode,
     account,
@@ -105,18 +121,25 @@ export default function SettingsPage() {
     setAuthHint(null)
   }
 
-  // 保存：UI 偏好（地址/认证方式/分支/目录）落 localStorage；凭据（用户名+
-  // 令牌/密码）落服务端 cannbay-auth.json（与 cpx 同机共享）。凭据操作走
-  // planCredentialAction 决策：匿名模式清除该地址凭据；token/password 模式
-  // 输入留空 = 保留现有（不落入删除分支）
+  // 保存（单源架构）：远端偏好（地址/分支/目录）落服务端 lake-config.json
+  // ——全机生效（导入/上传/Viewer/CLI 共读同一份）；legacy localStorage 同步
+  // 清除（防旧值在服务端配置清空后复活）。凭据（用户名+令牌/密码）落服务端
+  // lake-auth.json（与 cpx 同机共享）。凭据操作走 planCredentialAction 决策：
+  // 匿名模式清除该地址凭据；token/password 模式输入留空 = 保留现有
   async function handleSave() {
-    saveCannbayConfig(config)
     setSavedFlag(true)
-    const remoteUrl = (address.trim() || DEFAULT_CANNBAY_ADDRESS).replace(/\/+$/, "")
+    const remoteUrl = address.trim().replace(/\/+$/, "")
     try {
+      const cfgRes = await fetch("/api/settings/lake-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: remoteUrl, branch: branch.trim() || "main", directory: directory.trim() }),
+      })
+      if (!cfgRes.ok) throw new Error(String((await cfgRes.json()).error ?? "远端偏好保存失败"))
+      clearLakeConfig()
       const action = planCredentialAction(config)
       if (action === "save-token") {
-        const res = await fetch("/api/settings/cannbay-auth", {
+        const res = await fetch("/api/settings/lake-auth", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: remoteUrl, username: account.trim() || "oauth2", token: token.trim() }),
@@ -126,7 +149,7 @@ export default function SettingsPage() {
         setAuthStatus({ username: account.trim() || "oauth2", tokenMasked: String(data.tokenMasked ?? "****"), verifiedAt: data.verifiedAt ?? undefined })
         setAuthHint(data.reachable === false ? "已保存，但地址探测未通过（私有仓/网络问题可忽略，令牌有效性由首次上传确认）" : "凭据已保存到本机服务端（cpx 与 insight 共用）")
       } else if (action === "save-password") {
-        const res = await fetch("/api/settings/cannbay-auth", {
+        const res = await fetch("/api/settings/lake-auth", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: remoteUrl, username: account.trim(), token: password.trim() }),
@@ -136,7 +159,7 @@ export default function SettingsPage() {
         setAuthStatus({ username: account.trim(), tokenMasked: String(data.tokenMasked ?? "****"), verifiedAt: data.verifiedAt ?? undefined })
         setAuthHint(data.reachable === false ? "已保存，但地址探测未通过（私有仓/网络问题可忽略，令牌有效性由首次上传确认）" : "凭据已保存到本机服务端（cpx 与 insight 共用）")
       } else if (action === "clear") {
-        await fetch("/api/settings/cannbay-auth", {
+        await fetch("/api/settings/lake-auth", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: remoteUrl }),
@@ -152,14 +175,15 @@ export default function SettingsPage() {
   }
 
   async function handleClear() {
-    clearCannbayConfig()
-    const remoteUrl = (address.trim() || DEFAULT_CANNBAY_ADDRESS).replace(/\/+$/, "")
-    fetch("/api/settings/cannbay-auth", {
+    clearLakeConfig()
+    const remoteUrl = address.trim().replace(/\/+$/, "")
+    fetch("/api/settings/lake-config", { method: "DELETE" }).catch(() => { /* best-effort */ })
+    fetch("/api/settings/lake-auth", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: remoteUrl }),
     }).catch(() => { /* best-effort */ })
-    setAddress(DEFAULT_CANNBAY_ADDRESS)
+    setAddress("")
     setAuthMode("none")
     setAccount("")
     setPassword("")
@@ -176,11 +200,23 @@ export default function SettingsPage() {
     setTesting(true)
     setTestResult(null)
     try {
-      // 测试的是用户正在输入的凭据（includeCreds）；表单为空则测服务端已存凭据
-      const res = await fetch("/api/ingest/cannbay2", {
+      // 测试的是用户正在输入的值（编辑态探测——含表单凭据即时验证；
+      // 表单凭据空则测服务端已存凭据）
+      const res = await fetch("/api/ingest/lake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "test", ...cannbayRemoteInput(config, { includeCreds: true }) }),
+        body: JSON.stringify({
+          action: "test",
+          config: {
+            address: address.trim(),
+            authMode,
+            account: account.trim(),
+            password,
+            token,
+            branch: branch.trim() || "main",
+            directory: directory.trim(),
+          },
+        }),
       })
       const data = await res.json()
       setTestResult({
@@ -198,10 +234,14 @@ export default function SettingsPage() {
     setBrowseLoading(true)
     setBrowseError(null)
     try {
-      const res = await fetch("/api/ingest/cannbay2", {
+      const res = await fetch("/api/ingest/lake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "dirs", prefix, ...cannbayRemoteInput(config) }),
+        body: JSON.stringify({
+          action: "dirs",
+          prefix,
+          config: { address: address.trim(), branch: branch.trim() || "main", directory: directory.trim() },
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(String(data.error ?? "获取目录失败"))
@@ -231,10 +271,13 @@ export default function SettingsPage() {
     setBranchLoading(true)
     setBranchError(null)
     try {
-      const res = await fetch("/api/ingest/cannbay2", {
+      const res = await fetch("/api/ingest/lake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "branches", ...cannbayRemoteInput(config) }),
+        body: JSON.stringify({
+          action: "branches",
+          config: { address: address.trim(), branch: branch.trim() || "main", directory: directory.trim() },
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(String(data.error ?? "获取分支失败"))
@@ -296,7 +339,7 @@ export default function SettingsPage() {
                     if (branchOpen) closeBranch()
                   }}
                   className="h-7 text-xs flex-1"
-                  placeholder={DEFAULT_CANNBAY_ADDRESS}
+                  placeholder="https://example.com/your-lake.git"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -375,7 +418,7 @@ export default function SettingsPage() {
               )}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground w-16 shrink-0">目录</span>
-                <Input value={directory} onChange={(e) => { setDirectory(e.target.value); dirty() }} className="h-7 text-xs" placeholder="sessions（默认）" />
+                <Input value={directory} onChange={(e) => { setDirectory(e.target.value); dirty() }} className="h-7 text-xs" placeholder="留空 = 根目录" />
                 <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={handleBrowse} disabled={!hydrated}>浏览</Button>
               </div>
               {browseOpen && (
@@ -401,16 +444,19 @@ export default function SettingsPage() {
                     <Button
                       size="sm"
                       className="h-6 px-2 text-xs"
-                      disabled={!browsePrefix}
                       onClick={() => { setDirectory(browsePrefix); dirty(); closeBrowse() }}
                     >
-                      选定 /{browsePrefix}
+                      选定 /{browsePrefix || ""}
                     </Button>
-                    {!browsePrefix && <span className="text-xs text-muted-foreground">根目录不可作为会话目录（留空 = 默认 sessions/）</span>}
+                    {browsePrefix && (
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => { setDirectory(""); dirty(); closeBrowse() }}>
+                        选定根目录
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground pl-[72px]">目录替换默认 <code>sessions/</code> 前缀，列表 / 导入 / 上传范围同步生效，可点「浏览」从仓库中选择。</p>
+              <p className="text-xs text-muted-foreground pl-[72px]">上传缺省目录（无范式目录时的落盘位）：留空 = 仓库根（<code>&lt;sid&gt;/</code> 根级），可点「浏览」从仓库中选择。</p>
             </div>
             <div className="flex items-center gap-2">
               <Button size="sm" className="text-xs" onClick={handleSave} disabled={!hydrated || !address.trim()}>
@@ -421,7 +467,7 @@ export default function SettingsPage() {
               </Button>
               {savedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
             </div>
-              <p className="text-xs text-muted-foreground">凭据保存在本机服务端（~/.cannbot-insight/cannbay-auth.json，权限 0600），cpx 与 insight 上传/下载共用同一份；地址/分支/目录等偏好存浏览器本地。数据仓默认需凭据推送（需仓主将你的账号加为协作者）。</p>
+              <p className="text-xs text-muted-foreground">凭据保存在本机服务端（~/.cannbot-insight/lake-auth.json，权限 0600），cpx 与 insight 上传/下载共用同一份；地址/分支/目录偏好同时存浏览器本地与服务端（~/.cannbot-insight/lake-config.json）——viewer 与跨浏览器共享同一配置。数据仓默认需凭据推送（需仓主将你的账号加为协作者）。</p>
           </CardContent>
         </Card>
       </main>

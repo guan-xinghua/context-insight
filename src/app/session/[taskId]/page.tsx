@@ -24,7 +24,7 @@ import type { TurnHighlight } from "@/lib/shared/highlight"
 import { TurnTimeline } from "@/components/observe/TurnTimeline"
 import { TurnDetail } from "@/components/observe/TurnDetail"
 import { buildSubagentNumbers } from "@/lib/subagent-numbering"
-import { UploadToCannbayDialog } from "@/components/UploadToCannbayDialog"
+import { UploadToLakeDialog } from "@/components/UploadToLakeDialog"
 import { WireRounds } from "@/components/observe/WireRounds"
 import { TurnContextPanel } from "@/components/observe/TurnContextPanel"
 import { SkillDetail } from "@/components/observe/SkillDetail"
@@ -568,7 +568,7 @@ export default function SessionDetailPage({
   const [exportingMd, setExportingMd] = useState(false)
   const [exportingHtml, setExportingHtml] = useState(false)
   // 数据仓上传弹窗（共享组件，与主页面上传同款）：结果经 toast 呈现
-  const [cannbayUploadOpen, setCannbayUploadOpen] = useState(false)
+  const [lakeUploadOpen, setLakeUploadOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const refreshingRef = useRef(false)
   const lastMaxTimeUpdatedRef = useRef<number>(-1)
@@ -1930,7 +1930,7 @@ export default function SessionDetailPage({
             variant="ghost"
             size="sm"
             className="gap-1 text-muted-foreground"
-            onClick={() => setCannbayUploadOpen(true)}
+            onClick={() => setLakeUploadOpen(true)}
             title={`Upload to ${BAY_NAME}`}
           >
             <UploadIcon className="size-4" />
@@ -1976,9 +1976,9 @@ export default function SessionDetailPage({
         </div>
       ))}
 
-      <UploadToCannbayDialog
-        open={cannbayUploadOpen}
-        onOpenChange={setCannbayUploadOpen}
+      <UploadToLakeDialog
+        open={lakeUploadOpen}
+        onOpenChange={setLakeUploadOpen}
         target={session ? {
           taskId: session.taskId,
           query: session.query ?? session.label,

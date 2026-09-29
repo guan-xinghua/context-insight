@@ -16,11 +16,11 @@
 //
 // 品牌边界（与 cannbot-insight 同内容、仅品牌面不同）：
 //   翻转 —— 显示名 / CLI 别名 / bin 文件名 / 数据目录（~/.context-insight）/
-//           Bay 显示名（UI 字符串一律经 BAY_NAME 常量（@/lib/branding）取值，
-//           品牌随 BRAND_SLUG 翻转；branding.ts 里的 "CANNbay" 字面量由下方
-//           通用规则恒等化，仅为让哨兵测试零误报）
+//           Bay 显示名（UI 字符串一律经 BAY_NAME/BAY_VIEWER_NAME 常量
+//           （@/lib/branding）取值，品牌随 BRAND_SLUG 翻转；branding.ts 里的
+//           "CANNbay" 字面量由下方通用规则恒等化，仅为让哨兵测试零误报）
 //   保留 —— 数据格式标识（BRAND_SOURCE_TYPE="cannbot-insight"，两品牌数据互通）/
-//           x_cannbay 命名空间 / CANNBAY2_* 与 CANNBOT_* 环境变量名 /
+//           x_cannbay 命名空间 / LAKE_* 与 CANNBOT_* 环境变量名 /
 //           smart-agent 服务标识（cannbot-smart-agent，启动器 isSmartAgent 契约）/
 //           git 机器提交身份（cannbay2 mirror，数据仓内身份稳定）/
 //           v1 路由仓 URL（真实仓库名，非品牌显示，

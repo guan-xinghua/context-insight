@@ -90,8 +90,8 @@ function storedEntries(): ImportHistoryEntry[] {
 describe('Recent Imports 同 sid 双记录删除', () => {
   it('① 删除单条：DELETE 带 framework 消歧，localStorage 只清该条', async () => {
     seedEntries([
-      { taskId: SID, importedAt: '2026-09-17T10:00:00Z', turnCount: 2, status: 'success', query: 'wire-q1', filePath: 'cannbay@x@main:sessions/' + SID, sourceType: 'cannbot-insight', framework: 'claude-code-proxy', version: '2.1.0-claude-proxy' },
-      { taskId: SID, importedAt: '2026-09-17T10:00:01Z', turnCount: 2, status: 'success', query: 'native-q1', filePath: 'cannbay@x@main:sessions/' + SID + '.native', sourceType: 'cannbot-insight', framework: 'claude-code', version: '2.1.0' },
+      { taskId: SID, importedAt: '2026-09-17T10:00:00Z', turnCount: 2, status: 'success', query: 'wire-q1', filePath: 'lake@x@main:sessions/' + SID, sourceType: 'cannbot-insight', framework: 'claude-code-proxy', version: '2.1.0-claude-proxy' },
+      { taskId: SID, importedAt: '2026-09-17T10:00:01Z', turnCount: 2, status: 'success', query: 'native-q1', filePath: 'lake@x@main:sessions/' + SID + '.native', sourceType: 'cannbot-insight', framework: 'claude-code', version: '2.1.0' },
     ])
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -120,8 +120,8 @@ describe('Recent Imports 同 sid 双记录删除', () => {
 
   it('② 徽标事实源按行定位：capture 条目显 proxy 徽标、native 条目不显', async () => {
     seedEntries([
-      { taskId: SID, importedAt: '2026-09-17T10:00:00Z', turnCount: 2, status: 'success', query: 'wire-q1', filePath: 'cannbay@x@main:sessions/' + SID, sourceType: 'cannbot-insight', framework: 'claude-code-proxy', version: '2.1.0-claude-proxy' },
-      { taskId: SID, importedAt: '2026-09-17T10:00:01Z', turnCount: 2, status: 'success', query: 'native-q1', filePath: 'cannbay@x@main:sessions/' + SID + '.native', sourceType: 'cannbot-insight', framework: 'claude-code', version: '2.1.0' },
+      { taskId: SID, importedAt: '2026-09-17T10:00:00Z', turnCount: 2, status: 'success', query: 'wire-q1', filePath: 'lake@x@main:sessions/' + SID, sourceType: 'cannbot-insight', framework: 'claude-code-proxy', version: '2.1.0-claude-proxy' },
+      { taskId: SID, importedAt: '2026-09-17T10:00:01Z', turnCount: 2, status: 'success', query: 'native-q1', filePath: 'lake@x@main:sessions/' + SID + '.native', sourceType: 'cannbot-insight', framework: 'claude-code', version: '2.1.0' },
     ])
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -142,7 +142,7 @@ describe('Recent Imports 同 sid 双记录删除', () => {
     dbRows = [{ taskId: SID, framework: 'claude-code', version: '2.1.0' }]
     seedEntries([
       { taskId: SID, importedAt: '2026-09-16T10:00:00Z', turnCount: 1, status: 'success', query: 'legacy', filePath: '/old/path.jsonl', sourceType: 'claude-jsonl' },
-      { taskId: SID, importedAt: '2026-09-17T10:00:00Z', turnCount: 2, status: 'success', query: 'native-q1', filePath: 'cannbay@x@main:sessions/' + SID + '.native', sourceType: 'cannbot-insight', framework: 'claude-code', version: '2.1.0' },
+      { taskId: SID, importedAt: '2026-09-17T10:00:00Z', turnCount: 2, status: 'success', query: 'native-q1', filePath: 'lake@x@main:sessions/' + SID + '.native', sourceType: 'cannbot-insight', framework: 'claude-code', version: '2.1.0' },
     ])
     const container = document.createElement('div')
     document.body.appendChild(container)

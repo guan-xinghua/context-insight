@@ -61,7 +61,7 @@ Session detail page (`session/[taskId]/`) is `"use client"` with 10 tabs
 - **AI analysis**: `src/lib/ai/analyzer.ts` — only OpenAI-compatible `/chat/completions`, config in localStorage only
 - **CLI client**: `src/cli/client.ts` — InsightClient with 17 methods across `/api/observe/*`, `/api/ingest/*`, `/api/ai/*`
 - **CLI types**: `src/cli/types.ts` — `Api`-prefixed interfaces to distinguish from `src/lib/shared/types.ts`
-- **CANNBay v2**: `src/lib/cannbay2/`（mirror 治理/导出/编排）— 设计见 `docs/design/cannbay-v2/design.md`
+- **Lake v2（数据湖引擎）**: `src/lib/lake`（mirror 治理/导出/编排）— 设计见 `docs/design/lake-v2/design.md`
 
 ### CLI Frontend
 
@@ -153,10 +153,10 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 
 ## Constraints & Gotchas
 
-- **cannbay2 镜像的 git 命令必须走 `runGit`**（mirror.ts）：其 per-command 配置中和 lfs filter（`filter.lfs.process= / smudge=cat / clean=cat / required=false`）+ `push --no-verify`。数据仓 `.gitattributes` 历史上带 `*.gz filter=lfs`，装 git-lfs 的客户机会在 checkout（孤儿指针 smudge 403）与 add（clean 指针化）两条路上炸；绕过 runGit 直拼 git 命令会重新暴露（IT：`tests/cannbay2-lfs-immunity.test.ts`）
+- **lake 镜像的 git 命令必须走 `runGit`**（mirror.ts）：其 per-command 配置中和 lfs filter（`filter.lfs.process= / smudge=cat / clean=cat / required=false`）+ `push --no-verify`。数据仓 `.gitattributes` 历史上带 `*.gz filter=lfs`，装 git-lfs 的客户机会在 checkout（孤儿指针 smudge 403）与 add（clean 指针化）两条路上炸；绕过 runGit 直拼 git 命令会重新暴露（IT：`tests/lake-lfs-immunity.test.ts`）
 - **framework 值域（方案一：同 sid 双会话）**：proxy 捕获行 = agent 框架 + `-proxy` 后缀（`claude-code-proxy` / `opencode-proxy` / `codex-proxy` / `cannbot-proxy`），与同 sid 原生会话共存两行。**判断一律走谓词，禁止对 framework 裸等值**：格式判断用 `isClaudeFormatSession`（放行 `-proxy` 变体）、agent 归属用 `agentFrameworkOf`（剥后缀）、proxy 与否用 `isProxyVersion(version)`；按 taskId 解析会话的 API 必须接受 `framework` 消歧参数（同 sid 可能两行）
-- **cannbay 仓布局（同 sid 双记录）**：不变量是「sid × 记录类 全仓唯一」——wire 捕获占裸 `<sid>/`，原生 claude 会话占 `<sid>.native/`（目录内文件用真实 sid 命名）。目录名推导/还原一律走 `sessionFolderOf` / `parseSessionFolder`（mirror.ts），不要手拼 `.native` 后缀；按 sid 定位仓内会话的代码必须带记录类维度（`locateSessionLocations` / `materializeSession` / `uploadFolder` 的 recording 参数，缺省 capture 兼容存量）
-- **双名发布（context 品牌变体）**：`node scripts/pack-context.mjs` 产出 `context-insight` 同内容变体 tgz（staging 精确字面量替换 + 每规则 minHits 哨兵，源码仓零改动）。新增/改动品牌字面量（显示名 `CANNBot-Insight`、CLI 别名 `cbi`、bin 文件名、数据目录 `~/.cannbot-insight`）时必须同步 `scripts/pack-context.mjs` 规则表与 `tests/context-pack.test.ts` 泄漏哨兵；格式契约（`BRAND_SOURCE_TYPE` / `x_cannbay` / `CANNBAY2_*`·`CANNBOT_*` env 名 / `cannbot-smart-agent` 服务标识 / cannbay2 机器提交身份）**不得品牌化**——两品牌数据互通靠它们
+- **lake 仓布局（同 sid 双记录）**：不变量是「sid × 记录类 全仓唯一」——wire 捕获占裸 `<sid>/`，原生 claude 会话占 `<sid>.native/`（目录内文件用真实 sid 命名）。目录名推导/还原一律走 `sessionFolderOf` / `parseSessionFolder`（mirror.ts），不要手拼 `.native` 后缀；按 sid 定位仓内会话的代码必须带记录类维度（`locateSessionLocations` / `materializeSession` / `uploadFolder` 的 recording 参数，缺省 capture 兼容存量）
+- **双名发布（context 品牌变体）**：`node scripts/pack-context.mjs` 产出 `context-insight` 同内容变体 tgz（staging 精确字面量替换 + 每规则 minHits 哨兵，源码仓零改动）。新增/改动品牌字面量（显示名 `CANNBot-Insight`、CLI 别名 `cbi`、bin 文件名、数据目录 `~/.cannbot-insight`）时必须同步 `scripts/pack-context.mjs` 规则表与 `tests/context-pack.test.ts` 泄漏哨兵；格式契约（`BRAND_SOURCE_TYPE` / `x_cannbay` / `LAKE_*`·`CANNBOT_*` env 名 / `cannbot-smart-agent` 服务标识 / lake 机器提交身份）**不得品牌化**——两品牌数据互通靠它们
 - **ESM strict** (`"type": "module"` in package.json) — no `require()`, use `import`
 - **Ink v7 has no lastFrame/frames/output** on native `render()` — use `ink-testing-library` for tests only
 - **No third-party Ink components** — ink-table/ink-select/ink-spinner incompatible with Ink v7; self-implement all components

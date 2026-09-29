@@ -429,7 +429,7 @@ export async function importSession(
     // insight-export meta 的 framework 声明（DB 导出件）：导出的是既有会话的
     // 再记录，记录类用声明值——重导入并回原生行（如 opencode），而不是按
     // claude-jsonl 缺省新建 claude-code 重复行（(taskId, framework) 唯一索引
-    // 下还会让 patchXCannbayColumns 的 meta 恢复撞唯一键）
+    // 下还会让 patchXLakeColumns 的 meta 恢复撞唯一键）
     let exportDeclaredFramework: string | null = null;
     if (srcType === 'opencode-db' && sharedDb) {
       sessionMeta = readSessionMeta(sharedDb, sessionId);
@@ -441,7 +441,7 @@ export async function importSession(
       }
       proxyClass = classifyProxyCapture(dbPath);
       proxyVersionMarker = proxyClass.marker;
-      // meta.ccVersion 可能已带 -proxy 后缀（cannbay2 合成 meta 从 DB version
+      // meta.ccVersion 可能已带 -proxy 后缀（lake 合成 meta 从 DB version
       // 原样带出）——再拼 marker 会双重后缀，已含则直接用
       const agentVersion = metaCcVersion ?? extractClaudeVersion(dbPath);
       sessionMeta.version = proxyVersionMarker
