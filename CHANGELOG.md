@@ -26,6 +26,10 @@
 - 【品牌显示名复原：CANNbay / CANNBay Viewer】平台化 P1 曾将 BAY_NAME/BAY_VIEWER_NAME 改为中性名（Data Lake/Lake Viewer）——按用户决策复原品牌名：`BAY_NAME = "CANNbay"`（context 变体 `contextBay`）、`BAY_VIEWER_NAME = "CANNBay Viewer"`（context 变体 `contextBay Viewer`）——品牌名是产品显示名不是敏感词（pack-context 翻转为 context 变体，context-pack 哨兵验证零泄漏）。设置页标题复原 `{BAY_NAME} 数据之湖`；pack-context 两条精确字面量翻转规则复原（`"CANNbay"`→`"contextBay"`、`"CANNBay Viewer"`→`"contextBay Viewer"`）；export-view 产物重生成。平台中性哨兵同步适配：CANNbay/CANNBay 从全局禁词改为品牌字面量白名单制（branding.ts/pack-context.mjs/context-pack.test.ts 三个合法居所以外出现品牌字面量即回潮——应经 BAY_NAME 常量引用）。门禁：ut 1559+2 skipped / e2e 299+6 skipped / context-pack 品牌哨兵 4/4
 
 ### Fixed
+- 【opencode 2.x 自动刷新刷屏修复】导入进行中的 opencode 2.x 会话后，详情页右下角每 5 秒弹一次「自动同步完成」且永不停止——根因是自动刷新探针把 opencode 2.x 事件表里的控制面消息（每轮响应结束追加的 idle 标记等）也计入源消息数，而这类消息永远不会导入成轮次，「源有新消息」的判断因此恒为真、空刷新永不收敛。现探针只统计可导入消息（与导入管线同口径），同步追平后弹窗即静默；新对话产生新消息时仍正常触发同步
+
+- 【opencode 2.x 原生会话导入修复】opencode 2.0 起会话库 schema 改版（`session` 表改名 `session_v2`、消息由 message/part 两表改为事件溯源单表 `session_message`），旧读法导入报 "no such table: session"——现按表结构自动识别 v1/v2 双 schema（工具调用内联展开、标题可空、tokens 五项求和、compaction/system/synthetic/skill 消息映射），增量刷新与自动刷新探针同步适配；选到非 opencode 库时给出可操作提示（含渠道分库 `opencode-<渠道>.db` 指引）而非裸 500。两代表共存的库（2.x 首跑会回填旧表数据，副本自此停更、旧版此后新写的消息只在旧表）按会话粒度选读哪一代，列表合并展示、增量刷新同口径——整库按单一代表读会静默丢失另一代新写的消息
+
 - 【私有数据仓分支下拉 / 测试连接修复】分支列表与「测试连接」改为与服务端已存凭据（`cannbay-auth.json`）同通道鉴权（401 挑战-应答）：表单留空也能列出私有仓分支、有效已存凭据不再被误报「连接失败」；gitcode 上无法确认令牌属主时如实提示「凭据未能验证」而非伪称已验证；无凭据指引由已移除的 `cpx auth` 更正为 `cbi auth`
 
 ## [v0.2.37] - 2026-09-22

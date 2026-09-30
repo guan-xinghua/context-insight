@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import { importSession } from '@/lib/ingest/data-service';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
 import { prisma } from '@/lib/db';
 
@@ -83,6 +84,10 @@ export async function POST(request: NextRequest) {
       version: sessionRow?.version ?? null,
     });
   } catch (error) {
+    // unrecognized sqlite schema → actionable 400 instead of a raw 500
+    if (error instanceof NotOpencodeDbError) {
+      return NextResponse.json({ error: error.message, reason: 'not-opencode-db' }, { status: 400 });
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }

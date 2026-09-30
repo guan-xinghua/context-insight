@@ -781,7 +781,7 @@ export function LocalFileImport() {
               <div className="mt-2 text-xs text-muted-foreground space-y-1">
                 {(sourceType === "opencode-db" || sourceType === BRAND_SOURCE_TYPE) && (
                   <>
-                    <p>opencode: ~/.local/share/opencode/sessions.db</p>
+                    <p>opencode: ~/.local/share/opencode/opencode.db</p>
                     <p>{BRAND_NAME} 导出: {BRAND_SLUG}_session_xxx.db（导入时按库 schema 自动识别）</p>
                   </>
                 )}

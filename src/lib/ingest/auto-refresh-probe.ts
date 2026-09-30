@@ -11,6 +11,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { PrismaClient } from '@prisma/client';
 import { isClaudeFormatSession } from '../shared/session-format';
+import { opencodeReaderGeneration, v2ImportableTypeSql } from './adapters/opencode-db';
 
 export interface AutoRefreshProbe {
   countChanged: boolean;
@@ -79,12 +80,42 @@ async function probeOpencodeRefresh(
   try {
     db = new Database(session.sourcePath!, { readonly: true });
 
+    // opencode schema generation: v1 (session/message) vs v2 (session_v2/
+    // session_message). Table names and the assistant-completeness predicate
+    // differ; probe semantics (count / freshness / pending-input) stay equal.
+    const tableRows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
+    const tableNames = new Set(tableRows.map(r => r.name));
+    const isV2 = tableNames.has('session_v2');
+
+    // 两代表共存（2.x 首跑回填 + 1.x 继续写 v1 表）：v2 副本自回填时刻停更，
+    // 整库按 v2 计数会把回填后 1.x 的新消息漏计 → countChanged 永假、增量
+    // 刷新静默停摆。计数/新鲜度/最新角色改按会话粒度选表，与 adapter 的
+    // opencodeReaderGeneration 同口径（readSession 导入读哪张表，探针就数哪张）。
+    if (isV2 && tableNames.has('session')) {
+      return probeOpencodeRefreshMixed(db, session, prisma);
+    }
+
+    const msgTable = isV2 ? 'session_message' : 'message';
+    const sessTable = isV2 ? 'session_v2' : 'session';
+    const assistantIncomplete = isV2
+      ? `type = 'assistant' AND json_extract(data, '$.time.completed') IS NULL`
+      : `json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL`;
+    const latestRoleExpr = isV2 ? 'type' : `json_extract(data, '$.role')`;
+    const latestOrder = isV2 ? 'ORDER BY time_created DESC, seq DESC' : 'ORDER BY time_created DESC';
+
+    // v2 事件源表混有控制面行（idle/shell/*-switched）与未知未来类型，
+    // adapter 一律不产 turn（见 opencode-db.ts v2 reader 的跳过清单）。
+    // 探针计数与 maxTimeUpdated 必须同口径白名单过滤：否则 opencode 每轮
+    // 响应后追加的 idle 会把 sourceMessageCount 恒顶在 ourTurnCount 之上，
+    // countChanged 永真，客户端每 5s 空刷新 + "自动同步完成" toast 刷屏。
+    const importableFilter = isV2 ? ` AND ${v2ImportableTypeSql()}` : '';
+
     const parentStats = db.prepare(
-      'SELECT COUNT(*) as cnt, MAX(time_updated) as max_updated FROM message WHERE session_id = ?'
+      `SELECT COUNT(*) as cnt, MAX(time_updated) as max_updated FROM ${msgTable} WHERE session_id = ?${importableFilter}`
     ).get(taskId) as { cnt: number; max_updated: number | null };
 
     const subagentStats = db.prepare(
-      'SELECT COUNT(*) as cnt, MAX(time_updated) as max_updated FROM message WHERE session_id IN (SELECT id FROM session WHERE parent_id = ?)'
+      `SELECT COUNT(*) as cnt, MAX(time_updated) as max_updated FROM ${msgTable} WHERE session_id IN (SELECT id FROM ${sessTable} WHERE parent_id = ?)${importableFilter}`
     ).get(taskId) as { cnt: number; max_updated: number | null };
 
     const sourceMessageCount = parentStats.cnt + subagentStats.cnt;
@@ -102,21 +133,21 @@ async function probeOpencodeRefresh(
     const now = Date.now();
     const freshArgs = [now - STREAM_FRESH_MS, now];
     const incompleteFreshParent = db.prepare(
-      `SELECT COUNT(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL AND time_updated >= ? AND time_updated <= ?`
+      `SELECT COUNT(*) as cnt FROM ${msgTable} WHERE session_id = ? AND ${assistantIncomplete} AND time_updated >= ? AND time_updated <= ?`
     ).get(taskId, ...freshArgs) as { cnt: number };
 
     const incompleteFreshSub = db.prepare(
-      `SELECT COUNT(*) as cnt FROM message WHERE session_id IN (SELECT id FROM session WHERE parent_id = ?) AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL AND time_updated >= ? AND time_updated <= ?`
+      `SELECT COUNT(*) as cnt FROM ${msgTable} WHERE session_id IN (SELECT id FROM ${sessTable} WHERE parent_id = ?) AND ${assistantIncomplete} AND time_updated >= ? AND time_updated <= ?`
     ).get(taskId, ...freshArgs) as { cnt: number };
 
     const streaming = (incompleteFreshParent.cnt + incompleteFreshSub.cnt) > 0;
 
     const latestParent = db.prepare(
-      `SELECT json_extract(data, '$.role') as role FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1`
+      `SELECT ${latestRoleExpr} as role FROM ${msgTable} WHERE session_id = ? ${latestOrder} LIMIT 1`
     ).get(taskId) as { role: string | null } | undefined;
 
     const latestSub = db.prepare(
-      `SELECT json_extract(data, '$.role') as role FROM message WHERE session_id IN (SELECT id FROM session WHERE parent_id = ?) ORDER BY time_created DESC LIMIT 1`
+      `SELECT ${latestRoleExpr} as role FROM ${msgTable} WHERE session_id IN (SELECT id FROM ${sessTable} WHERE parent_id = ?) ${latestOrder} LIMIT 1`
     ).get(taskId) as { role: string | null } | undefined;
 
     const pendingInput = (latestParent?.role === 'user' || latestSub?.role === 'user');
@@ -130,6 +161,68 @@ async function probeOpencodeRefresh(
     return { ...NO_CHANGE };
   } finally {
     if (db) db.close();
+  }
+}
+
+// 混合代际库的探针：父会话与每个子代理各自按 opencodeReaderGeneration
+// 选表（v1 message / v2 session_message），计数/新鲜度/最新角色在各自
+// 表上计算后聚合。语义与非混合路径一致（importable 白名单、流式新鲜度
+// 窗口、pendingInput 判定）。
+async function probeOpencodeRefreshMixed(
+  db: Database.Database,
+  session: ProbeSession,
+  prisma: PrismaClient,
+): Promise<AutoRefreshProbe> {
+  const taskId = session.taskId;
+  try {
+    const subIds = new Set<string>();
+    for (const c of db.prepare('SELECT id FROM session_v2 WHERE parent_id = ?').all(taskId) as { id: string }[]) subIds.add(c.id);
+    for (const c of db.prepare('SELECT id FROM session WHERE parent_id = ?').all(taskId) as { id: string }[]) subIds.add(c.id);
+    const allIds = [taskId, ...subIds];
+
+    const STREAM_FRESH_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    const freshArgs = [now - STREAM_FRESH_MS, now];
+
+    let sourceMessageCount = 0;
+    let maxTimeUpdated = 0;
+    let streaming = false;
+    let pendingInput = false;
+
+    for (const sid of allIds) {
+      const gen = opencodeReaderGeneration(db, sid);
+      const msgTable = gen === 2 ? 'session_message' : 'message';
+      const importableFilter = gen === 2 ? ` AND ${v2ImportableTypeSql()}` : '';
+      const assistantIncomplete = gen === 2
+        ? `type = 'assistant' AND json_extract(data, '$.time.completed') IS NULL`
+        : `json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.time.completed') IS NULL`;
+      const latestRoleExpr = gen === 2 ? 'type' : `json_extract(data, '$.role')`;
+      const latestOrder = gen === 2 ? 'ORDER BY time_created DESC, seq DESC' : 'ORDER BY time_created DESC';
+
+      const stats = db.prepare(
+        `SELECT COUNT(*) as cnt, MAX(time_updated) as max_updated FROM ${msgTable} WHERE session_id = ?${importableFilter}`
+      ).get(sid) as { cnt: number; max_updated: number | null };
+      sourceMessageCount += stats.cnt;
+      maxTimeUpdated = Math.max(maxTimeUpdated, stats.max_updated ?? 0);
+
+      const incompleteFresh = db.prepare(
+        `SELECT COUNT(*) as cnt FROM ${msgTable} WHERE session_id = ? AND ${assistantIncomplete} AND time_updated >= ? AND time_updated <= ?`
+      ).get(sid, ...freshArgs) as { cnt: number };
+      if (incompleteFresh.cnt > 0) streaming = true;
+
+      const latest = db.prepare(
+        `SELECT ${latestRoleExpr} as role FROM ${msgTable} WHERE session_id = ? ${latestOrder} LIMIT 1`
+      ).get(sid) as { role: string | null } | undefined;
+      if (latest?.role === 'user') pendingInput = true;
+    }
+
+    const ourTurnCount = await prisma.turn.count({ where: { sessionId: session.id } });
+    const countChanged = sourceMessageCount > ourTurnCount;
+    const settled = !streaming && !pendingInput;
+
+    return { countChanged, sourceMessageCount, ourTurnCount, maxTimeUpdated, streaming, pendingInput, settled };
+  } catch {
+    return { ...NO_CHANGE };
   }
 }
 

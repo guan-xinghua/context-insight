@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { getAdapter } from '@/lib/ingest/adapters/index';
+import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
 
 export const maxDuration = 300;
@@ -64,6 +65,11 @@ export async function POST(request: NextRequest) {
       })),
     });
   } catch (error) {
+    // unrecognized sqlite schema → actionable 400 instead of a raw 500
+    // (e.g. "no such table: session" on opencode 2.x channel-suffixed dbs)
+    if (error instanceof NotOpencodeDbError) {
+      return NextResponse.json({ error: error.message, reason: 'not-opencode-db' }, { status: 400 });
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }

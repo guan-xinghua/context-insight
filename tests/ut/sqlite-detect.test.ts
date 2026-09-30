@@ -20,6 +20,7 @@ import { POST as listSessionsRoute } from "@/app/api/ingest/import-file/sessions
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-detect-"))
 const opencodeDb = path.join(tmpDir, "sessions.db")
+const opencodeV2Db = path.join(tmpDir, "opencode-v2.db")
 const insightDb = path.join(tmpDir, "renamed-not-cannbot-prefix.db")
 
 beforeAll(() => {
@@ -31,6 +32,16 @@ beforeAll(() => {
   `)
   oc.prepare("INSERT INTO session (id, parent_id, title, version, time_created) VALUES ('ses_it_1', NULL, 't', 'v', 1000)").run()
   oc.close()
+
+  // opencode 2.x schema: session table renamed to session_v2 (no legacy
+  // session/message/part tables exist in this generation)
+  const oc2 = new Database(opencodeV2Db)
+  oc2.exec(`
+    CREATE TABLE session_v2 (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, version TEXT, time_created INTEGER);
+    CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, data TEXT, time_created INTEGER);
+  `)
+  oc2.prepare("INSERT INTO session_v2 (id, parent_id, title, version, time_created) VALUES ('ses_it_v2_1', NULL, 't', '2.0.18', 1000)").run()
+  oc2.close()
 
   const ci = new Database(insightDb)
   ci.exec(`
@@ -60,6 +71,10 @@ afterAll(() => {
 describe("detectSqliteSource（schema 嗅探）", () => {
   it("opencode 库（小写 session 表）→ opencode-db", () => {
     expect(detectSqliteSource(opencodeDb)).toBe("opencode-db")
+  })
+
+  it("opencode 2.x 库（session_v2 表，无 v1 session 表）→ opencode-db", () => {
+    expect(detectSqliteSource(opencodeV2Db)).toBe("opencode-db")
   })
 
   it("CANNBot-Insight 导出库（大写 Session 表）→ cannbot-insight，与文件名无关", () => {
@@ -100,5 +115,13 @@ describe("import-file/sessions 路由自动纠正", () => {
     const data = await res.json()
     const ids = (data.sessions ?? []).map((s: { id: string }) => s.id)
     expect(ids).toContain("ses_it_1")
+  })
+
+  it("source 选 cannbot-insight 但文件是 opencode 2.x 库 → 同样纠正并列出会话", async () => {
+    const res = await listSessionsRoute(req({ source: "cannbot-insight", filePath: opencodeV2Db }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    const ids = (data.sessions ?? []).map((s: { id: string }) => s.id)
+    expect(ids).toContain("ses_it_v2_1")
   })
 })

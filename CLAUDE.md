@@ -30,7 +30,7 @@ UI version tracked in `src/lib/version.ts` — `package.json` version stays in s
 ### Data Flow
 
 ```
-opencode sessions.db (external)
+opencode opencode.db (external)
   → better-sqlite3 read
   → opencode-db adapter (src/lib/ingest/adapters/)
   → normalize → turn-split → bridge-builder → execution-split

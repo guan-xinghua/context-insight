@@ -8,8 +8,9 @@
 
 import Database from 'better-sqlite3';
 
-// SQLite 来源嗅探：opencode（小写表 session/message/part）与 CANNBot-Insight
-// 导出（Prisma 大写表 "Session"/"Turn"）靠 schema 区分。文件名约定
+// SQLite 来源嗅探：opencode（v1 小写表 session/message/part、v2 表
+// session_v2/session_message——2.x 起 schema 改名）与 CANNBot-Insight 导出
+// （Prisma 大写表 "Session"/"Turn"）靠 schema 区分。文件名约定
 // （cannbot_session_ 前缀）只是 browse 层的提示；导入时按内容纠正，
 // 让单一 SQLite 入口对两种库透明。
 export function detectSqliteSource(filePath: string): 'opencode-db' | 'cannbot-insight' | null {
@@ -19,7 +20,7 @@ export function detectSqliteSource(filePath: string): 'opencode-db' | 'cannbot-i
     const rows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
     const tables = new Set(rows.map(r => r.name));
     if (tables.has('Session')) return 'cannbot-insight';
-    if (tables.has('session')) return 'opencode-db';
+    if (tables.has('session') || tables.has('session_v2')) return 'opencode-db';
     return null;
   } catch {
     return null;
