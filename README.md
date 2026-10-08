@@ -26,6 +26,8 @@ Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; p
 
 The homepage Sessions list supports keyword / session-ID search; the import dialog offers one-click default paths.
 
+**Run Logging** — Server-side process logs (import pipeline, lake sync, API errors) are written to `~/.cannbot-insight/logs/insight-<date>.log` (daily rolling) and optionally mirrored to the startup terminal. Level, file output and screen output switches are adjustable live in Settings → Run Logging (log location shown there; no restart); env vars (`CANNBOT_LOG` / `CANNBOT_LOG_LEVEL` / `CANNBOT_LOG_FILE` / `CANNBOT_LOG_STDOUT` / `CANNBOT_LOG_DIR`) take precedence over the settings page.
+
 ## Install & Usage
 
 ### Option 0: npm install (Recommended)
@@ -35,7 +37,7 @@ npm install -g cannbot-insight
 cannbot-insight            # first run: auto-build + migrate (~30s-2min), then start + open browser
 ```
 
-- Requires Node.js >= 20; mainland-China networks can add `--registry=https://registry.npmmirror.com`
+- Requires Node.js >= 22.12; mainland-China networks can add `--registry=https://registry.npmmirror.com`
 - Offline fallback: `npm install -g ./cannbot-insight-<version>.tgz`
 - Writable state lives in `~/.cannbot-insight/`; default port 21025 (auto-increments if occupied)
 - CLI subcommands pass through: `cannbot-insight upload --file … --list` / `sessions`; short alias `cbi`
@@ -58,7 +60,7 @@ cannbot-insight            # first run: auto-build + migrate (~30s-2min), then s
 ./start.sh -d           # dev mode (hot reload while editing source)
 ```
 
-- Requires Node.js >= 20; `./start.sh` also installs the `cpx` capture command (see `../cpx/README.md`)
+- Requires Node.js >= 22.12; `./start.sh` also installs the `cpx` capture command (see `../cpx/README.md`)
 - Open `http://localhost:21025`
 
 Log file locations:

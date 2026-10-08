@@ -13,6 +13,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { isClaudeFormatSession } from '@/lib/shared/session-format';
 import { parseJsonlLines } from '@/lib/ingest/adapters/claude-jsonl';
+import { deriveToolTiming } from '@/lib/tool-timing';
 import { readFullContext, readAvailableSkills, type FullContext } from '@/lib/ingest/adapters/claude-jsonl-full-context';
 import { readEnvelope } from '@/lib/shared/envelope';
 import { extractFilePath } from '@/lib/file-restore';
@@ -39,6 +40,8 @@ export interface CollectedData {
     totalTokens: number;
     totalCost: number;
     totalLatencyMs: number;
+    /** 捕获文件路径（mate 物料的 system 上下文兜底用；非 claude 格式为 null） */
+    sourcePath: string | null;
   };
   turns: ScoreTurn[];
   toolCalls: ScoreToolCall[];
@@ -197,12 +200,16 @@ function detectFinishReason(sourcePath: string | null, turns: ScoreTurn[]): Coll
     } catch { /* 源不可读 → 走下方 turns 兜底（与旧行为一致） */ }
     let lastStop: string | null = null;
     for (const line of lines) {
-      if (line.type === 'assistant' && line.message) {
-        const sr = (line.message as { stop_reason?: unknown }).stop_reason;
-        if (typeof sr === 'string') lastStop = sr;
-      }
+      if (line.type !== 'assistant') continue;
+      // 原生 claude：message.stop_reason；opencode-proxy：x_cannbay.data.stopReason。
+      // proxy 每个 assistant 行都带 stopReason，中间轮是 tool_calls（非终态），要跳过。
+      const native = (line.message as { stop_reason?: unknown } | undefined)?.stop_reason;
+      const proxy = (line as { x_cannbay?: { data?: { stopReason?: unknown } } }).x_cannbay?.data?.stopReason;
+      const sr = typeof native === 'string' ? native : typeof proxy === 'string' ? proxy : null;
+      if (sr === 'tool_calls') continue;
+      if (typeof sr === 'string') lastStop = sr;
     }
-    if (lastStop === 'max_tokens') return 'truncated';
+    if (lastStop === 'max_tokens' || lastStop === 'length') return 'truncated';
     if (lastStop === 'error' || lastStop === 'refusal') return 'error';
     if (lastStop) return 'normal';
   }
@@ -338,9 +345,11 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
 
   const baseWire = sourcePath ? buildWireChars(sourcePath) : null;
   const fullContext = sourcePath ? readFullContext(sourcePath) : null;
+  const toolTiming = sourcePath ? deriveToolTiming(sourcePath, session.taskId) : null;
   const wire: WireSummary | null = baseWire && sourcePath
     ? {
       ...baseWire,
+      toolIntervals: toolTiming?.intervals,
       declaredTools: fullContext?.tools.map(t => ({ name: t.name, approxTokens: approxTokens(t.description.length) })),
       availableSkills: readAvailableSkills(sourcePath)?.skills.map(s => ({
         name: s.name,
@@ -363,6 +372,7 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
       totalTokens: session.totalTokens,
       totalCost: session.totalCost,
       totalLatencyMs: session.totalLatencyMs,
+      sourcePath,
     },
     turns,
     toolCalls,

@@ -8,8 +8,9 @@
 
 import { NextResponse } from "next/server";
 import { getAllContextWindows, getContextWindowLimit } from "@/lib/context-window-config";
+import { withRouteLog } from "@/lib/api-route";
 
-export async function GET(request: Request) {
+export const GET = withRouteLog("config/context-windows", async (request: Request) => {
   const { searchParams } = new URL(request.url);
   const model = searchParams.get("model");
 
@@ -18,4 +19,4 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({ models: getAllContextWindows() });
-}
+})

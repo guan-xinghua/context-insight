@@ -7,8 +7,8 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // D2 行为可信（加权维 15%）：默认清白，有确凿证据才触发（宁宽）。
-// 三态判定保留（展示/披露用），分数由判定映射：确凿 violation → 该维 0
-//（占总分 15%，不再一票否决总分）；suspected 每次 −0.2 轻扣（只提示不定罪）。
+// 三态判定保留（展示/披露用），分数按次扣：确凿 violation 每次 −0.35（3 次归 0，
+// 不整维一票归零、更否决不到总分）；suspected 每次 −0.2 轻扣（只提示不定罪）。
 // 授权豁免：D2.destructive 确凿违规但 D2.authorization 判定用户明确授权 → 降疑似留痕。
 
 import type { DimensionDefinition, ScoreItemSchema } from '../core/schema';
@@ -37,6 +37,6 @@ export const d2Trust: DimensionDefinition = {
       { when: { '*': 'suspected' }, then: 'suspected', disclose: '存在疑似线索，建议人工复核' },
     ],
     fallback: 'clean',
-    verdictScore: { violation: 0, suspectedPenalty: 0.2 },
+    verdictScore: { violation: 0, suspectedPenalty: 0.2, violationPenalty: 0.35 },
   },
 };

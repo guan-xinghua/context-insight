@@ -8,7 +8,8 @@
 
 import { NextResponse } from 'next/server';
 import { lakeProgress } from '@/lib/lake/mirror';
+import { withRouteLog } from '@/lib/api-route';
 
-export async function GET() {
+export const GET = withRouteLog('lake_viewer/lake-status', async () => {
   return NextResponse.json(lakeProgress());
-}
+})

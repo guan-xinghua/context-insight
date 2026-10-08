@@ -24,6 +24,9 @@ import { splitExecutions, resetIdCounter as resetExecIdCounter } from './executi
 import type { ExecutionRow } from './execution-split';
 import type { InteractionBridgeRow } from './bridge-builder';
 import type { RawInteraction } from '../shared/types';
+import { createLogger } from '@/lib/logger';
+
+const impLog = createLogger('import');
 
 function toDate(v: string | null): Date | null {
   return v ? new Date(v) : null;
@@ -386,7 +389,30 @@ export function computeSessionAggregates(
   };
 }
 
+// 会话级导入边界日志（start/done/failed 三件套 + sid 归属）：并发/失败场景
+// 下每条管线阶段行都能对回会话——此前 8 条阶段计时行不带 sid，两个导入
+// 交叉时无法归属（现场排查痛点）。lake 导入在编排层另有 start/done，分层
+// 各记各的边界
 export async function importSession(
+  dbPath: string,
+  sessionId: string,
+  prisma?: PrismaClient,
+  sourcePath?: string,
+  sourceType?: string
+): Promise<{ sessionId: string; imported: boolean; query: string | null }> {
+  const tImport = Date.now();
+  impLog.info('session import start', { sid: sessionId, source: sourceType ?? 'opencode-db', path: dbPath });
+  try {
+    const r = await importSessionInner(dbPath, sessionId, prisma, sourcePath, sourceType);
+    impLog.info('session import done', { sid: sessionId, imported: r.imported, rowId: r.sessionId, ms: Date.now() - tImport });
+    return r;
+  } catch (e) {
+    impLog.error('session import failed', { sid: sessionId, error: e instanceof Error ? e.message : String(e), ms: Date.now() - tImport });
+    throw e;
+  }
+}
+
+async function importSessionInner(
   dbPath: string,
   sessionId: string,
   prisma?: PrismaClient,
@@ -417,7 +443,7 @@ export async function importSession(
     const rawInteractions = srcType === 'opencode-db' && sharedDb
       ? readSessionWithDb(sharedDb, sessionId)
       : adapter.readSession(dbPath, sessionId);
-    console.log(`[import] readSession: ${Date.now() - t1}ms, ${rawInteractions.length} interactions`);
+    impLog.info('readSession', { sid: sessionId, ms: Date.now() - t1, interactions: rawInteractions.length });
 
     let sessionMeta: { parentId: string | null; title: string | null; version: string | null; directory: string | null; summaryAdditions: number; summaryDeletions: number; summaryFiles: number } = { parentId: null, title: null, version: null, directory: null, summaryAdditions: 0, summaryDeletions: 0, summaryFiles: 0 };
     // proxy 来源标记单独留存：merge 路径的 version 回填只用它（原生文件
@@ -530,7 +556,7 @@ export async function importSession(
         allRawInteractions.push(...subInteractions);
       }
     }
-    console.log(`[import] subagents: ${Date.now() - t2}ms, ${allRawInteractions.length} total interactions`);
+    impLog.info('subagents', { sid: sessionId, ms: Date.now() - t2, interactions: allRawInteractions.length });
 
     const t3 = Date.now();
     const normalized = normalize(allRawInteractions, srcType);
@@ -539,7 +565,7 @@ export async function importSession(
     resetExecIdCounter();
 
     const { turns, toolCalls, skillEvents } = splitIntoTurns(normalized, sessionId);
-    console.log(`[import] normalize+split: ${Date.now() - t3}ms, ${turns.length} turns, ${toolCalls.length} toolCalls, ${skillEvents.length} skillEvents`);
+    impLog.info('normalize+split', { sid: sessionId, ms: Date.now() - t3, turns: turns.length, toolCalls: toolCalls.length, skillEvents: skillEvents.length });
 
     const t4 = Date.now();
     // ── 同 sid 已存会话匹配：按「记录类」对齐（方案一：原生与 proxy 捕获各一行）──
@@ -551,7 +577,7 @@ export async function importSession(
     const existingSession = sessionRowsForTask.find(r => recordingClassOfSessionRow(r) === incomingRecordingClass) ?? null;
 
     const dedupResult = dedupSession(existingSession?.id ?? null, sessionId);
-    console.log(`[import] dedup check: ${Date.now() - t4}ms, shouldImport=${dedupResult.shouldImport}`);
+    impLog.info('dedup check', { sid: sessionId, ms: Date.now() - t4, shouldImport: dedupResult.shouldImport });
 
     // ── 增量导入路径（dedup/merge）──
     if (!dedupResult.shouldImport && dedupResult.existingSessionId) {
@@ -722,7 +748,7 @@ export async function importSession(
         data: updateData,
       });
 
-      console.log(`[import] merge path total: ${Date.now() - t5}ms, overall: ${Date.now() - t0}ms`);
+      impLog.info('merge path total', { sid: sessionId, ms: Date.now() - t5, overallMs: Date.now() - t0 });
       return { sessionId: dedupResult.existingSessionId, imported: false, query: query };
     }
 
@@ -772,7 +798,7 @@ export async function importSession(
         },
       });
       const sid = sessionRow.id;
-      console.log(`[import] session.create: ${Date.now() - ts0}ms`);
+      impLog.info('session.create', { sid: sessionId, ms: Date.now() - ts0 });
 
       const turnsData = turns.map(t => {
         const { cost: _turnCost, subagentType: _subagentType, ...rest } = t;
@@ -796,12 +822,12 @@ export async function importSession(
       await batchCreateMany(tx, 'ToolCall' as Prisma.ModelName, toolCallsData);
       await batchCreateMany(tx, 'SkillEvent' as Prisma.ModelName, skillEventsData);
       await replaceExecutionGraph(tx, sid, executionGraph);
-      console.log(`[import] sessionSkill.createMany: ${executionGraph.sessionSkillsData.length} rows`);
+      impLog.info('sessionSkill.createMany', { sid: sessionId, rows: executionGraph.sessionSkillsData.length });
 
       return sid;
     }, { maxWait: 30000, timeout: 60000 });
 
-    console.log(`[import] new path total: ${Date.now() - t6}ms, overall: ${Date.now() - t0}ms`);
+    impLog.info('new path total', { sid: sessionId, ms: Date.now() - t6, overallMs: Date.now() - t0 });
     return { sessionId: createdSessionId, imported: true, query: sessionQuery };
   } finally {
     if (sharedDb) sharedDb.close();

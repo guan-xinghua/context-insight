@@ -13,7 +13,7 @@
 
 import type { DimensionDefinition, ScoreItemSchema } from '../schema';
 import type { Scorer } from '../scorer';
-import { BandJudgeScorer } from '../judge';
+import { BandJudgeScorer, BinaryJudgeScorer } from '../judge';
 import { UserRuleScorer } from '../../user/rule-scorer';
 import { D1_LOCKED_ITEMS, EXCLUDE_DEGRADES } from './types';
 import type { ScoringProfile } from './types';
@@ -87,7 +87,7 @@ export function applyProfile(builtins: DimensionDefinition[], profile: ScoringPr
       id: custom.id,
       dimension: custom.targetDimension,
       name: custom.name,
-      scorerKind: custom.kind,
+      scorerKind: custom.kind === 'rule' ? 'rule' : 'llm',
       note: custom.note,
       ...(diagnostic ? { diagnostic: true } : {}),
       ...(custom.kind === 'llm' && custom.bands ? { bands: custom.bands } : {}),
@@ -101,7 +101,9 @@ export function applyProfile(builtins: DimensionDefinition[], profile: ScoringPr
     }
     scorers.push(custom.kind === 'rule'
       ? new UserRuleScorer(item, custom.rule!)
-      : new BandJudgeScorer(item, { focus: `${custom.name}（维度内自定义项）${custom.note ?? ''}` }));
+      : custom.kind === 'binary'
+        ? new BinaryJudgeScorer(item, { criteria: `${custom.name}${custom.note ? `：${custom.note}` : ''}` })
+        : new BandJudgeScorer(item, { focus: `${custom.name}（维度内自定义项）${custom.note ?? ''}` }));
     knownIds.add(custom.id);
   }
 

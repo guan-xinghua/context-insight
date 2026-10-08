@@ -61,11 +61,13 @@ if (args[0] && CLI_COMMANDS.has(args[0])) {
 async function startWebUi(rawArgs) {
   const { advanced, killExisting, fresh } = parseFlags(rawArgs)
 
-  // Node 版本检查（>= 20，与 start.sh 一致；v18.19.x 装不动 better-sqlite3 / Prisma 6）
-  const major = Number.parseInt(process.versions.node.split('.')[0], 10)
-  if (major < 20) {
-    console.error(`[cbi] Node.js ${process.versions.node} 不支持，需 >= 20.0.0（v18.19.x 无法安装 better-sqlite3 / Prisma 6）。`)
-    console.error('[cbi] 用 nvm: nvm install 20 && nvm use 20；或 https://nodejs.org 直接装。')
+  // Node 版本检查（>= 22.12，与 engines/ensure-native/start.sh 同门槛；
+  // better-sqlite3@13 / commander@14 等依赖要求 Node ≥22，低版本原生模块
+  // 加载/构造直接段错误）
+  const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(n => Number.parseInt(n, 10))
+  if (nodeMajor < 22 || (nodeMajor === 22 && (nodeMinor || 0) < 12)) {
+    console.error(`[cbi] Node.js ${process.versions.node} 不支持，需 >= 22.12.0（better-sqlite3@13 等依赖要求 Node ≥22，低版本会段错误）。`)
+    console.error('[cbi] 用 nvm: nvm install 22 && nvm use 22；或 https://nodejs.org 直接装。')
     process.exit(1)
   }
 

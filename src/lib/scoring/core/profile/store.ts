@@ -102,7 +102,7 @@ export function sanitizeProfile(v: unknown): SanitizeResult {
     const cname = c['name'];
     if (typeof cname !== 'string' || cname.trim().length === 0 || cname.length > 40) throw new Error(`自定义项 ${cid} 名称必填且 ≤40 字`);
     const kind = c['kind'];
-    if (kind !== 'llm' && kind !== 'rule') throw new Error(`自定义项 ${cid} kind 必须是 llm 或 rule`);
+    if (kind !== 'llm' && kind !== 'rule' && kind !== 'binary') throw new Error(`自定义项 ${cid} kind 必须是 llm、rule 或 binary`);
     let bands: Band[] | undefined;
     let rule: RuleSpec | undefined;
     if (kind === 'llm') {
@@ -117,6 +117,9 @@ export function sanitizeProfile(v: unknown): SanitizeResult {
         }
       }
       bands = arr as Band[];
+    } else if (kind === 'binary') {
+      const note = c['note'];
+      if (typeof note !== 'string' || note.trim().length < 4) throw new Error(`自定义项 ${cid} 需判定标准（note ≥4 字：什么算「达成」）`);
     } else {
       if (!validateRuleSpec(c['rule'])) throw new Error(`自定义项 ${cid} 规则不合法`);
       rule = c['rule'] as RuleSpec;

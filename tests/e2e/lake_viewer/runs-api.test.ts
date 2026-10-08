@@ -144,7 +144,9 @@ describe('GET /lake_viewer/api/paradigms', () => {
     const names = data.items.map(p => p.name);
     expect(names).toContain('elementwise');
     expect(names).toContain('contraction');
-    expect(names).not.toContain('sessions');
+    // spec §2：'sessions' 存量区特判已退役——顶层目录即范式注册表，sessions/
+    // 若存在就是普通范式目录（夹具里 legacy 会话落此，算 1 个 run）
+    expect(names).toContain('sessions');
   });
 });
 

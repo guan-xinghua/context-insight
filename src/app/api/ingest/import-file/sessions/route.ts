@@ -11,6 +11,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { getAdapter } from '@/lib/ingest/adapters/index';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
+import { logDebug, logError, logInfo } from '@/lib/logger';
 
 export const maxDuration = 300;
 
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     const t0 = Date.now();
     const sessions = adapter.listSessions(filePath);
-    console.log(`[listSessions] source=${source} path=${filePath} count=${sessions.length} time=${Date.now() - t0}ms`);
+    logInfo('ingest', 'listSessions', { source, path: filePath, count: sessions.length, ms: Date.now() - t0 });
 
     return NextResponse.json({
       sessions: sessions.map(s => ({
@@ -68,9 +69,11 @@ export async function POST(request: NextRequest) {
     // unrecognized sqlite schema → actionable 400 instead of a raw 500
     // (e.g. "no such table: session" on opencode 2.x channel-suffixed dbs)
     if (error instanceof NotOpencodeDbError) {
+      logDebug('route:ingest/import-file/sessions', '非 opencode-db 文件被拒', { error: error.message });
       return NextResponse.json({ error: error.message, reason: 'not-opencode-db' }, { status: 400 });
     }
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logError('route:ingest/import-file/sessions', '列会话失败', { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

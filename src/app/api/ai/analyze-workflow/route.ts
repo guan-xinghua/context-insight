@@ -10,28 +10,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { analyzeWorkflow } from '@/lib/ai/analyzer';
 import type { AIProviderConfig } from '@/lib/ai/analyzer';
+import { withRouteLog } from '@/lib/api-route';
+import { logInfo } from '@/lib/logger';
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { taskId, provider } = body as {
-      taskId: string;
-      provider: AIProviderConfig;
-    };
+export const POST = withRouteLog('ai/analyze-workflow', async (request: NextRequest) => {
+  const body = await request.json();
+  const { taskId, provider } = body as {
+    taskId: string;
+    provider: AIProviderConfig;
+  };
 
-    if (!taskId) {
-      return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
-    }
-
-    if (!provider?.baseUrl || !provider?.apiKey || !provider?.model) {
-      return NextResponse.json({ error: 'Missing provider config (baseUrl, apiKey, model)' }, { status: 400 });
-    }
-
-    const result = await analyzeWorkflow(taskId, provider, prisma);
-
-    return NextResponse.json({ result });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (!taskId) {
+    return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
   }
-}
+
+  if (!provider?.baseUrl || !provider?.apiKey || !provider?.model) {
+    return NextResponse.json({ error: 'Missing provider config (baseUrl, apiKey, model)' }, { status: 400 });
+  }
+
+  const t0 = Date.now();
+  logInfo('route:ai/analyze-workflow', 'workflow 分析开始', { taskId, model: provider.model ?? '' });
+  const result = await analyzeWorkflow(taskId, provider, prisma);
+  logInfo('route:ai/analyze-workflow', 'workflow 分析完成', { taskId, ms: Date.now() - t0 });
+
+  return NextResponse.json({ result });
+});

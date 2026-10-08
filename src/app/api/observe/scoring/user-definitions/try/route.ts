@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { logError } from '@/lib/logger';
 import { assembleInput } from '@/lib/scoring/core/assembler';
 import { TrackedLlmClient } from '@/lib/scoring/core/llm';
 import { isValidUserDimension, userDimensionScorers } from '@/lib/scoring';
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
     const result = await scorer.run({ input, def: item, llm, samples: 1 });
     return NextResponse.json({ result });
   } catch (e) {
+    logError('route:observe/scoring/user-definitions/try', '试算失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'internal error' }, { status: 500 });
   }
 }

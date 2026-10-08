@@ -12,6 +12,37 @@
 import { Scorer, okResult, ev, type ScorerContext } from '../core/scorer';
 import type { SubItemResult } from '../core/types';
 import { MessageClassificationScorer } from '../core/judge';
+import type { ScoreToolCall } from '../core/assembler/types';
+
+// 系统注入/机器转发形状的"user 消息"：harness 通知（后台任务完成、system-reminder）
+// 与派发回放（slash 命令展开、跨会话 relay、fork 子会话平铺、子代理交付件回灌）——
+// 不是人发的发言，更不是"同一诉求没得到响应"。规则层与 LLM 分类同纪律（GUIDE 明确
+// 排除），这里补代码侧等价物（现场 §f4c5b028：23 组"重发"全是 <task> 完成通知）。
+const NOTIFY_SHAPE_RE = /^<(task|system-reminder|transcript|command-message|command-name|command-args|local-command|tool_response|agent-message)\b|^another(?: \w[\w-]*)? session sent a message/i;
+// markdown 文档开头的消息 = 子代理交付件/任务书回灌（同文多次是中继行为；人不会把
+// 同一份文档逐字粘贴多遍）——不进重发/纠错口径
+const DOC_RELAY_RE = /^#{1,6}\s+\S/;
+
+const normalizeForMsg = (t: string) => t.toLowerCase().replace(/[\s，。！？,.!?！？"'「」]/g, '');
+
+/** 派发工具（task/agent/dispatch）args 里出现过的文本 = 派发提示词回放（含 fork 子会话平铺成主链 user 轮的形态）。
+ *  探针窗口给到 20000：fork 回放可能贴在长派发词尾部，窗口太小漏判（代价可忽略——task 类调用数量级很小） */
+function dispatchProbes(toolCalls: ScoreToolCall[]): string[] {
+  const probes: string[] = [];
+  for (const tc of toolCalls) {
+    if (!/^(task|agent|dispatch|fork)/i.test(tc.toolName) || !tc.argsJson) continue;
+    const norm = normalizeForMsg(tc.argsJson).slice(0, 20000);
+    probes.push(norm);
+  }
+  return probes;
+}
+
+function isHumanMessage(text: string, probes: string[]): boolean {
+  if (!text || NOTIFY_SHAPE_RE.test(text.trim()) || DOC_RELAY_RE.test(text.trim())) return false;
+  const probe = normalizeForMsg(text).slice(0, 32);
+  if (probe.length < 6) return true;   // 太短不参与派发比对（重发分组自己也会跳过），按人发处理
+  return !probes.some(p => p.includes(probe));
+}
 
 class InterruptsScorer extends Scorer {
   readonly id = 'D6.interrupts';
@@ -33,29 +64,34 @@ const CORRECTION_RE = /(不对|错了|不是这个|搞错了|回滚|撤销|撤�
 
 class CorrectionKeywordsScorer extends Scorer {
   readonly id = 'D6.correctionKeywords';
-  readonly needs = ['userMessages'] as const;
+  readonly needs = ['userMessages', 'toolCalls'] as const;
 
   async run(ctx: ScorerContext): Promise<SubItemResult> {
-    const hits = ctx.input.userMessages.filter(m => CORRECTION_RE.test(m.text));
+    const probes = dispatchProbes(ctx.input.toolCalls);
+    const human = ctx.input.userMessages.filter(m => isHumanMessage(m.text, probes));
+    const hits = human.filter(m => CORRECTION_RE.test(m.text));
     return okResult(ctx.def, {
       value: hits.length,
       unit: 'times',
-      formula: `纠正关键词命中 ${hits.length} 条（只作疑似——中文"不对/回滚/撤销"等；是否真纠错由 LLM 分类层判定）`,
+      formula: `纠正关键词命中 ${hits.length} 条（只作疑似——中文"不对/回滚/撤销"等；是否真纠错由 LLM 分类层判定；已排除系统注入/派发回放 ${ctx.input.userMessages.length - human.length} 条）`,
       evidence: hits.slice(0, 8).map(m => ev(m.turnIndex, m.text.slice(0, 60))),
       note: hits.length > 0 ? '疑似信号不直接扣分' : undefined,
     });
   }
 }
 
-const normalizeMsg = (t: string) => t.toLowerCase().replace(/[\s，。！？,.!?！？"'「」]/g, '').slice(0, 60);
+const normalizeMsg = (t: string) => normalizeForMsg(t).slice(0, 60);
 
 class SimilarMessagesScorer extends Scorer {
   readonly id = 'D6.similarMessages';
-  readonly needs = ['userMessages'] as const;
+  readonly needs = ['userMessages', 'toolCalls'] as const;
 
   async run(ctx: ScorerContext): Promise<SubItemResult> {
+    const probes = dispatchProbes(ctx.input.toolCalls);
+    const human = ctx.input.userMessages.filter(m => isHumanMessage(m.text, probes));
+    const excluded = ctx.input.userMessages.length - human.length;
     const groups = new Map<string, number[]>();
-    ctx.input.userMessages.forEach(m => {
+    human.forEach(m => {
       const key = normalizeMsg(m.text);
       if (key.length < 6) return;
       const arr = groups.get(key) ?? [];
@@ -72,6 +108,7 @@ class SimilarMessagesScorer extends Scorer {
       unit: 'times',
       formula: `逐字相同的重发 ${repeats.length} 组 / 多发 ${count} 次（同一诉求没得到响应的信号）`,
       evidence: repeats.slice(0, 5).flatMap(r => r.turnIndexes.map(t => ev(t, '相似消息重发'))).slice(0, 8),
+      note: excluded > 0 ? `已排除系统注入/派发回放 ${excluded} 条（后台任务通知、transcript 回放、派发提示词——不是用户发言）` : undefined,
     });
   }
 }

@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { withRouteLog } from '@/lib/api-route';
+import { logInfo, logWarn } from '@/lib/logger';
 
 // Delete a session and ALL its child rows. SQLite foreign-key cascade is not
 // reliably enforced (PRAGMA state varies), so child rows are removed explicitly
@@ -26,75 +28,74 @@ async function cascadeDeleteSession(id: string): Promise<void> {
   ]);
 }
 
-export async function DELETE(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { taskId, framework, deleteAll, sessions: batchSessions } = body;
+export const DELETE = withRouteLog('ingest/delete-session', async (request: NextRequest) => {
+  const body = await request.json();
+  const { taskId, framework, deleteAll, sessions: batchSessions } = body;
 
-    if (deleteAll) {
-      const count = await prisma.session.count();
-      // Explicit cascade: delete child rows in dependency order inside a
-      // transaction. SQLite foreign-key cascade is not reliably enforced
-      // (PRAGMA state varies), so without this child rows orphan and accumulate.
-      await prisma.$transaction([
-        prisma.executionSkill.deleteMany({}),
-        prisma.toolCall.deleteMany({}),
-        prisma.skillEvent.deleteMany({}),
-        prisma.execution.deleteMany({}),
-        prisma.sessionSkill.deleteMany({}),
-        prisma.interactionBridge.deleteMany({}),
-        prisma.turn.deleteMany({}),
-        prisma.session.deleteMany({}),
-      ]);
-      return NextResponse.json({ deleted: count });
-    }
-
-    if (Array.isArray(batchSessions)) {
-      let deleted = 0;
-      for (const entry of batchSessions) {
-        if (!entry || typeof entry.taskId !== 'string') continue;
-        const where: Record<string, string> = { taskId: entry.taskId };
-        if (typeof entry.framework === 'string') where.framework = entry.framework;
-        const found = await prisma.session.findMany({ where });
-        for (const s of found) {
-          await cascadeDeleteSession(s.id);
-          deleted++;
-        }
-      }
-      return NextResponse.json({ deleted, batch: batchSessions.length });
-    }
-
-    if (!taskId) {
-      return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
-    }
-
-    const where: Record<string, string> = { taskId };
-    if (framework) where.framework = framework;
-
-    const sessions = await prisma.session.findMany({ where });
-
-    if (sessions.length === 0) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-    }
-
-    // 方案一双行防误删：无 framework 消歧且命中多行（同 sid 双记录并存）时
-    // 拒绝执行，返回 409 + rowCount 让前端弹确认——无消歧删除会级联清掉
-    // 全部行。前端显式带 confirmAll: true（用户已确认）才放行
-    if (!framework && sessions.length > 1 && body.confirmAll !== true) {
-      return NextResponse.json({
-        error: `Multiple sessions (${sessions.length}) share taskId "${taskId}" (dual recording) — delete-all requires confirmation`,
-        multiRow: true,
-        rowCount: sessions.length,
-        taskId,
-      }, { status: 409 });
-    }
-
-    for (const s of sessions) {
-      await cascadeDeleteSession(s.id);
-    }
-    return NextResponse.json({ deleted: sessions.length, taskId });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (deleteAll) {
+    const count = await prisma.session.count();
+    // Explicit cascade: delete child rows in dependency order inside a
+    // transaction. SQLite foreign-key cascade is not reliably enforced
+    // (PRAGMA state varies), so without this child rows orphan and accumulate.
+    await prisma.$transaction([
+      prisma.executionSkill.deleteMany({}),
+      prisma.toolCall.deleteMany({}),
+      prisma.skillEvent.deleteMany({}),
+      prisma.execution.deleteMany({}),
+      prisma.sessionSkill.deleteMany({}),
+      prisma.interactionBridge.deleteMany({}),
+      prisma.turn.deleteMany({}),
+      prisma.session.deleteMany({}),
+    ]);
+    logInfo('route:ingest/delete-session', '全库清空', { deleteAll: true, deleted: count });
+    return NextResponse.json({ deleted: count });
   }
-}
+
+  if (Array.isArray(batchSessions)) {
+    let deleted = 0;
+    for (const entry of batchSessions) {
+      if (!entry || typeof entry.taskId !== 'string') continue;
+      const where: Record<string, string> = { taskId: entry.taskId };
+      if (typeof entry.framework === 'string') where.framework = entry.framework;
+      const found = await prisma.session.findMany({ where });
+      for (const s of found) {
+        await cascadeDeleteSession(s.id);
+        deleted++;
+      }
+    }
+    logInfo('route:ingest/delete-session', '批量删除完成', { batch: batchSessions.length, deleted });
+    return NextResponse.json({ deleted, batch: batchSessions.length });
+  }
+
+  if (!taskId) {
+    return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+  }
+
+  const where: Record<string, string> = { taskId };
+  if (framework) where.framework = framework;
+
+  const sessions = await prisma.session.findMany({ where });
+
+  if (sessions.length === 0) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+
+  // 方案一双行防误删：无 framework 消歧且命中多行（同 sid 双记录并存）时
+  // 拒绝执行，返回 409 + rowCount 让前端弹确认——无消歧删除会级联清掉
+  // 全部行。前端显式带 confirmAll: true（用户已确认）才放行
+  if (!framework && sessions.length > 1 && body.confirmAll !== true) {
+    logWarn('route:ingest/delete-session', '删除被拒（多行未消歧）', { taskId, rowCount: sessions.length });
+    return NextResponse.json({
+      error: `Multiple sessions (${sessions.length}) share taskId "${taskId}" (dual recording) — delete-all requires confirmation`,
+      multiRow: true,
+      rowCount: sessions.length,
+      taskId,
+    }, { status: 409 });
+  }
+
+  for (const s of sessions) {
+    await cascadeDeleteSession(s.id);
+  }
+  logInfo('route:ingest/delete-session', '会话已删除', { taskId, framework: framework ?? '', deleted: sessions.length });
+  return NextResponse.json({ deleted: sessions.length, taskId });
+});

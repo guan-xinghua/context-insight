@@ -14,6 +14,7 @@ import {
   clearServerLakeConfig, readServerLakeConfig, writeServerLakeConfig,
 } from '@/lib/lake/server-config';
 import { FORBIDDEN_ADDRESS_CHARS, validateBranch, normalizeDirectory } from '@/lib/lake/remote';
+import { logError, logInfo, logWarn } from '@/lib/logger';
 
 export async function GET() {
   const cfg = readServerLakeConfig();
@@ -40,17 +41,26 @@ export async function PUT(request: NextRequest) {
     const directoryValue = directory?.trim() ? normalizeDirectory(directory) : undefined;
     payload = { address: addr, branch: branchValue, directory: directoryValue };
   } catch (e) {
+    logWarn('route:settings/lake-config', '无效请求体', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
   }
   try {
     writeServerLakeConfig(payload);
+    logInfo('route:settings/lake-config', '数据湖远端已更新', { address: payload.address, branch: payload.branch ?? 'main', directory: payload.directory ?? '' });
     return NextResponse.json({ ok: true });
   } catch (e) {
+    logError('route:settings/lake-config', '写盘失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Write failed' }, { status: 500 });
   }
 }
 
 export async function DELETE() {
-  clearServerLakeConfig();
-  return NextResponse.json({ ok: true });
+  try {
+    clearServerLakeConfig();
+    logInfo('route:settings/lake-config', '数据湖远端已恢复默认（清除配置）', {});
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    logError('route:settings/lake-config', '清除失败', { error: e instanceof Error ? e.message : String(e) });
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Clear failed' }, { status: 500 });
+  }
 }

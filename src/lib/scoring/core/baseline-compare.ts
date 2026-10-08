@@ -58,6 +58,8 @@ export class BaselineCompareScorer extends Scorer {
     const pos = ratioScore(value, ref.value);
     const grade = ratioGrade(value, ref.value);
     const ratio = ref.value > 0 ? value / ref.value : Infinity;
+    // 基线为 0 时比值退化（除零）：公式不拼"比值 Infinity"这种误导性字样，直接说结论
+    const ratioText = ref.value > 0 ? `比值 ${ratio.toFixed(2)}` : grade;
     // 概要参考：基线与本次模型不同 → 比值参考性降级，明说（对比信息进不了分）
     const currentModels = new Set(ctx.input.turns.map(t => t.model).filter((m): m is string => m != null));
     const baseModel = base.context?.models?.find(m => currentModels.has(m));
@@ -69,7 +71,7 @@ export class BaselineCompareScorer extends Scorer {
       unit: this.cfg.unit ?? ref.unit,
       baselineScore: pos,
       score: pos,
-      formula: `基线会话「${base.label.slice(0, 16)}」${displayBaselineValue(ref.value, ref.unit)} · 本次 ${displayBaselineValue(value, ref.unit)} → 比值 ${ratio.toFixed(2)} → ${pos}`,
+      formula: `基线会话「${base.label.slice(0, 16)}」${displayBaselineValue(ref.value, ref.unit)} · 本次 ${displayBaselineValue(value, ref.unit)} → ${ratioText} → ${pos}`,
       evidence: [],
       note: `${grade}（基线 ${base.computedAt.slice(0, 10)} 设定${modelNote}）`,
     });

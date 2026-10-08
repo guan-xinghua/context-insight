@@ -45,12 +45,11 @@ export function ScoringCriteria() {
       <CardContent className="px-3 pb-3 space-y-2 text-xs">
         {activeName != null && (
           <p className="text-blue-600 dark:text-blue-400">
-            当前生效口径：{activeName}——「评分配置」里的 profile 覆盖层已激活，下方公示为<b>默认口径</b>，实际子项/权重以重算后的评分卡为准。
+            当前生效评分模板：{activeName}——「评分配置」里的 profile 覆盖层已激活，下方公示为<b>默认模板</b>，实际子项/权重以重算后的评分卡为准。
           </p>
         )}
         <p className="text-muted-foreground">
           总分 = 否决（D1 未完成 → 总分 0，其他维度照常评供诊断）→ 加权（D2 行为可信 15% · D3 质量 35% · D4 效率 15% · D5 冗余度 15% · D6 自主性 20%）× 覆盖度折扣。
-          D2 确凿违规该维归 0（不再否决总分），疑似每次 −0.2 轻扣；对错型维度扣分（默认满分出问题才扣），多少型维度与**基线会话**比比值（省 25% 封顶 1.0、持平 0.8、2 倍归 0；未设基线默认 80 持平档并明标）；两套分并排显示不糅成一个数。
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {BUILTIN_DIMENSIONS.map(dim => (
@@ -67,9 +66,9 @@ export function ScoringCriteria() {
             <div className="px-3 pb-2 space-y-1">
               {dim.items.map(item => (
                 <div key={item.id} className="flex gap-2 text-[11px]">
-                  <span className="font-mono text-muted-foreground w-28 shrink-0">{item.id}</span>
-                  <span className="w-24 shrink-0 truncate" title={item.name}>{item.name}</span>
-                  <span className="text-muted-foreground flex-1">{item.note ?? ''}</span>
+                  <span className="font-mono text-muted-foreground w-38 shrink-0 truncate" title={item.id}>{item.id}</span>
+                  <span className="w-28 shrink-0 truncate" title={item.name}>{item.name}</span>
+                  <span className="text-muted-foreground flex-1 min-w-0">{item.note ?? ''}</span>
                 </div>
               ))}
             </div>

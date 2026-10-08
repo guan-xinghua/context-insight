@@ -204,6 +204,19 @@ const mocked = vi.hoisted(() => {
 
 vi.mock("@/lib/db", () => ({ prisma: mocked.prismaMock }))
 
+// wire 工具时长调用计数（回归：compare 页 skipOverhead=true 不再触发捕获同步解压）
+const wire = vi.hoisted(() => ({ calls: 0 }))
+vi.mock("@/lib/tool-timing", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tool-timing")>()
+  return {
+    ...actual,
+    wireToolDurations: (...args: Parameters<typeof actual.wireToolDurations>) => {
+      wire.calls++
+      return null
+    },
+  }
+})
+
 import { GET as turnsGet } from "@/app/api/observe/session/turns/route"
 import { GET as sessionGet } from "@/app/api/observe/session/route"
 
@@ -345,5 +358,25 @@ describe("compare-perf — turns API maxContentLen payload trimming", () => {
     const body = await res.json()
     // contentSummary is a separate DB field, unaffected by maxContentLen.
     expect(body.items[0].contentSummary).toBe("summary 0")
+  })
+})
+
+describe("compare-perf — wire 工具时长随 skipOverhead 跳过（同步解压不进 compare 路径）", () => {
+  beforeEach(() => {
+    counts.reset()
+    wire.calls = 0
+  })
+
+  it("skipOverhead=true：wireToolDurations 零调用（compare 页不读 durationMs，不为此解压捕获）；详情视图仍调用", async () => {
+    // 回归：修复前所有 GET /turns 无条件解压 wire 捕获——冷缓存时
+    // readFileSync+gunzipSync 同步阻塞事件循环，631MB 级捕获首开 compare 页
+    // 即冻结全部并发请求数秒
+    const skipped = await turnsGet(makeReq("http://localhost/api/observe/session/turns?taskId=test&skipOverhead=true"))
+    expect(skipped.status).toBe(200)
+    expect(wire.calls).toBe(0)
+
+    const detailed = await turnsGet(makeReq("http://localhost/api/observe/session/turns?taskId=test"))
+    expect(detailed.status).toBe(200)
+    expect(wire.calls).toBe(1)
   })
 })

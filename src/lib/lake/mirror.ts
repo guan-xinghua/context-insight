@@ -13,7 +13,7 @@
 // 上传 = narrow sparse-checkout + scoped add + commit + push main。
 // 写操作进程内 mutex 串行。单源架构：远端配置只从服务端 lake-config.json
 // 来（测试经 CANNBOT_PROXY_DIR 隔离 + 写该文件，镜像缓存 LAKE_CACHE_DIR）。
-import { execSync, spawn, spawnSync } from 'node:child_process';
+import { execSync, spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -23,6 +23,12 @@ import type { LakeRemote, PushAuth } from './remote';
 import { privateLfsBinDir, ensureLfsBinaryAvailable } from './lfs-setup';
 import { readEnvelope } from '../shared/envelope';
 import { isProxyVersion } from '../shared/session-format';
+// 相对导入纪律：mirror.ts 的导入图会被 tmp/ 下的 tsx 子进程脚本直接引
+// （lake-mirror-init IT 等）——子进程入口不在 tsconfig include 内，@/ 别名
+// 整体失效，本图内一律相对路径（logger → logger-config → store 同链同理）
+import { createLogger } from '../logger';
+
+const lakeLog = createLogger('lake');
 
 export type { LakeRemote } from './remote';
 
@@ -44,7 +50,11 @@ const LFS_NEUTRALIZE = '-c filter.lfs.process= -c filter.lfs.smudge=cat -c filte
 // 上传 LFS 对象、smudge 按需拉实体）；其余命令保持中和（checkout 的
 // smudge=cat 让既有 LFS 文件落指针文本——clean 对指针透传，re-add 不炸）
 // opts.env / opts.input：git plumbing 场景（notes 记录链的临时 GIT_INDEX_FILE
-// 操纵、hash-object -w --stdin 内容写入）——env 与 process.env 合并传入
+// 操纵、hash-object -w --stdin 内容写入）——env 与 process.env 合并传入。
+// GIT_TERMINAL_PROMPT=0 不可被调用方覆写：服务端 git 绝不允许终端交互——
+// 私有仓匿名 401 时 git 会退到终端问用户名，把 HTTP 请求冻到超时、提示
+// 串进服务器终端（现场形态：进 viewer 页面终端停在 Username for ...）。
+// 快速失败，错误文案由 classifyLakeError 分诊 auth-failed
 export function runGit(
   cmd: string,
   cwd: string,
@@ -56,7 +66,7 @@ export function runGit(
     : cmd;
   return execSync(neutral, {
     cwd, stdio: 'pipe', timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024,
-    ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
+    env: { ...process.env, ...(opts?.env ?? {}), GIT_TERMINAL_PROMPT: '0' },
     ...(opts?.input != null ? { input: opts.input } : {}),
   });
 }
@@ -419,8 +429,8 @@ function readSessionMetas(dir: string, remote: LakeRemote): Map<string, { framew
     if (missing.length > 0) prefetchBlobs(dir, missing, remote.pullAuth);
     // spawnSync（非 execSync）：execSync 自定义 stdio 时不返回 stdout，且输入
     // 走 stdin 需要独立 pipe —— 这里要求拿回完整批量输出 buffer
-    const batch = spawnSync('git', ['cat-file', '--batch'],
-      { cwd: dir, input: wanted.map(w => `${w.oid}\n`).join(''), maxBuffer: 256 * 1024 * 1024, timeout: 120_000 });
+    const batch = spawnGitAuthed(['cat-file', '--batch'], dir, remote.pullAuth, 120_000,
+      { input: wanted.map(w => `${w.oid}\n`).join(''), maxBuffer: 256 * 1024 * 1024 });
     // 输出格式（每个请求一条）：<oid> SP <type> SP <size>\n<content>\n\n
     let offset = 0;
     const buf = batch.stdout ?? Buffer.alloc(0);
@@ -649,8 +659,8 @@ function bareDirHoldsNativeRecording(dir: string, remote: LakeRemote, loc: Sessi
     // spawnSync argv（非 runGit shell 字符串）：metaPath 含来自 ls-tree 的
     // root 段——即便有 isSafeRootSegment 白名单，meta 读取也彻底绕开 shell
     // 作纵深（与 LFS cat-file 同款纪律）
-    const r = spawnSync('git', ['show', `origin/${remote.branch}:${metaPath}`],
-      { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const r = spawnGitAuthed(['show', `origin/${remote.branch}:${metaPath}`], dir, remote.pullAuth, 60_000,
+      { maxBuffer: 8 * 1024 * 1024 });
     if (r.error || r.status !== 0) return false;
     const data = readEnvelope(JSON.parse(r.stdout.toString('utf8')))?.data;
     if (data == null || typeof data !== 'object') return false;
@@ -685,9 +695,9 @@ function locateBaselineSids(dir: string, remote: LakeRemote, paradigm: string): 
 const MATERIALIZE_BATCH_BYTES = 64 * 1024 * 1024;
 const MATERIALIZE_BATCH_COUNT = 128;
 
-function materializeBlobsByBatch(dir: string, planned: Array<{ oid: string; target: string }>): void {
-  const sizeRes = spawnSync('git', ['cat-file', '--batch-check'],
-    { cwd: dir, input: planned.map(p => `${p.oid}\n`).join(''), maxBuffer: 16 * 1024 * 1024, timeout: 120_000 });
+function materializeBlobsByBatch(dir: string, planned: Array<{ oid: string; target: string }>, auth: { username: string; password: string } | null): void {
+  const sizeRes = spawnGitAuthed(['cat-file', '--batch-check'], dir, auth, 120_000,
+    { input: planned.map(p => `${p.oid}\n`).join(''), maxBuffer: 16 * 1024 * 1024 });
   const sizes = new Map<string, number>();
   for (const line of (sizeRes.stdout ?? Buffer.alloc(0)).toString('utf8').split('\n')) {
     const m = line.match(/^([0-9a-f]+) \w+ (\d+)$/);
@@ -698,8 +708,8 @@ function materializeBlobsByBatch(dir: string, planned: Array<{ oid: string; targ
   let batchBytes = 0;
   const flush = (): void => {
     if (batch.length === 0) return;
-    const res = spawnSync('git', ['cat-file', '--batch'],
-      { cwd: dir, input: batch.map(p => `${p.oid}\n`).join(''), maxBuffer: 512 * 1024 * 1024, timeout: 300_000 });
+    const res = spawnGitAuthed(['cat-file', '--batch'], dir, auth, 300_000,
+      { input: batch.map(p => `${p.oid}\n`).join(''), maxBuffer: 512 * 1024 * 1024 });
     const buf = res.stdout ?? Buffer.alloc(0);
     let offset = 0;
     for (const p of batch) {
@@ -738,6 +748,8 @@ function materializeBlobsByBatch(dir: string, planned: Array<{ oid: string; targ
  * 多根模式自动定位所在位置（范式目录/baseline/存量区）。返回主 jsonl 路径。
  */
 export function materializeSession(sid: string, remote: LakeRemote = defaultLakeRemote(), recording: RecordingClass = 'capture'): string {
+  const t0 = Date.now();
+  lakeLog.info('materialize start', { sid, recording, lfs: remote.lfs });
   const dir = ensureMirror(remote);
   if (!revParseMain(dir, remote)) throw new Error('lake mirror has no main branch');
   if (!/^[\w.-]+$/.test(sid)) throw new Error(`Invalid session id: "${sid}"`);
@@ -759,7 +771,7 @@ export function materializeSession(sid: string, remote: LakeRemote = defaultLake
     const gaStale = !/^\*\.7z\s+filter=lfs/m.test(gaCur) || !/^\*\.gz\s+filter=lfs/m.test(gaCur);
     if (gaStale) {
       try {
-        fs.writeFileSync(gaPath, runGit(`git show origin/${remote.branch}:.gitattributes`, dir));
+        fs.writeFileSync(gaPath, runGitWithAuth(`git show origin/${remote.branch}:.gitattributes`, dir, remote.pullAuth));
       } catch { /* 仓内无 .gitattributes → 无 lfs 声明，不可能存在指针件 */ }
     }
   }
@@ -805,8 +817,7 @@ export function materializeSession(sid: string, remote: LakeRemote = defaultLake
       const rel = targetRelOf(e.repoPath.slice(prefix.length));
       const target = path.join(dir, 'materialized', rel);
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      const cat = spawnSync('git', ['cat-file', '--filters', `--path=${e.repoPath}`, e.oid],
-        { cwd: dir, stdio: 'pipe', timeout: 300_000, maxBuffer: 256 * 1024 * 1024 });
+      const cat = spawnGitAuthed(['cat-file', '--filters', `--path=${e.repoPath}`, e.oid], dir, remote.pullAuth, 300_000);
       if (cat.error || cat.status !== 0) {
         throw new Error(`git cat-file --filters failed for "${e.repoPath}" (${e.oid}): ${cat.error?.message ?? cat.stderr?.toString()}`);
       }
@@ -827,9 +838,10 @@ export function materializeSession(sid: string, remote: LakeRemote = defaultLake
       planned.push({ oid: e.oid, target });
       if (rel === `${matStem}.jsonl` || rel === `${matStem}.jsonl.7z` || rel === `${matStem}.jsonl.gz`) mainJsonl = target;
     }
-    materializeBlobsByBatch(dir, planned);
+    materializeBlobsByBatch(dir, planned, remote.pullAuth);
   }
   if (!mainJsonl) throw new Error(`Main jsonl missing for session "${sid}"`);
+  lakeLog.info('materialize done', { sid, recording, ms: Date.now() - t0 });
   return mainJsonl;
 }
 
@@ -966,6 +978,8 @@ export function ensureLfsGitattributes(dir: string): void {
  * - push 失败（并发推进）→ fetch+merge 后重试一次
  */
 export async function uploadFolder(stagingDir: string, sid: string, commitMessage: string, remote: LakeRemote = defaultLakeRemote(), category?: string, baseline?: boolean, recording: RecordingClass = 'capture'): Promise<UploadResult> {
+  const t0 = Date.now();
+  lakeLog.info('upload start', { sid, category: category ?? '', baseline: baseline ?? false, recording });
   return withWriteLock(async () => {
     // sid/category 拼进多条 git 命令（sparse-checkout set / add / ls-tree），
     // 白名单校验防命令注入 —— 与 materializeSession 同款（branch/rootDir
@@ -1025,6 +1039,7 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     try {
       runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
     } catch {
+      lakeLog.warn('镜像工作树脏（上次失败上传残留），硬复位自愈', { sid });
       runGit(`git reset --hard origin/${remote.branch}`, dir);
       runGit('git clean -fdq', dir);
       runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
@@ -1098,11 +1113,13 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
       try {
         push();
       } catch {
+        lakeLog.warn('push 被拒，fetch+merge 换父提交后重试', { sid, category: category ?? '' });
         runGit(`git fetch --quiet origin ${remote.branch}`, dir);
         runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost merge --allow-unrelated-histories --no-edit origin/${remote.branch}`, dir);
         push();
       }
     }
+    lakeLog.debug('upload commit 完成', { sid, unchanged, ms: Date.now() - t0 });
     return { folder: `${targetRel}/`, unchanged, gitattributesFixed };
   });
 }
@@ -1150,6 +1167,38 @@ export function runGitWithAuth(
   }
 }
 
+/** spawnSync git 公共纪律（argv 形态，meta 读取/物化面用）：① 绝不禁不了
+ *  终端——GIT_TERMINAL_PROMPT=0 让私有仓匿名 401 快速失败（lazy-fetch/
+ *  物化/LFS smudge 都会回源远端，终端提示会把请求冻在 Username for ...）；
+ *  ② 凭据经一次性 credential helper（与 runGitWithAuth 同协议，-c 配置经
+ *  GIT_CONFIG_PARAMETERS 传导给 git-lfs 子进程）；auth=null 匿名原样执行。 */
+function spawnGitAuthed(
+  argv: string[],
+  cwd: string,
+  auth: { username: string; password: string } | null,
+  timeoutMs: number,
+  opts?: { maxBuffer?: number; input?: string },
+): SpawnSyncReturns<Buffer> {
+  const base = { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, timeout: timeoutMs, maxBuffer: opts?.maxBuffer ?? 256 * 1024 * 1024 };
+  if (!auth) return spawnSync('git', argv, { ...base, ...(opts?.input != null ? { input: opts.input, stdio: ['pipe', 'pipe', 'pipe'] as const } : { stdio: ['ignore', 'pipe', 'pipe'] as const }) });
+  if (/[\r\n]/.test(auth.username) || /[\r\n]/.test(auth.password)) {
+    throw new Error('git credentials contain newline (invalid for credential helper protocol)');
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-lake-auth-'));
+  try {
+    const helper = path.join(tmp, 'helper.sh');
+    fs.writeFileSync(
+      helper,
+      `#!/bin/sh\ncat <<'INSIGHTEOF'\nusername=${auth.username}\npassword=${auth.password}\nINSIGHTEOF\n`,
+      { mode: 0o700 },
+    );
+    return spawnSync('git', ['-c', 'credential.helper=', '-c', `credential.helper=${helper}`, ...argv],
+      { ...base, ...(opts?.input != null ? { input: opts.input, stdio: ['pipe', 'pipe', 'pipe'] as const } : { stdio: ['ignore', 'pipe', 'pipe'] as const }) });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 /**
  * 401 挑战-应答式 push：pushUrl 一律无凭据，凭据经一次性 credential helper
  * 供给——托管平台网关已拒"请求直带密码"的内嵌 URL（proactive Basic 直接
@@ -1161,7 +1210,9 @@ export function runGitWithAuth(
 export function pushMirror(dir: string, remote: LakeRemote): void {
   const verify = remote.lfs ? '' : ' --no-verify';
   const raw = remote.lfs ? { raw: true as const } : undefined;
+  const t0 = Date.now();
   runGitWithAuth(`git push${verify} "${remote.pushUrl}" ${remote.branch}`, dir, remote.pushAuth, 300_000, raw);
+  lakeLog.debug('push done', { ms: Date.now() - t0, lfs: remote.lfs });
 }
 
 // ── 异步栈（原 viewer 双栈时代副本统一并入，P2）─────────────────────────
@@ -1196,7 +1247,7 @@ export function runGitAsync(cmd: string, cwd: string, timeoutMs: number, onStder
   return new Promise((resolve) => {
     // detached：bash 自成进程组长。超时必须杀整组——只杀 bash 会把 git
     // （孙进程）留成孤儿，继续写 tmp/镜像并与重试竞争。
-    const child = spawn('bash', ['-c', neutral], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn('bash', ['-c', neutral], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     let pending = '';
     child.stderr.on('data', (chunk: Buffer) => {
       pending += chunk.toString('utf8');
@@ -1260,6 +1311,7 @@ async function tryFetchMirrorAsync(dir: string, remote: LakeRemote): Promise<boo
   const code = await runGitAsyncWithAuth(`git fetch --progress origin ${remote.branch}`, dir, remote.pullAuth, 120_000,
     line => setLakePhase('fetch', redactRemoteSecrets(line, remote, [])));
   if (code === 0) { setLakePhase('idle'); return true; }
+  lakeLog.warn('mirror fetch 失败，回落本地镜像', { branch: remote.branch, code });
   return mirrorLocallyUsable(dir, remote);
 }
 
@@ -1330,12 +1382,18 @@ async function cloneAndSwapAsync(dir: string, remote: LakeRemote): Promise<void>
   fs.rmSync(tmp, { recursive: true, force: true });
   try {
     setLakePhase('clone', '连接远端…');
+    const t0 = Date.now();
+    lakeLog.info('clone start', { branch: remote.branch });
     const code = await runGitAsyncWithAuth(
       `git clone --no-local --filter=blob:none --no-checkout --progress "${remote.pullUrl}" "${tmp}"`,
       path.dirname(target), remote.pullAuth, 600_000,
       line => setLakePhase('clone', redactRemoteSecrets(line, remote, [])),
     );
-    if (code !== 0) throw new Error(`git clone 失败（exit ${code}），详见 /api/lake-status`);
+    if (code !== 0) {
+      lakeLog.warn('clone 失败', { code });
+      throw new Error(`git clone 失败（exit ${code}），详见 /api/lake-status`);
+    }
+    lakeLog.info('clone done', { ms: Date.now() - t0 });
     const lock = `${dir}.lock`;
     fs.mkdirSync(path.dirname(lock), { recursive: true });
     await acquireInitLockAsync(lock);
@@ -1494,10 +1552,10 @@ async function readSessionMetasDetailed(dir: string, remote: LakeRemote): Promis
       .filter(w => !local.has(w.oid))
       .map(w => w.oid);
     for (let i = 0; i < missing.length; i += FETCH_OID_CHUNK) {
-      await runGitAsync(`git fetch --quiet origin ${missing.slice(i, i + FETCH_OID_CHUNK).join(' ')}`, dir, 300_000);
+      await runGitAsyncWithAuth(`git fetch --quiet origin ${missing.slice(i, i + FETCH_OID_CHUNK).join(' ')}`, dir, remote.pullAuth, 300_000);
     }
     const buf = await new Promise<Buffer>(resolve => {
-      const child = spawn('git', ['cat-file', '--batch'], { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn('git', ['cat-file', '--batch'], { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
       const chunks: Buffer[] = [];
       const timer = setTimeout(() => child.kill('SIGKILL'), 120_000);
       child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -1515,13 +1573,14 @@ async function readSessionMetasDetailed(dir: string, remote: LakeRemote): Promis
  *  meta 读取 → 全部运行及提交元数据。布局（spec §2）：<paradigm>/<sid>/
  *  （范式目录即注册表）、<paradigm>/baseline/<sid>/、<paradigm>/<sid>.native/
  *  （原生会话双记录位，目录内文件用真实 sid 命名）、sessions/<sid>/（存量
- *  区 → paradigm null，不入范式视图）。 */
+ *  区；特判已退役——即普通范式目录，paradigm='sessions'）。 */
 export async function listSessionsDetailed(remote: LakeRemote = defaultLakeRemote()): Promise<LakeSession[]> {
   return readLakeSessions(await ensureMirrorAsync(remote), remote);
 }
 
 /** 镜像已就绪前提下的纯读取段（ensure 由调用方完成，避免一次构建三连 fetch）。 */
 export async function readLakeSessions(dir: string, remote: LakeRemote): Promise<LakeSession[]> {
+  const t0 = Date.now();
   markLakePhase('list', '读取范式与会话清单…');
   const mainRev = revParseMain(dir, remote);
   if (!mainRev) { markLakePhase('idle'); return []; }
@@ -1598,6 +1657,7 @@ export async function readLakeSessions(dir: string, remote: LakeRemote): Promise
   }
   entries.sort((a, b) => (b.commitTime || '').localeCompare(a.commitTime || ''));
   markLakePhase('idle');
+  lakeLog.debug('list done', { count: entries.length, ms: Date.now() - t0 });
   return entries;
 }
 

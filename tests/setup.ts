@@ -13,6 +13,11 @@ import { PrismaClient } from "@prisma/client";
 // 但 vitest worker 进程不自动读 .env，缺此默认时全部套件死在 $connect
 process.env.DATABASE_URL ||= "file:./dev.db";
 
+// 统一日志全局静音：被测模块（data-service/lake 层等）引入 logger 后，全量测试
+// 会把日志写进真实 ~/.cannbot-insight/logs/。||= 语义 = 显式设置优先（CI 想开
+// 日志设 CANNBOT_LOG=1 即可）；logger 自己的测试文件内在 beforeAll 删掉此变量
+process.env.CANNBOT_LOG ||= "0";
+
 const prisma = new PrismaClient();
 
 beforeAll(async () => {
@@ -38,16 +43,18 @@ beforeAll(async () => {
     throw e;
   }
   // WAL 下 many-worker 并发首开 -shm 有瞬时锁竞争（偶发 SQLITE_CANTOPEN/
-  // BUSY），有界重试即过；真实连接错误重试耗尽后原样抛出
+  // BUSY），有界重试即过；真实连接错误重试耗尽后原样抛出。满并行 worker
+  // 冷启动（WAL 未初始化）时 3×(200/400/600ms) 预算偶发耗尽——那个 worker
+  // 的整个测试文件红、重跑即绿（flaky 源头），改 6 次指数退避（最长 ~16s）
   let lastErr: unknown;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 6; i++) {
     try {
       await prisma.$connect();
       lastErr = undefined;
       break;
     } catch (e) {
       lastErr = e;
-      await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+      await new Promise((r) => setTimeout(r, 250 * 2 ** i));
     }
   }
   if (lastErr) throw lastErr;

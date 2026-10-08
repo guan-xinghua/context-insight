@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { analyzeTrajectoryByTask, type ProgressEvent } from "@/lib/ai/trajectory-analyzer"
 import type { AIProviderConfig } from "@/lib/ai/analyzer"
+import { logError } from "@/lib/logger"
 
 export async function POST(request: NextRequest) {
   let body: { taskId?: string; framework?: string; provider?: AIProviderConfig }
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
         send({ stage: "result", outputPath: result.outputPath, rounds: result.rounds, analysis: result.analysis })
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error"
+        logError("route:ai/audit-session", "轨迹分析失败", { error: message })
         send({ stage: "error", msg: message })
       } finally {
         controller.close()

@@ -20,7 +20,9 @@ export interface CustomItemSpec {
   targetDimension: ProfileDimension;
   name: string;
   note?: string;
-  kind: 'llm' | 'rule';
+  /** llm=五档评分 / rule=零 LLM 规则判定 / binary=两档判定（LLM 是非题：达成 1 / 未达成 0） */
+  kind: 'llm' | 'rule' | 'binary';
+  /** binary 的判定标准写在 note；llm 的五档在 bands；rule 的声明在 rule */
   bands?: Band[];
   rule?: RuleSpec;
   /** D4/D5 目标必填（内置子项标尺合计≈1）；D3 可选默认等权；D1/D2/D6 无意义会被剥离 */

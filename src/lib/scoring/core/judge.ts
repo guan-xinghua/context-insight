@@ -14,7 +14,7 @@ import type { AssembledInput, JudgeCallMeta } from './assembler/types';
 import { Scorer, okResult, notApplicable, errorResult, round2, type ScorerContext } from './scorer';
 import type { ScoreItemSchema } from './schema';
 import type { SubItemResult } from './types';
-import { GENERIC_JUDGE_SYSTEM, buildBandJudgeAsk, clampToBandScore, parseJudgeJson, validEvidenceTurns } from './llm';
+import { GENERIC_JUDGE_SYSTEM, buildBandJudgeAsk, clampToBandScore, completeParsedJson, verdictText, validEvidenceTurns, validEvidenceItems } from './llm';
 
 const NO_LLM_NOTE = '未开启 LLM 评审，无法评判';
 
@@ -52,31 +52,86 @@ export class BandJudgeScorer extends Scorer {
   async run(ctx: ScorerContext): Promise<SubItemResult> {
     const na = this.cfg.notApplicableWhen?.(ctx.input);
     if (na) return notApplicable(ctx.def, na);
-    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE);
+    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE, { naKind: 'gap' });
 
     try {
       const user = judgeMessage(ctx.input.trajectoryDigest, buildBandJudgeAsk(ctx.def, this.cfg.focus), this.cfg.material?.(ctx.input));
-      const out = await ctx.llm.complete(GENERIC_JUDGE_SYSTEM, user, judgeMeta(ctx));
-      const parsed = parseJudgeJson(out.content);
+      const { parsed, retried } = await completeParsedJson(ctx.llm, GENERIC_JUDGE_SYSTEM, user, judgeMeta(ctx));
       const scoreRaw = parsed?.['score'];
       if (parsed == null || (scoreRaw != null && typeof scoreRaw !== 'number')) {
-        return errorResult(ctx.def, '评审输出解析失败（需 {"reason":str,"score":0-10|null,"evidence":["§N"]}）');
+        return errorResult(ctx.def, `评审输出解析失败${retried ? '（已自动重评一次仍失败）' : ''}（需 {"reason":str,"score":0-10|null,"evidence":["§N"]}）`);
       }
       if (scoreRaw == null) {
+        // 区分「显式弃权 score:null」与「输出被截断导致 score 字段缺失」：
+        // 后者是通道问题，不该落成"证据不足"的假弃权（会带着充分理由却不得分）。
+        if (!('score' in parsed)) {
+          return errorResult(ctx.def, '评审输出缺 score 字段（疑似输出被截断，reason 不完整，不计为证据不足）');
+        }
         return okResult(ctx.def, {
           status: 'not-applicable',
           note: `证据不足：${typeof parsed['reason'] === 'string' ? parsed['reason'] : '评审弃权'}`,
         });
       }
       const clamped = clampToBandScore(scoreRaw, ctx.def.bands ?? []);
-      const turns = validEvidenceTurns(parsed['evidence'], validTurnIndexes(ctx.input));
+      const items = validEvidenceItems(parsed['evidence'], validTurnIndexes(ctx.input));
       return okResult(ctx.def, {
         value: clamped,
         unit: 'score/10',
         score: clamped / 10,
-        formula: `LLM 评审 ${clamped}/10（原始 ${scoreRaw} 拉回最近档）`,
-        evidence: turns.map(t => ({ turnIndex: t, label: `评审证据 §${t}` })),
+        formula: `LLM 评审 ${clamped}/10${clamped !== scoreRaw ? `（原始 ${scoreRaw} 拉回最近档）` : ''}`,
+        evidence: items.map(it => ({ turnIndex: it.turnIndex, label: it.note || '评审依据', impact: it.impact })),
         note: typeof parsed['reason'] === 'string' ? parsed['reason'] : undefined,
+      });
+    } catch (err) {
+      return errorResult(ctx.def, err instanceof Error ? err.message : 'LLM 调用失败');
+    }
+  }
+}
+
+// ── 1b. 两档判定型（binary：LLM 是非题——达成 1 / 未达成 0 / 判不了弃权）──────
+
+export class BinaryJudgeScorer extends Scorer {
+  readonly id: string;
+  readonly needs = ['trajectoryDigest'] as const;
+
+  constructor(private readonly def: ScoreItemSchema, private readonly cfg: { criteria: string }) {
+    super();
+    this.id = def.id;
+  }
+
+  async run(ctx: ScorerContext): Promise<SubItemResult> {
+    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE, { naKind: 'gap' });
+
+    const ask = `## 本次评审任务：${ctx.def.name}（两档判定）
+
+判定标准：${this.cfg.criteria}
+
+这是是非题，不是程度题——只回答三选一：
+- met：材料中有明确证据表明达成（必须给出 §N 证据）
+- unmet：材料表明未达成（给出依据）
+- na：材料不足，判不了（宁弃权不硬判）
+
+严格输出 JSON：
+{"verdict":"met|unmet|na","reason":"一句话依据","evidence":[{"turn":12,"note":"一句话依据"}]}`;
+
+    try {
+      const { parsed, retried } = await completeParsedJson(ctx.llm, GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
+      const verdict = parsed?.['verdict'];
+      if (verdict !== 'met' && verdict !== 'unmet' && verdict !== 'na') {
+        return errorResult(ctx.def, `两档判定输出解析失败${retried ? '（已自动重评一次仍失败）' : ''}（需 {"verdict":"met|unmet|na",...}）`);
+      }
+      if (verdict === 'na') {
+        return okResult(ctx.def, { status: 'not-applicable', note: `判不了：${typeof parsed?.['reason'] === 'string' ? parsed['reason'] : '材料不足'}` });
+      }
+      const items = validEvidenceItems(parsed?.['evidence'], validTurnIndexes(ctx.input));
+      return okResult(ctx.def, {
+        verdict: verdict === 'met' ? 'pass' : 'fail',
+        value: verdict === 'met' ? 1 : 0,
+        unit: '达成/未达成',
+        score: verdict === 'met' ? 1 : 0,
+        formula: `LLM 两档判定：${verdict === 'met' ? '达成 → 1' : '未达成 → 0'}`,
+        evidence: items.map(it => ({ turnIndex: it.turnIndex, label: it.note || '判定依据' })),
+        note: typeof parsed?.['reason'] === 'string' ? parsed['reason'] : undefined,
       });
     } catch (err) {
       return errorResult(ctx.def, err instanceof Error ? err.message : 'LLM 调用失败');
@@ -123,7 +178,7 @@ export class ChecklistJudgeScorer extends Scorer {
   async run(ctx: ScorerContext): Promise<SubItemResult> {
     const decl = this.cfg.declaration(ctx.input);
     if (!decl) return notApplicable(ctx.def, `缺少${this.cfg.declarationLabel}，无法评判`);
-    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE);
+    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE, { naKind: 'gap' });
 
     const items = splitChecklist(decl);
     const ask = `## 本次评审任务：${this.cfg.declarationLabel}逐条对账
@@ -144,11 +199,10 @@ ${items.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 每条清单项都必须出现，index 与清单编号一致。`;
 
     try {
-      const out = await ctx.llm.complete(GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
-      const parsed = parseJudgeJson(out.content);
+      const { parsed, retried } = await completeParsedJson(ctx.llm, GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
       const arr = parsed?.['items'];
       if (!Array.isArray(arr) || arr.length === 0) {
-        return errorResult(ctx.def, '对账输出解析失败（需 {"items":[{index,status,evidence,note}]}）');
+        return errorResult(ctx.def, `对账输出解析失败${retried ? '（已自动重评一次仍失败）' : ''}（需 {"items":[{index,status,evidence,note}]}）`);
       }
       const evidence: SubItemResult['evidence'] = [];
       const failed: string[] = [];
@@ -163,7 +217,7 @@ ${items.map((t, i) => `${i + 1}. ${t}`).join('\n')}
         if (status && this.cfg.failStatuses.includes(status)) failed.push(text);
         if (status == null || status === this.cfg.itemStatuses[this.cfg.itemStatuses.length - 1]) unidentifiable.push(text);
         if (evTurns.length > 0 || status) {
-          evidence.push({ turnIndex: evTurns[0] ?? null, label: `#${idx} ${text} → ${status ?? '无法识别'}`, quote: typeof rr.note === 'string' ? rr.note : undefined });
+          evidence.push({ turnIndex: evTurns[0] ?? null, label: `#${idx} ${text} → ${status ? verdictText(status) : '无法识别'}`, quote: typeof rr.note === 'string' ? rr.note : undefined });
         }
       }
       const verdict = failed.length > 0
@@ -206,7 +260,7 @@ export class MessageClassificationScorer extends Scorer {
   async run(ctx: ScorerContext): Promise<SubItemResult> {
     const msgs = ctx.input.userMessages.filter(m => m.text.trim().length > 0);
     if (msgs.length === 0) return notApplicable(ctx.def, '缺少用户消息，无法评判');
-    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE);
+    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE, { naKind: 'gap' });
 
     const ask = `## 本次评审任务：用户消息分类（自主性）
 
@@ -231,10 +285,9 @@ ${msgs.map(m => `§${m.turnIndex} ${m.text.slice(0, 300)}`).join('\n')}
 每条消息都必须出现，turnIndex 与输入一致。`;
 
     try {
-      const out = await ctx.llm.complete(GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
-      const parsed = parseJudgeJson(out.content);
+      const { parsed, retried } = await completeParsedJson(ctx.llm, GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
       const arr = parsed?.['messages'];
-      if (!Array.isArray(arr)) return errorResult(ctx.def, '分类输出解析失败（需 {"messages":[{turnIndex,category}]}）');
+      if (!Array.isArray(arr)) return errorResult(ctx.def, `分类输出解析失败${retried ? '（已自动重评一次仍失败）' : ''}（需 {"messages":[{turnIndex,category}]}）`);
 
       const catMap = new Map(this.cfg.categories.map(c => [c.key, c]));
       const counts: Record<string, number> = {};
@@ -288,7 +341,7 @@ export class CoverageJudgeScorer extends Scorer {
   async run(ctx: ScorerContext): Promise<SubItemResult> {
     const first = ctx.input.userMessages[0];
     if (!first) return notApplicable(ctx.def, '缺少首轮用户消息，无法评判');
-    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE);
+    if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE, { naKind: 'gap' });
 
     const ask = `## 本次评审任务：目标覆盖对账
 
@@ -308,11 +361,10 @@ export class CoverageJudgeScorer extends Scorer {
 goal 用一句话；status 只能取 covered/partial/missing。`;
 
     try {
-      const out = await ctx.llm.complete(GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
-      const parsed = parseJudgeJson(out.content);
+      const { parsed, retried } = await completeParsedJson(ctx.llm, GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
       const arr = parsed?.['goals'];
       if (!Array.isArray(arr) || arr.length === 0) {
-        return errorResult(ctx.def, '目标覆盖输出解析失败（需 {"goals":[{goal,status,evidence}]}）');
+        return errorResult(ctx.def, `目标覆盖输出解析失败${retried ? '（已自动重评一次仍失败）' : ''}（需 {"goals":[{goal,status,evidence}]}）`);
       }
       const evidence: SubItemResult['evidence'] = [];
       let covered = 0;
@@ -327,14 +379,14 @@ goal 用一句话；status 只能取 covered/partial/missing。`;
         else if (status === 'partial') partial++;
         else missing++;
         const evTurns = validEvidenceTurns((r as { evidence?: unknown }).evidence, validTurnIndexes(ctx.input));
-        evidence.push({ turnIndex: evTurns[0] ?? null, label: `${goal} → ${status ?? '无法识别'}` });
+        evidence.push({ turnIndex: evTurns[0] ?? null, label: `${goal} → ${status ? verdictText(status) : '无法识别'}` });
       }
       const verdict = missing > 0 ? 'missing' : covered > 0 ? 'covered' : 'partial';
       return okResult(ctx.def, {
         verdict,
         value: `${covered}✓/${covered + partial + missing}`,
         ...(this.cfg.completionScore ? { score: round2((covered + partial * 0.5) / Math.max(1, covered + partial + missing)) } : {}),
-        formula: `目标点 ${arr.length} 个：covered ${covered} / partial ${partial} / missing ${missing}`,
+        formula: `目标点 ${arr.length} 个：已覆盖 ${covered} / 部分覆盖 ${partial} / 未覆盖 ${missing}`,
         evidence,
       });
     } catch (err) {

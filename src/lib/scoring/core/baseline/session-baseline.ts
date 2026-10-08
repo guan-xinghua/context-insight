@@ -78,15 +78,17 @@ export async function writeSessionBaseline(file: SessionBaselineFile): Promise<s
 
 // ── 比值打分（lower-better 全体适用）：本次/基线 = ratio ──
 // score = clamp((2 − ratio) / 1.25, 0, 1)：好 25% 封顶 1.0，与基线持平 0.8，2 倍基线归 0。
+// 基线已到 0（理论最优）时无法再被"优于"：本次也为 0 → 两边都到天花板，给满分；
+// 基线 0 而本次 >0 → 基线零冗余你都出了冗余，直接 0。
 
 export function ratioScore(value: number, ref: number): number {
-  if (ref <= 0) return 0;
+  if (ref <= 0) return value <= 0 ? 1 : 0;
   const ratio = value / ref;
   return Math.round(Math.max(0, Math.min(1, (2 - ratio) / 1.25)) * 100) / 100;
 }
 
-export function ratioGrade(value: number, ref: number): '优于基线' | '与基线相当' | '差于基线' {
-  if (ref <= 0) return '差于基线';
+export function ratioGrade(value: number, ref: number): '优于基线' | '与基线相当' | '同为最优' | '差于基线' {
+  if (ref <= 0) return value <= 0 ? '同为最优' : '差于基线';
   const ratio = value / ref;
   if (ratio <= 0.9) return '优于基线';
   return ratio <= 1.25 ? '与基线相当' : '差于基线';

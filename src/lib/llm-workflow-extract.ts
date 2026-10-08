@@ -19,6 +19,7 @@ import {
   stripSkillRuntimeTail,
 } from "./sift-audit";
 import { extractSkillNameFromArgs } from "./skill-event-grouping";
+import { logError } from "@/lib/logger";
 
 /**
  * LLM 提取主 agent 组合声明（泛化路径，不依赖 workflow-extract-plugins 的领域启发式）。
@@ -168,13 +169,13 @@ export async function llmExtractWorkflowDeclaration(
   const result = await runner(prompt);
   if (!result.text) {
     const reason = result.error ?? "无输出";
-    console.error('[llm-workflow-extract] LLM runner failed:', reason, 'prompt length:', prompt.length);
+    logError('workflow-extract', 'LLM runner failed', { reason: String(reason).slice(0, 200), promptChars: prompt.length });
     throw new Error(reason);
   }
 
   const layers = parseCandidateSelection(result.text, candidates);
   if (layers.length === 0) {
-    console.error('[llm-workflow-extract] selection parsed to no layers. output:', result.text.slice(0, 300));
+    logError('workflow-extract', 'selection parsed to no layers', { output: result.text.slice(0, 300) });
     return null;
   }
   return assembleCombinedDeclaration(layers);
@@ -552,13 +553,13 @@ function runClaudeCli(prompt: string): Promise<LlmRunnerResult> {
         finish({ text: stdout.trim(), error: null });
       } else {
         const detail = (stdout.trim() || stderr.trim() || "无输出").slice(0, 300);
-        console.error('[llm-workflow-extract] claude CLI exit code:', code, 'stdout:', stdout.slice(0, 300), 'stderr:', stderr.slice(0, 300));
+        logError('workflow-extract', 'claude CLI 异常退出', { code: code ?? null, stdout: stdout.slice(0, 300), stderr: stderr.slice(0, 300) });
         finish({ text: null, error: `claude CLI 退出码 ${code ?? "null"}：${detail}` });
       }
     });
     proc.on("error", (err: Error) => {
       clearTimeout(timer);
-      console.error('[llm-workflow-extract] spawn error:', err.message);
+      logError('workflow-extract', 'claude CLI spawn 失败', { error: err.message });
       finish({ text: null, error: `claude CLI 启动失败（${claudeBin}）：${err.message}` });
     });
     proc.stdin.write(prompt);

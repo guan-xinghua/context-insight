@@ -11,7 +11,8 @@
 // 指标列空、开始时间退化为数据仓最后触碰 commit 时间（近似）。
 // 过程内 TTL 缓存（镜像列表 60s / 本地会话 30s / 评分卡 300s）。
 import { getActiveDurationMs, getScorecard, listInsightSessions, mapBounded, type InsightScorecard, type InsightSession } from './insight-data';
-import { readLakeSessions, readParadigmDirs, revParseMain, ensureMirrorAsync } from '@/lib/lake/mirror';
+import { readRecords, type SessionLoc } from '@/lib/lake/notes';
+import { readLakeSessions, readParadigmDirs, revParseMain, ensureMirrorAsync, sessionFolderOf } from '@/lib/lake/mirror';
 import { defaultLakeRemote } from '@/lib/lake/remote';
 import { parseSubmitInfo } from '@/lib/lake/notes';
 import type { LakeSession } from '@/lib/lake/mirror';
@@ -53,9 +54,14 @@ export interface RunItem {
   model: string | null;
   imported: boolean;
   totalScore: number | null;
+  /** 质量分来源：local = 本机评分卡；lake-note = 仓内评审记录快照（本机未导入，重算无从谈起）；null = 无分 */
+  scoreSource: 'local' | 'lake-note' | null;
   dimensions: Array<{ dimensionId: string; name: string; score: number | null }>;
   baselineDelta: number | null;
   insightUrl: string;
+  /** 消歧后 insight DB 行的真实 framework（-proxy 形态）——评分卡/活跃时长取数用；
+   * lake meta 命名归一后是裸 agent 名，与 native 行同名，直取会错行 */
+  insightFramework: string | null;
 }
 
 export interface RunQuery {
@@ -116,8 +122,9 @@ async function buildLakeListing(): Promise<LakeListing> {
   const head = revParseMain(dir, remote);
   const sessions = head ? await readLakeSessions(dir, remote) : [];
   // 根级会话目录（缺省上传位 <sid>/，paradigm=''）不是范式——从侧栏目录
-  // 清单剔除（否则每个根级会话都会以 sid 名义混进范式注册表）
-  const rootFolders = new Set(sessions.filter(s => !s.paradigm).map(s => s.sid + (s.recording === 'native' ? '.native' : '')));
+  // 清单剔除（否则每个根级会话都会以 sid 名义混进范式注册表）。目录名推导
+  // 走 sessionFolderOf（CLAUDE.md 红线：不得手拼 .native 后缀）
+  const rootFolders = new Set(sessions.filter(s => !s.paradigm).map(s => sessionFolderOf(s.sid, s.recording)));
   const dirs = new Set(readParadigmDirs(dir, remote).filter(d => !rootFolders.has(d)));
   const byParadigm = new Map<string, ParadigmSummary>();
   const baselineByParadigm = new Map<string, string>();
@@ -166,6 +173,7 @@ export function invalidateCaches(): void {
   lakeCachePromise = null;
   insightCache = null;
   scorecardCache.clear();
+  lakeNoteScoreCache.clear();
   activeCache.clear();
 }
 
@@ -179,16 +187,29 @@ async function getInsightSessions(): Promise<Map<string, InsightSession[]> | nul
   return insightCache.value;
 }
 
-// 同 sid 双记录在 DB 是两行（capture = <agent>-proxy / native = 真实框架），按
-// (taskId, framework) 消歧取本行数据（lake meta framework 与该记录导入后的
-// DB 行 framework 同值）。回落仅限「确实同一记录」：framework 精确未命中且仅
-// 一行时，基座框架一致（agentFrameworkOf 剥 -proxy，分类漂移场景）或行
-// framework 缺失才命中；两行无法消歧 / 另一记录的单行一律 null（按未导入
-// 处理——重导幂等，且避免借显他行指标与「查无会话」的直达 URL）。
-function matchInsightRow(index: Map<string, InsightSession[]> | null, sid: string, framework: string | null): InsightSession | null {
+// 同 sid 双记录在 DB 是两行（capture = <agent>-proxy / native = 真实框架）。lake
+// 命名归一后 meta framework 是裸 agent 名（与 native 行同名），exact 命中会错配到
+// 另一记录——recording 优先消歧：capture → -proxy 行、native → 非 -proxy 行；
+// 其余按 framework 精确匹配。回落仅限「确实同一记录」：仅一行且基座框架一致
+// （agentFrameworkOf 剥 -proxy）或行 framework 缺失才命中；两行无法消歧 / 另一
+// 记录的单行一律 null（按未导入处理——重导幂等，且避免借显他行指标与「查无
+// 会话」的直达 URL）。
+function matchInsightRow(
+  index: Map<string, InsightSession[]> | null,
+  sid: string,
+  framework: string | null,
+  recording?: 'capture' | 'native',
+): InsightSession | null {
   if (!index) return null;
   const rows = index.get(sid);
   if (!rows || rows.length === 0) return null;
+  if (recording === 'capture' || recording === 'native') {
+    const wantProxy = recording === 'capture';
+    const byRecording = rows.find(r =>
+      (r.framework?.endsWith('-proxy') ?? false) === wantProxy
+      && (!framework || agentFrameworkOf(r.framework ?? '') === agentFrameworkOf(framework)));
+    if (byRecording) return byRecording;
+  }
   if (framework) {
     const hit = rows.find(r => r.framework === framework);
     if (hit) return hit;
@@ -214,6 +235,28 @@ async function fetchScorecard(taskId: string, framework?: string | null): Promis
   }
   scorecardCache.set(cacheKey, { at: now, value });
   return value;
+}
+
+// 仓内评审记录快照缓存（未导入行的质量分回落源）：<sid>@<recording> 键控，
+// 与 scorecardCache 同 TTL；瞬态读取失败不缓存（本次降级为无分）
+const lakeNoteScoreCache = new Map<string, CacheEntry<{ totalScore: number | null; dimensions: InsightScorecard['dimensions'] } | null>>();
+
+async function fetchLakeNoteScore(loc: SessionLoc): Promise<{ totalScore: number | null; dimensions: InsightScorecard['dimensions'] } | null> {
+  const key = `${loc.sid}@${loc.recording ?? 'capture'}`;
+  const hit = lakeNoteScoreCache.get(key);
+  if (hit && Date.now() - hit.at < SCORECARD_TTL_MS) return hit.value;
+  try {
+    // notes 只追加：末条 scorecard 即最新一次评审结论
+    const records = await readRecords(loc);
+    const last = [...records].reverse().find(r => r.type === 'scorecard');
+    const value = last
+      ? { totalScore: last.totalScore, dimensions: last.dimensions.map(d => ({ dimensionId: d.dimensionId, name: d.name, score: d.score })) }
+      : null;
+    lakeNoteScoreCache.set(key, { at: Date.now(), value });
+    return value;
+  } catch {
+    return null;   // 读取失败不缓存，本次降级为无分
+  }
 }
 
 // 活跃时长缓存（与会话详情 Wall Clock 拆分同口径）：lean turn 查询 +
@@ -263,14 +306,28 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
 
   const baselineSid = lake.baselineByParadigm.get(query.paradigm) ?? null;
   let baselineScore: number | null = null;
-  if (baselineSid && insightSessions) {
-    const card = await fetchScorecard(baselineSid);
-    baselineScore = normalizeScore(card?.totalScore ?? null);
+  if (baselineSid) {
+    // 双记录消歧：baseline sid 的 capture/native 两行都可能在库，裸 taskId
+    // 取卡是任意的——按 baseline lake 行的 framework 缩到本记录的行
+    const baselineSess = lake.sessions.find(s => s.sid === baselineSid && s.isBaseline);
+    const card = insightSessions
+      ? await fetchScorecard(baselineSid, baselineSess?.framework ?? null)
+      : null;
+    if (card) {
+      baselineScore = normalizeScore(card.totalScore ?? null);
+    } else {
+      // 本机无卡（未导入/未评）→ 仓内评审记录快照兜底：评分发生过就该可比
+      const note = await fetchLakeNoteScore({
+        sid: baselineSid, paradigm: query.paradigm, isBaseline: true,
+        recording: baselineSess?.recording ?? 'capture',
+      });
+      baselineScore = normalizeScore(note?.totalScore ?? null);
+    }
   }
 
   let rows: RunItem[] = [];
   for (const s of remoteSessions) {
-    const insight = matchInsightRow(insightSessions, s.sid, s.framework);
+    const insight = matchInsightRow(insightSessions, s.sid, s.framework, s.recording);
     if (insight) {
       const start = insight.startTime ? new Date(insight.startTime).getTime() : NaN;
       const end = insight.endTime ? new Date(insight.endTime).getTime() : NaN;
@@ -295,9 +352,13 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         model: insight.model,
         imported: true,
         totalScore: null,
+        scoreSource: null,
         dimensions: [],
         baselineDelta: null,
-        insightUrl: insightSessionUrl(s.sid, s.framework),
+        // 深链用 insight 行的真实框架（lake meta 的 agent 名与 DB 行的 -proxy 形态
+        // 可能不同——用 meta 名会被详情页 framework 过滤挡成 404）
+        insightUrl: insightSessionUrl(s.sid, insight.framework ?? s.framework),
+        insightFramework: insight.framework ?? null,
       });
     } else {
       rows.push({
@@ -324,9 +385,11 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         model: s.model,
         imported: false,
         totalScore: null,
+        scoreSource: null,
         dimensions: [],
         baselineDelta: null,
         insightUrl: insightSessionUrl(s.sid, s.framework),
+        insightFramework: null,
       });
     }
   }
@@ -338,17 +401,37 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
   rows.sort(byStartTimeDesc);
   const scoreTargets = rows.filter(r => r.imported).slice(0, MAX_ITEMS);
   await mapBounded(scoreTargets, SCORE_FETCH_LIMIT, async (r) => {
-    const card = await fetchScorecard(r.sid, r.framework);
+    // 取数用消歧后的 DB 行 framework（meta 裸名会错配同 sid 另一记录的卡/时长）
+    const fw = r.insightFramework ?? r.framework;
+    const card = await fetchScorecard(r.sid, fw);
     r.totalScore = normalizeScore(card?.totalScore ?? null);
+    r.scoreSource = r.totalScore != null ? 'local' : null;
     r.dimensions = card?.dimensions.map(d => ({ ...d, score: d.score == null ? null : normalizeScore(d.score) })) ?? [];
     r.baselineDelta = r.totalScore != null && baselineScore != null
       ? Math.round((r.totalScore - baselineScore) * 10) / 10
       : null;
-    const activeMs = await fetchActiveDurationMs(r.sid, r.framework);
+    const activeMs = await fetchActiveDurationMs(r.sid, fw);
     if (activeMs != null) {
       r.durationMs = activeMs;
       r.activeKnown = true;
     }
+    return null;
+  });
+
+  // 质量分回落（未导入行）：仓内评审记录快照——评分发生过（记录已推仓）就该
+  // 显示，不要求每台机器先导入一遍重算。仅前 MAX_ITEMS 条（与本地 pass 同界），
+  // 有界并发读 notes（readRecords 走鉴权 git show）
+  const noteTargets = rows.filter(r => !r.imported).slice(0, MAX_ITEMS);
+  await mapBounded(noteTargets, SCORE_FETCH_LIMIT, async (r) => {
+    const note = await fetchLakeNoteScore({ sid: r.sid, paradigm: r.paradigm, isBaseline: r.isBaseline, recording: r.recording });
+    if (!note) return null;
+    r.totalScore = normalizeScore(note.totalScore);
+    // 记录存在但 totalScore 为 null：按无分处理，不挂「仓」角标显示 "—"
+    r.scoreSource = r.totalScore != null ? 'lake-note' : null;
+    r.dimensions = note.dimensions.map(d => ({ ...d, score: d.score == null ? null : normalizeScore(d.score) }));
+    r.baselineDelta = r.totalScore != null && baselineScore != null
+      ? Math.round((r.totalScore - baselineScore) * 10) / 10
+      : null;
     return null;
   });
 

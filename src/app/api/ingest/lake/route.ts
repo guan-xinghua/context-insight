@@ -13,6 +13,7 @@ import { classifyLakeError } from '@/lib/lake/auth';
 import { listRemoteDirs } from '@/lib/lake/mirror';
 import type { LakeRemoteInput } from '@/lib/lake-config';
 import { prisma } from '@/lib/db';
+import { logError, logWarn } from '@/lib/logger';
 
 export const maxDuration = 300;
 
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
     const message = redactRemoteSecrets(
       err instanceof Error ? err.message : String(err), remote ?? undefined, secrets,
     );
+    logError('route:ingest/lake', 'lake action 失败', { code, error: message });
     return NextResponse.json({ error: message, code }, { status: code === 'no-credentials' ? 400 : status });
   };
   try {
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(result);
       } catch (err) {
         if (err instanceof GovernanceError) {
+          logWarn('route:ingest/lake', '上传熔断拒绝', { sid: taskId, error: err.message });
           return NextResponse.json({ error: err.message, governance: true }, { status: 422 });
         }
         return fail(err);

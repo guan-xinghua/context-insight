@@ -10,6 +10,7 @@
 // 计数数字优先从工具输出原文解析（设计 §2.2 三道保险之一）；解析不出返回 null。
 
 import type { ScoreToolCall } from './assembler/types';
+import { extractFilePath } from '@/lib/file-restore';
 
 export interface TestSummary {
   passed: number;
@@ -93,12 +94,36 @@ export function parseTestOutput(raw: string | null): TestSummary | null {
     return { passed: num(m[1]), failed: num(m[2]), skipped: num(m[3]), framework: 'cargo' };
   }
 
+  // 设计流水线门控（ops-registry 等 check_*.py）："闸门通过 4/4" / "计入验收 4/4" / "[PASS]"/"[FAIL]"
+  m = text.match(/闸门通过\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/i);
+  if (m) {
+    const total = num(m[2]);
+    return { passed: num(m[1]), failed: total - num(m[1]), skipped: 0, framework: 'gate' };
+  }
+  m = text.match(/计入验收\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/i);
+  if (m) {
+    const total = num(m[2]);
+    return { passed: num(m[1]), failed: total - num(m[1]), skipped: 0, framework: 'gate' };
+  }
+  const gatePass = (text.match(/\[PASS\]/gi) ?? []).length;
+  const gateFail = (text.match(/\[FAIL\]/gi) ?? []).length;
+  if (gatePass + gateFail > 0) {
+    return { passed: gatePass, failed: gateFail, skipped: 0, framework: 'gate' };
+  }
+  // 布尔门控（validate_spec.py 等）："=== overall: PASS ===" / "overall: FAIL"——
+  // 无计数行，通过与否本身就是结论（通过=1 过 / 失败=1 败）
+  m = text.match(/overall\s*[:：]\s*(PASS|FAIL)/i);
+  if (m) {
+    const pass = m[1].toUpperCase() === 'PASS';
+    return { passed: pass ? 1 : 0, failed: pass ? 0 : 1, skipped: 0, framework: 'gate' };
+  }
+
   return null;
 }
 
 /** 白名单验证命令：grep "test"、cat report 之类不算——宁漏勿错 */
 export const VERIFY_CMD_RE = /(^|[/\s])(npm|npx|pnpm|yarn|vitest|jest|pytest|python3?|go|cargo|make|cmake|ctest|mvn|gradle)(\s+|$)/i;
-export const VERIFY_HINT_RE = /\b(test|vitest|jest|pytest|spec|ctest)\b|\bmake\b.*test|\bmvn\b.*test/i;
+export const VERIFY_HINT_RE = /\b(test|vitest|jest|pytest|spec|ctest)\b|\bmake\b.*test|\bmvn\b.*test|\bcheck_[a-z0-9_.-]*|\bvalidate_[a-z0-9_.-]*|gate_lib|闸门/i;
 
 /** 这条 Bash 调用是不是白名单验证命令（入参可以是 argsJson 或裸命令串） */
 export function isVerifyCommand(command: string): boolean {
@@ -125,6 +150,17 @@ export function findLastVerifiedRun(
 }
 
 /** 最后一次文件写（Write/Edit 家族）的 seq——验证必须在其后 */
+/** 改代码判定（D1.verifiedRun / D3.testResults 共用口径）：写源码/配置/构建文件算——
+ *  纯文档写（.md / CHANGELOG / README / LICENSE…）不算：测试过了只补文档的收尾
+ *  不该把验证窗口推到最后、误判「改代码后无验证/缺测试运行」。 */
+const DOC_FILE_RE = /\.(md|markdown|txt|rst|adoc)$/i;
+const DOC_NAME_RE = /(^|[/\\])(CHANGELOG[^/\\]*|LICENSE[^/\\]*|NOTICE|README)$/i;
+export function isCodeWrite(toolName: string, argsJson: string | null): boolean {
+  if (!['write', 'edit', 'edit1', 'multiedit'].includes(toolName.toLowerCase())) return false;
+  const p = extractFilePath(argsJson);
+  return p != null && !DOC_FILE_RE.test(p) && !DOC_NAME_RE.test(p);
+}
+
 export function lastWriteSeq(toolCalls: ScoreToolCall[], isWrite: (tc: ScoreToolCall) => boolean): number {
   let seq = -1;
   for (const tc of toolCalls) if (isWrite(tc) && tc.seq > seq) seq = tc.seq;

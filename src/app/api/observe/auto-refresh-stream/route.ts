@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { prisma } from '@/lib/db';
 import { probeAutoRefresh, resolveClaudeSessionFile, type ProbeSession } from '@/lib/ingest/auto-refresh-probe';
 import { isClaudeFormatSession } from '@/lib/shared/session-format';
+import { logWarn } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest | Request) {
       };
 
       // Initial probe on connect — also serves as catch-up on EventSource reconnect.
-      probeAutoRefresh(probeSession, prisma).then(send).catch(() => {});
+      probeAutoRefresh(probeSession, prisma).then(send).catch(e => logWarn('route:observe/auto-refresh-stream', 'probe failed', { error: e instanceof Error ? e.message : String(e) }));
 
       // Primary mechanism: watch the file and re-probe on change (debounced).
       let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest | Request) {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           debounceTimer = null;
-          probeAutoRefresh(probeSession, prisma).then(send).catch(() => {});
+          probeAutoRefresh(probeSession, prisma).then(send).catch(e => logWarn('route:observe/auto-refresh-stream', 'probe failed', { error: e instanceof Error ? e.message : String(e) }));
         }, DEBOUNCE_MS);
       };
 
@@ -91,7 +92,10 @@ export async function GET(request: NextRequest | Request) {
       };
       try {
         watcher = fs.watch(filePath, { persistent: false }, onFileChange);
-        watcher.on('error', cleanup);
+        watcher.on('error', e => {
+          logWarn('route:observe/auto-refresh-stream', '文件监听失效', { taskId: probeSession.taskId, error: e instanceof Error ? e.message : String(e) });
+          cleanup();
+        });
       } catch {
         // fs.watch unavailable — the EventSource will auto-reconnect and the
         // initial probe on reconnect acts as a catch-up.

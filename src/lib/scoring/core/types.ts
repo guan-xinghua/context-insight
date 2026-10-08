@@ -16,6 +16,10 @@ export interface Evidence {
   turnIndex: number | null;
   label: string;
   quote?: string;
+  /** 疑似点人工复核结果：problem = 确认有问题（扣分），fine = 确认没问题（出疑似池） */
+  adj?: 'problem' | 'fine';
+  /** 证据倾向：good = 做得好（加分依据），bad = 问题（扣分依据）——展示分组用，不填为中性 */
+  impact?: 'good' | 'bad';
 }
 
 export interface SubItemResult {
@@ -34,7 +38,16 @@ export interface SubItemResult {
   evidence: Evidence[];
   attribution?: Array<{ label: string; tokens?: number; pct?: number }>;
   note?: string;
+  /** na 归因（覆盖度口径）：absent = 材料客观缺失（评过了，结论是不适用——不进覆盖度）；
+   * gap = 评审缺口（未开启 LLM 评审 / Mate 未给出——拉低覆盖度）。缺省按 note 归类 */
+  naKind?: 'absent' | 'gap';
   error?: { message: string };
+  /** 疑似人工复核态（adjudicate 覆盖层写入）：pending=待确认（先不扣分），problem=确认有问题（扣分），fine=全部排除 */
+  adjState?: 'pending' | 'problem' | 'fine';
+  /** 子项有效分（0-1，展示层「得分/满分」用）：数值分优先，判定型按三态口径折算，扣分制按费率算；聚合不读它 */
+  effScore?: number | null;
+  /** 该子项在维度内的加权占比（仅加权维的计分子项有；展示层「维内 N%」用） */
+  weightInDim?: number;
 }
 
 export interface DimensionResult {
@@ -63,12 +76,22 @@ export interface Scorecard {
     veto: { triggered: boolean; reasons: string[] } | null;
     /** 覆盖度折扣 = 已评项 / 应评项（not-applicable 与 error 都不入分子） */
     coverage: number;
+    /** 未覆盖清单（读时 deriveItemScores 盖章，与 coverage 同口径）：应评子项里 status 非 ok 的「itemId label」串；满覆盖为空数组 */
+    coverageGap?: string[];
     weightsUsed: Record<string, number>;
     /** 口径快照：生效的评分配置 profile（null = 默认口径）；旧缓存卡无此字段按默认显示 */
     profile?: { id: string; name: string } | null;
   };
   dimensions: DimensionResult[];
   judgeCost: { calls: number; tokens: number } | null;
+  /** 最近一次评审盖章：谁评的、评完时刻、耗时。规则层重算与旧缓存卡无此字段（呈现层按「确定性层」显示） */
+  review?: {
+    reviewer: 'llm' | 'mate';
+    /** llm：判卷模型名；mate：claude / opencode */
+    tool?: string;
+    completedAt: string;
+    durationMs?: number;
+  } | null;
   /** 概要：会话身份信息（模型/工具/版本等）——不参与任何评分，跨 session 对比时的参考上下文 */
   context?: {
     models: string[];

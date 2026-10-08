@@ -11,13 +11,15 @@
 // 全部手算值。
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { aggregateCard, aggregateDimension } from '../../src/lib/scoring/core/aggregator';
+import { aggregateCard, aggregateDimension, deriveItemScores } from '../../src/lib/scoring/core/aggregator';
 import type { DimensionDefinition, ScoreItemSchema } from '../../src/lib/scoring/core/schema';
 import type { DimensionResult, SubItemResult } from '../../src/lib/scoring/core/types';
 import { FileScorecardStore } from '../../src/lib/scoring/core/store';
 import { SCORECARD_SCHEMA, type Scorecard } from '../../src/lib/scoring/core/types';
 import { splitShell, hasFlag } from '../../src/lib/scoring/core/shell-parser';
 import { parseTestOutput, isVerifyCommand } from '../../src/lib/scoring/core/test-parser';
+import { buildDigest } from '../../src/lib/scoring/core/assembler/digest';
+import type { ScoreToolCall } from '../../src/lib/scoring/core/assembler/types';
 import { clampToBandScore, parseJudgeJson, validEvidenceTurns, buildBandJudgeAsk, GENERIC_JUDGE_SYSTEM } from '../../src/lib/scoring/core/llm';
 import { positionScore, gradeOf } from '../../src/lib/scoring/core/baseline/service';
 import { buildChatUrl, stripJsonFence } from '../../src/lib/ai/analyzer';
@@ -118,11 +120,27 @@ describe('整卡聚合：否决 + 覆盖度 + 权重归一', () => {
     { dimensionId: 'D4', name: 'D4', english: 'D4', role: 'weighted', status: 'scored', score: 0.5, items: [item('D4.1', { score: 1 }), item('D4.2', { score: 0 })] },
   ];
 
-  it('无否决：总分 = (1×0.35 + 0.5×0.15)/0.5 × 覆盖度 6/7', () => {
+  it('无否决：材料缺失 na（缺少测试运行）不进覆盖度分母 → 覆盖度 1，总分不打折', () => {
     const f = aggregateCard(dims, defs);
     expect(f.veto).toBeNull();
+    expect(f.coverage).toBe(1);
+    expect(f.totalScore).toBe(Math.round(((1 * 0.35 + 0.5 * 0.15) / 0.5) * 100) / 100);
+  });
+
+  it('评审缺口 na（未开启 LLM 评审 / Mate 未给出）拉低覆盖度：6/7 = 0.86', () => {
+    const gapped = dims.map(d => d.dimensionId === 'D3'
+      ? { ...d, items: d.items.map(i => i.itemId === 'D3.cannBench' ? item('D3.cannBench', { status: 'not-applicable', note: '未开启 LLM 评审，无法评判' }) : i) }
+      : d);
+    const f = aggregateCard(gapped, defs);
     expect(f.coverage).toBe(0.86);
     expect(f.totalScore).toBe(Math.round(((1 * 0.35 + 0.5 * 0.15) / 0.5) * 0.86 * 100) / 100);
+  });
+
+  it('na 归因：显式 naKind 优先于 note 文案', () => {
+    const explicit = dims.map(d => d.dimensionId === 'D3'
+      ? { ...d, items: d.items.map(i => i.itemId === 'D3.cannBench' ? item('D3.cannBench', { status: 'not-applicable', note: '缺少改代码后的测试运行，无法评判', naKind: 'gap' }) : i) }
+      : d);
+    expect(aggregateCard(explicit, defs).coverage).toBe(0.86);   // naKind:'gap' 即使 note 是材料缺失
   });
 
   it('否决：D1 未完成 → 一票否决 totalScore 0 + 原因标注（维度分照常出）', () => {
@@ -166,6 +184,31 @@ describe('shell 拆分（自研轻量）', () => {
   });
 });
 
+describe('digest 用户交互小节（提问工具答复可见性）', () => {
+  const tc = (over: Partial<ScoreToolCall>): ScoreToolCall => ({ id: 't', toolName: 'bash', argsJson: null, resultJson: null, state: 'completed', errorType: null, durationMs: 0, turnIndex: 1, isSubagent: false, agentName: null, seq: 1, ...over });
+  const qArgs = JSON.stringify({ questions: [{ question: '本次设计流水线的 autonomy_level（门控档位）？', header: '门控档位', options: [{ label: '3 全自动 (Recommended)' }, { label: '0 全人工' }] }] });
+  const qResult = 'User has answered your questions: "本次设计流水线的 autonomy_level（门控档位）？等级越高，reviewer 通过后越少打断你。"="3 全自动 (Recommended)". You can now continue with the user\'s answers in mind.';
+
+  it('question 调用 → 小节列出问题/选项/用户选择——答复正文里选择排在长引文之后，Turn 列表 200 字截断会把它切掉（现场 §f5fe259d D2.authorization 误判）', () => {
+    const d = buildDigest([], [tc({ toolName: 'question', turnIndex: 5, argsJson: qArgs, resultJson: qResult })], []);
+    expect(d.trajectoryDigest).toContain('## 用户交互');
+    expect(d.trajectoryDigest).toContain('autonomy_level');
+    expect(d.trajectoryDigest).toContain('3 全自动 (Recommended)');
+  });
+  it('超长问题/答复不再整对失配（回归：{1,600} 上限让 D2 授权证据变「(无答复)」静默丢失）', () => {
+    const longQ = '本次变更涉及生产环境，是否授权执行？'.padEnd(800, '详');
+    const longA = '授权，按以下口径执行：'.padEnd(700, '细');
+    const result = `User has answered your questions: "${longQ}"="${longA}". You can now continue.`;
+    const d = buildDigest([], [tc({ toolName: 'question', turnIndex: 7, argsJson: qArgs, resultJson: result })], []);
+    expect(d.trajectoryDigest).toContain('授权，按以下口径执行');
+    expect(d.trajectoryDigest).not.toContain('(无答复)');
+  });
+  it('普通工具不产生该小节；子代理的提问不算主链用户交互', () => {
+    expect(buildDigest([], [tc({ argsJson: '{}', resultJson: 'ok' })], []).trajectoryDigest).not.toContain('## 用户交互');
+    expect(buildDigest([], [tc({ toolName: 'question', isSubagent: true, argsJson: qArgs, resultJson: qResult })], []).trajectoryDigest).not.toContain('## 用户交互');
+  });
+});
+
 describe('测试输出解析（D1.verifiedRun/D3.testResults 共用）', () => {
   it('vitest：1483 passed | 3 skipped', () => {
     expect(parseTestOutput('Test Files  145 passed\n\n Tests  1483 passed | 3 skipped'))
@@ -192,6 +235,69 @@ describe('测试输出解析（D1.verifiedRun/D3.testResults 共用）', () => {
     expect(isVerifyCommand('npm run test')).toBe(true);
     expect(isVerifyCommand('npx vitest run tests/x.test.ts')).toBe(true);
   });
+  it('设计流水线门控：闸门通过 X/Y / 计入验收 X/Y / [PASS][FAIL]', () => {
+    expect(parseTestOutput('=== base kernel branches === 闸门通过 6/6；计入验收 6/6 ==='))
+      .toMatchObject({ passed: 6, failed: 0, framework: 'gate' });
+    expect(parseTestOutput('闸门通过 4/6；计入验收 4/6'))
+      .toMatchObject({ passed: 4, failed: 2, framework: 'gate' });
+    expect(parseTestOutput('[PASS] ORDER  [PASS] BODY  [FAIL] HEADER'))
+      .toMatchObject({ passed: 2, failed: 1, framework: 'gate' });
+  });
+  it('布尔门控（validate_spec.py 形态）：overall: PASS/FAIL 无计数行也能判（现场 §2358 误判不可解析）', () => {
+    expect(parseTestOutput('=== 最终校验 ===\n        msg : kind=\'equals\' 暂不支持机器复核，条目 \'…\' 跳过\n\n=== overall: PASS ===\n=== 退出码 ===\nexit=0'))
+      .toMatchObject({ passed: 1, failed: 0, framework: 'gate' });
+    expect(parseTestOutput('=== overall: FAIL ===')).toMatchObject({ passed: 0, failed: 1, framework: 'gate' });
+    expect(isVerifyCommand('python3 .opencode/skills/ops-spec-gen/scripts/validate_spec.py output/x/spec.yaml')).toBe(true);
+  });
+  it('deriveItemScores 盖章维内占比：加权维计分子项有 weightInDim，组合/按次扣分维与诊断项没有', async () => {
+    const { BUILTIN_DIMENSIONS } = await import('../../src/lib/scoring/definitions');
+    const item = (over: Partial<SubItemResult>): SubItemResult => ({ itemId: 'x', label: 'x', status: 'ok', evidence: [], ...over } as SubItemResult);
+    const card = {
+      dimensions: [
+        { dimensionId: 'D4', name: 'D4', english: 'D4', role: 'weighted', status: 'scored', score: 0.5,
+          items: [item({ itemId: 'D4.tokens', score: 0.8 }), item({ itemId: 'D4.waste', value: '诊断' })] },
+        { dimensionId: 'D1', name: 'D1', english: 'D1', role: 'veto', status: 'scored', score: 0.5,
+          items: [item({ itemId: 'D1.selfReport', verdict: 'incomplete', score: 0.5 })] },
+      ],
+    } as unknown as import('../../src/lib/scoring/core/types').Scorecard;
+    const out = deriveItemScores(card, BUILTIN_DIMENSIONS);
+    const d4 = out.dimensions[0].items;
+    expect(d4.find(i => i.itemId === 'D4.tokens')!.weightInDim).toBe(0.25);
+    expect(d4.find(i => i.itemId === 'D4.waste')!.weightInDim).toBeUndefined();   // 诊断项
+    expect(out.dimensions[1].items[0].weightInDim).toBeUndefined();               // 三态组合维没有逐项权重
+  });
+  it('deriveItemScores 盖章未覆盖清单：评审缺口 na 与 error 列入，材料缺失 na 与诊断项不列（现场 §f4c5b028 97% 看不到哪项）', async () => {
+    const { BUILTIN_DIMENSIONS } = await import('../../src/lib/scoring/definitions');
+    const item = (over: Partial<SubItemResult>): SubItemResult => ({ itemId: 'x', label: 'x', status: 'ok', evidence: [], ...over } as SubItemResult);
+    const mkCard = (flip: (id: string) => Partial<SubItemResult> | null) => ({
+      dimensions: BUILTIN_DIMENSIONS.map(def => ({
+        dimensionId: def.id, name: def.name, english: def.english, role: def.role, status: 'scored',
+        items: def.items.map(i => item({ itemId: i.id, label: i.name, verdict: 'met', ...(flip(i.id) ?? {}) })),
+      })),
+    }) as unknown as import('../../src/lib/scoring/core/types').Scorecard;
+    // 满覆盖 → 空清单
+    expect(deriveItemScores(mkCard(() => null), BUILTIN_DIMENSIONS).framework.coverageGap).toEqual([]);
+    // goalCoverage=Mate 未给出（缺口）+ D3.testResults=缺少测试运行（材料缺失）+ 诊断项 D4.waste 出错 → 只列前者
+    const gap = deriveItemScores(
+      mkCard(id => id === 'D1.goalCoverage'
+        ? { status: 'not-applicable', verdict: undefined, note: 'Mate 评审未给出该子项：…' }
+        : id === 'D3.testResults'
+          ? { status: 'not-applicable', verdict: undefined, note: '缺少改代码后的测试运行，无法评判' }
+          : id === 'D4.waste'
+            ? { status: 'error', verdict: undefined }
+            : null),
+      BUILTIN_DIMENSIONS,
+    ).framework.coverageGap!;
+    expect(gap).toHaveLength(1);
+    expect(gap[0]).toContain('D1.goalCoverage');
+    expect(gap[0]).toContain('目标覆盖对账');
+  });
+  it('check_*.py / gate_lib 是验证命令（D1.verifiedRun/D3.testResults 白名单）', () => {
+    expect(isVerifyCommand('python3 docs/design/check_kernel_branches.py')).toBe(true);
+    expect(isVerifyCommand('python3 check_merge.py')).toBe(true);
+    expect(isVerifyCommand('GATE_LIB_DIR=lib python3 check_ir_substance.py')).toBe(true);
+    expect(isVerifyCommand('python3 gather_refs.py')).toBe(false);
+  });
 });
 
 describe('judge 输出三层约束', () => {
@@ -202,6 +308,13 @@ describe('judge 输出三层约束', () => {
   it('档位外的分数拉回最近档（7.3 → 9-10 档中值）', () => {
     expect(clampToBandScore(7.3, bands)).toBe(10);
     expect(clampToBandScore(1, bands)).toBe(1);
+  });
+  it('整数分不塌缩（7/8/9 各自保留，不再统一拉到档位中点 8）', () => {
+    const five = ['0-2', '3-4', '5-6', '7-8', '9-10'].map(range => ({ range, label: '', description: '' }));
+    expect(clampToBandScore(7, five)).toBe(7);
+    expect(clampToBandScore(8, five)).toBe(8);
+    expect(clampToBandScore(9, five)).toBe(9);
+    expect(clampToBandScore(10, five)).toBe(10);
   });
   it('解析失败返回 null（不猜不重试）', () => {
     expect(parseJudgeJson('不是 JSON')).toBeNull();
@@ -216,7 +329,7 @@ describe('LLM 通道传输层重试（超时 / 空正文）', () => {
   const provider = { baseUrl: 'https://api.example.com/v1', apiKey: 'k', model: 'm' };
   afterEach(() => vi.unstubAllGlobals());
 
-  it('空正文加配额重试成功后正常记账（calls/tokens 只记成功那次）', async () => {
+  it('空正文加配额重试成功后正常记账（calls/tokens 按每次真实消耗累计——重试的响应也花钱）', async () => {
     const bodies: Array<{ max_tokens: number }> = [];
     const responses = [
       { choices: [{ message: { content: '' }, finish_reason: 'length' }] },
@@ -230,9 +343,28 @@ describe('LLM 通道传输层重试（超时 / 空正文）', () => {
     const client = new TrackedLlmClient(provider);
     const r = await client.complete('sys', 'user');
     expect(r.content).toBe('{"score":8}');
-    expect(bodies.map(b => b.max_tokens)).toEqual([4096, 8192]);
-    expect(client.calls).toBe(1);
-    expect(client.tokens).toBe(15);
+    expect(bodies.map(b => b.max_tokens)).toEqual([4096, 16384]);
+    expect(client.calls).toBe(2);
+    expect(client.tokens).toBe(15);   // 首响应无 usage 记 0 token，但 call 计数不丢
+  });
+
+  it('截断正文（finish_reason=length 但有内容）→ 用更大配额重试一次', async () => {
+    const bodies: Array<{ max_tokens: number }> = [];
+    const responses = [
+      { choices: [{ message: { content: '{"reason": "逐步核对：……（被截断' }, finish_reason: 'length' }], usage: { prompt_tokens: 10, completion_tokens: 4096 } },
+      { choices: [{ message: { content: '{"reason":"逐步核对：完整","score":8}' } }], usage: { prompt_tokens: 10, completion_tokens: 50 } },
+    ];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return { ok: true, json: async () => responses[bodies.length - 1] } as unknown as Response;
+    }));
+    const { TrackedLlmClient } = await import('../../src/lib/scoring/core/llm');
+    const client = new TrackedLlmClient(provider);
+    const r = await client.complete('sys', 'user');
+    expect(r.content).toContain('"score":8');
+    expect(bodies.map(b => b.max_tokens)).toEqual([4096, 16384]);
+    expect(client.calls).toBe(2);
+    expect(client.tokens).toBe(4166);   // 截断重试的 10+4096 也计（曾系统性少记）
   });
 
   it('首轮超时 → 重试一次；重试成功则正常返回（并行×3 下网关排队会偶发慢）', async () => {
@@ -258,7 +390,7 @@ describe('LLM 通道传输层重试（超时 / 空正文）', () => {
     await expect(client.complete('sys', 'user')).rejects.toThrow('LLM 调用超时（300s · model=m），重试一次仍超时');
   });
 
-  it('空正文重试（推理吃满配额）首轮 4096 → 8192 成功后正常记账', async () => {
+  it('空正文逐挡加配额（推理吃满配额）4k→16k→32k 全空后如实报错', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       json: async () => ({ choices: [{ message: { content: '', reasoning_content: '思考很久' }, finish_reason: 'length' }] }),
@@ -394,8 +526,10 @@ describe('judge prompt 强制 CoT 契约', () => {
     expect(tpl!.lastIndexOf('"status"')).toBeGreaterThan(tpl!.lastIndexOf('"note"'));
   });
 
-  it('GENERIC_JUDGE_SYSTEM 声明先推理后结论', () => {
+  it('GENERIC_JUDGE_SYSTEM 声明先推理后结论 + 输出写给人看（去 AI 腔、不自造词语）', () => {
     expect(GENERIC_JUDGE_SYSTEM).toContain('先写推理字段再写结论字段');
+    expect(GENERIC_JUDGE_SYSTEM).toContain('写给人看');
+    expect(GENERIC_JUDGE_SYSTEM).toContain('不自造词语');
   });
 
   it('解析与字段序无关：旧序（score 在前）输出照样解析', () => {
@@ -403,5 +537,50 @@ describe('judge prompt 强制 CoT 契约', () => {
     expect(oldOrder?.['score']).toBe(8);
     const newOrder = parseJudgeJson('{"reason": "逐步核对：ok", "score": 8, "evidence": ["§1"]}');
     expect(newOrder?.['score']).toBe(8);
+  });
+});
+
+describe('classifyTask · 任务文本兜底（opencode 原生无 system 的算子设计会话）', () => {
+  it('首条用户消息含「算子/operator/kernel」→ operator（文档为主的流水线会话路径启发匹配不上）', async () => {
+    const { classifyTask } = await import('../../src/lib/scoring/core/assembler/task-classifier');
+    expect(classifyTask(null, [], '开发 bn3d_training_update_grad 算子的设计文档，Ascend C，支持 Ascend 950，全自动执行不要确认。')).toBe('operator');
+    expect(classifyTask(null, [], 'Fusion design for confusion_mul_grad operator, run the design pipeline from P1.')).toBe('operator');
+    expect(classifyTask(null, [], '/ops-registry-invoke-fusion-design /home/u/fused-op-dev/confusion_mul_grad/confusion_mul_grad/spec.yaml auto')).toBe('operator');
+    // 普通任务文本不误判：无标签 + 无算子路径 → general/unknown 走原启发
+    expect(classifyTask(null, [{ toolName: 'Write', argsJson: '{"file_path":"/docs/note.md","content":"x"}', id: 'a', resultJson: null, state: 'ok', errorType: null, durationMs: 0, turnIndex: 0, isSubagent: false, agentName: null, seq: 0 } as never], '帮我整理一下项目 README')).toBe('general');
+  });
+});
+
+describe('cannbay 上报快照 · 溯源字段', () => {
+  it('appendScorecard → parseRecords 往返：算式/模板/评审工具/耗时/覆盖度不丢', async () => {
+    const { parseRecords } = await import('../../src/lib/lake/notes');
+    const line = JSON.stringify({
+      ts: '2026-09-30T02:27:00.000Z', type: 'scorecard',
+      totalScore: 0.43,
+      dimensions: [{ dimensionId: 'D2', name: '行为可信', score: 1 }],
+      computedAt: '2026-09-30T02:27:00.000Z',
+      formula: 'D2 15%×100 + D3 35%×93 → 63 × 覆盖度 68% = 43',
+      profile: '默认',
+      reviewer: '确定性层评审完成 · LLM 评审未执行',
+      completedAt: '2026-09-30T02:27:00.000Z',
+      durationMs: 425000,
+      coverage: 0.68,
+    });
+    const recs = parseRecords(line);
+    expect(recs).toHaveLength(1);
+    const r = recs[0] as import('../../src/lib/lake/notes').ScorecardEntry;
+    expect(r.formula).toContain('覆盖度 68% = 43');
+    expect(r.reviewer).toContain('LLM 评审未执行');
+    expect(r.durationMs).toBe(425000);
+    expect(r.coverage).toBe(0.68);
+    expect(r.profile).toBe('默认');
+  });
+  it('旧格式快照（无新字段）解析不炸、字段缺省', async () => {
+    const { parseRecords } = await import('../../src/lib/lake/notes');
+    const recs = parseRecords(JSON.stringify({ ts: 'x', type: 'scorecard', totalScore: 0.5, dimensions: [], computedAt: 'y' }));
+    expect(recs).toHaveLength(1);
+    const r = recs[0] as import('../../src/lib/lake/notes').ScorecardEntry;
+    expect(r.formula).toBeUndefined();
+    expect(r.coverage).toBeUndefined();
   });
 });

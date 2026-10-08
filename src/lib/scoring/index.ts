@@ -17,7 +17,7 @@ export { runScorecard, SCORER_VERSION, type RunScorecardOptions } from './core/r
 export { scorecardStore, FileScorecardStore, type ScorecardStore, type BaselineFilter } from './core/store';
 export { loadRegistry, type Registry } from './registry';
 export { BUILTIN_DIMENSIONS } from './definitions';
-export { aggregateCard, aggregateDimension, VETO_VERDICTS } from './core/aggregator';
+export { aggregateCard, aggregateDimension, deriveItemScores, itemEffScoreOf, isNaReviewGap, VETO_VERDICTS } from './core/aggregator';
 export { isValidBaseline, positionScore, gradeOf, lookupMetric, displayBaselineValue, type BaselineFile, type BaselineMetric, type BaselineGrade } from './core/baseline/service';
 export { loadSessionBaseline, writeSessionBaseline, ratioScore, ratioGrade, isValidSessionBaseline, sessionBaselinesDir, type SessionBaselineFile } from './core/baseline/session-baseline';
 export { BASELINE_MEASURES } from './core/baseline/measures';

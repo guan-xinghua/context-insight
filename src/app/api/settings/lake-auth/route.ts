@@ -18,6 +18,8 @@ import {
   setStoredCredentials,
 } from '@/lib/lake/auth';
 import { FORBIDDEN_ADDRESS_CHARS } from '@/lib/lake/remote';
+import { withRouteLog } from '@/lib/api-route';
+import { logError, logInfo } from '@/lib/logger';
 
 export const maxDuration = 60;
 
@@ -54,6 +56,7 @@ export async function PUT(request: NextRequest) {
     }
     const verifiedAt = reachable ? new Date().toISOString() : undefined;
     setStoredCredentials(remoteUrl, u, t, verifiedAt);
+    logInfo('route:settings/lake-auth', '凭据已保存', { url: key, username: u, reachable });
     return NextResponse.json({
       ok: true,
       url: key,
@@ -65,22 +68,22 @@ export async function PUT(request: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '保存失败';
+    logError('route:settings/lake-auth', '凭据保存失败', { error: message.slice(0, 200) });
     return NextResponse.json({ error: message.replace(/https:\/\/[^/\s"']+@/g, 'https://<creds>@') }, { status: 500 });
   }
 }
 
-export async function DELETE(request: NextRequest) {
-  try {
-    const body = await request.json().catch(() => ({}));
-    const { url, all } = body as { url?: string; all?: boolean };
-    if (all === true) {
-      return NextResponse.json({ ok: true, had: clearStoredCredentials(undefined) });
-    }
-    const remoteUrl = url?.trim();
-    if (!remoteUrl) return NextResponse.json({ error: '缺少远端地址（清除全部请传 all: true）' }, { status: 400 });
-    return NextResponse.json({ ok: true, had: clearStoredCredentials(remoteUrl) });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '清除失败';
-    return NextResponse.json({ error: message }, { status: 500 });
+export const DELETE = withRouteLog('settings/lake-auth', async (request: NextRequest) => {
+  const body = await request.json().catch(() => ({}));
+  const { url, all } = body as { url?: string; all?: boolean };
+  if (all === true) {
+    const had = clearStoredCredentials(undefined);
+    logInfo('route:settings/lake-auth', '全部凭据已清除', { all: true, had });
+    return NextResponse.json({ ok: true, had });
   }
-}
+  const remoteUrl = url?.trim();
+  if (!remoteUrl) return NextResponse.json({ error: '缺少远端地址（清除全部请传 all: true）' }, { status: 400 });
+  const hadOne = clearStoredCredentials(remoteUrl);
+  logInfo('route:settings/lake-auth', '凭据已清除', { url: remoteUrl, had: hadOne });
+  return NextResponse.json({ ok: true, had: hadOne });
+});

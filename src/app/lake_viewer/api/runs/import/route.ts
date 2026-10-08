@@ -9,25 +9,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { importSession } from '@/app/lake_viewer/_lib/insight-data';
 import { invalidateCaches } from '@/app/lake_viewer/_lib/runs';
+import { withRouteLog } from '@/lib/api-route';
 
 export const maxDuration = 300;
 
-export async function POST(request: NextRequest) {
-  try {
-    const { sid, recording } = await request.json() as { sid?: string; recording?: string };
-    if (!sid) {
-      return NextResponse.json({ error: 'Missing sid' }, { status: 400 });
-    }
-    // recording 缺省按 capture 兼容旧客户端；非法值同样回落（导入侧会因目录
-    // 不存在而 502，无需在此强校验）
-    const result = await importSession(sid, recording === 'native' ? 'native' : 'capture');
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error ?? 'Import failed' }, { status: 502 });
-    }
-    invalidateCaches();
-    return NextResponse.json({ ok: true, sid });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+export const POST = withRouteLog('lake_viewer/api/runs/import', async (request: NextRequest) => {
+  const { sid, recording } = await request.json() as { sid?: string; recording?: string };
+  if (!sid) {
+    return NextResponse.json({ error: 'Missing sid' }, { status: 400 });
   }
-}
+  // recording 缺省按 capture 兼容旧客户端；非法值同样回落（导入侧会因目录
+  // 不存在而 502，无需在此强校验）
+  const result = await importSession(sid, recording === 'native' ? 'native' : 'capture');
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error ?? 'Import failed' }, { status: 502 });
+  }
+  invalidateCaches();
+  return NextResponse.json({ ok: true, sid });
+});

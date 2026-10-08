@@ -7,10 +7,12 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logError } from '@/lib/logger';
 import { prisma } from '@/lib/db';
 import { getContextWindowLimit } from '@/lib/context-window-config';
 import { selectInputContextTurns } from '@/lib/ingest/input-reconstruct';
 import { isContinuationTurn } from '@/lib/shared/command-parser';
+import { wireToolDurations } from '@/lib/tool-timing';
 
 type ToolCallDetail = {
   id: string;
@@ -114,6 +116,12 @@ export async function GET(request: NextRequest) {
     // role/content/tokens/tools/skills and never reads systemOverheadTokens,
     // so the per-subagent findFirst+findMany loop is pure waste there.
     // On a 27-subagent session this drops 28 findFirst + 28 findMany calls.
+    // wire 工具时长同门控：compare 页只用工具名/计数（computeToolStats），
+    // 从不读 durationMs——冷缓存时 wireToolDurations 走 readCaptureBuffer 同步
+    // 解压，大捕获（631MB 级在案）会阻塞事件循环数秒
+    const wireDurations = skipOverhead
+      ? null
+      : wireToolDurations(session.sourcePath, session.taskId, session.framework, session.version);
     const overheadMap = new Map<string, number>();
     if (!skipOverhead) {
       const rootOverhead = await computeSystemOverhead(session.id);
@@ -397,7 +405,9 @@ export async function GET(request: NextRequest) {
           state: tc.state,
           errorType: includeDetail ? (detail.errorType ?? null) : undefined,
           errorMessage: includeDetail ? (detail.errorMessage ?? null) : undefined,
-          durationMs: tc.durationMs,
+          // DB per-call duration 采集侧未回填（全 0）：wire 轮间隙推导覆盖（cpx 捕获）；
+          // 无 wire（原生 opencode）保持 0，Perf 分段退回 token 估算
+          durationMs: tc.durationMs > 0 ? tc.durationMs : (wireDurations?.get(tc.toolCallId) ?? tc.durationMs),
           isSkillRelated: (includeDetail || includeToolDetail) ? (detail.isSkillRelated ?? false) : undefined,
         }
       }),
@@ -485,6 +495,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ items: continuationItems, total: continuationItems.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logError('route:observe/session/turns', '查询失败', { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

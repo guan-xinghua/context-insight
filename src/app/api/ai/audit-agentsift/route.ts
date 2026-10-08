@@ -15,6 +15,7 @@ import { buildStructuredRecords, buildTranscriptArgs } from "@/lib/sift-audit"
 import { resolveScanRoot, scanAgentDirs, resolveAgentMd } from "@/lib/agent-md-scan"
 import { recoverAgentMdFromSystem } from "@/lib/agent-md-session-recover"
 import { makeStreamingAuditResponse } from "@/lib/sift-runner"
+import { logError } from "@/lib/logger"
 
 /**
  * 对当前 session 的某个被 dispatch 的 agent 跑 sift 对账（审"真实执行 vs agent .md 声明"）。
@@ -115,6 +116,7 @@ export async function POST(req: Request) {
       fs.rmSync(tmp, { recursive: true, force: true }),
     )
   } catch (e) {
+    logError("route:ai/audit-agentsift", "准备 agent 对账失败", { error: e instanceof Error ? e.message : String(e) })
     fs.rmSync(tmp, { recursive: true, force: true })
     return NextResponse.json(
       { error: `准备 agent 对账失败：${e instanceof Error ? e.message : String(e)}` },

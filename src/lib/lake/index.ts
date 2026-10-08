@@ -23,6 +23,9 @@ import { exportSessionToClaudeJsonl, xLake } from './export';
 import { readEnvelope, envelopeFields } from '../shared/envelope';
 import { readCaptureText, ensure7z, compressCaptureFile, decompressToPlain } from '@/lib/compression';
 import { importSession } from '@/lib/ingest/data-service';
+import { createLogger } from '@/lib/logger';
+
+const lakeLog = createLogger('lake');
 import type { PrismaClient } from '@prisma/client';
 
 export type { LakeSessionEntry, LakeOverview };
@@ -67,15 +70,27 @@ async function readSessionType(prisma: PrismaLike, rowId: string): Promise<{ fra
 }
 
 export async function importLakeSession(sid: string, prisma: PrismaLike, remote?: LakeRemote, recording: RecordingClass = 'capture') {
-  const mainJsonl = materializeSession(sid, remote, recording);
-  const result = await importSession(mainJsonl, sid, prisma, mainJsonl, 'claude-jsonl');
-  // x_cannbay 补列（docs/lake-schema-spec.md）：核心管线无通道、只存在于
-  // 声明里的列（Turn.ttftMs/temperature/maxTokens/modelId/providerId、
-  // ToolCall.errorType/errorMessage/durationMs/startedAt、Session.framework/
-  // version）在 lake 编排层恢复 —— 核心红线不动。补列/回读都按
-  // result.sessionId（行 id）定位，同 sid 双行不串行
-  await patchXLakeColumns(mainJsonl, result.sessionId, prisma).catch(() => { /* 补列失败不阻塞导入 */ });
-  return { ...result, ...(await readSessionType(prisma, result.sessionId)) };
+  const startedAt = Date.now();
+  const impLog = createLogger('import');
+  impLog.info('lake import start', { sid, recording });
+  try {
+    const mainJsonl = materializeSession(sid, remote, recording);
+    const result = await importSession(mainJsonl, sid, prisma, mainJsonl, 'claude-jsonl');
+    // x_cannbay 补列（docs/lake-schema-spec.md）：核心管线无通道、只存在于
+    // 声明里的列（Turn.ttftMs/temperature/maxTokens/modelId/providerId、
+    // ToolCall.errorType/errorMessage/durationMs/startedAt、Session.framework/
+    // version）在 lake 编排层恢复 —— 核心红线不动。补列/回读都按
+    // result.sessionId（行 id）定位，同 sid 双行不串行
+    await patchXLakeColumns(mainJsonl, result.sessionId, prisma).catch(e => {
+      impLog.warn('x_cannbay 补列失败（不阻塞导入）', { sid, error: e instanceof Error ? e.message : String(e) });
+    });
+    const out = { ...result, ...(await readSessionType(prisma, result.sessionId)) };
+    impLog.info('lake import done', { sid, recording, sessionId: result.sessionId, imported: result.imported, ms: Date.now() - startedAt });
+    return out;
+  } catch (e) {
+    impLog.error('lake import failed', { sid, recording, error: e instanceof Error ? e.message : String(e), ms: Date.now() - startedAt });
+    throw e;
+  }
 }
 
 interface DbTurnPayload {
@@ -436,7 +451,7 @@ export async function uploadLakeSession(
   framework?: string | null,
 ): Promise<UploadResult & { sid: string }> {
   if (!/^[\w.-]+$/.test(taskId)) throw new Error(`Invalid session id: "${taskId}"`);
-  const { error: submitterError } = extractSubmitter(description);
+  const { submitter, error: submitterError } = extractSubmitter(description);
   if (submitterError) throw new Error(submitterError);
   const rem = remote ?? defaultLakeRemote();
   // https 远端推送凭据前置检查（本地 bare 测试远端不受影响）：无凭据直接
@@ -470,7 +485,9 @@ export async function uploadLakeSession(
     // 为准）。必须放在空行后的 body：git %s 会把 subject 折叠成单行，混进
     // subject 会污染 parseCommitSubject 的 description 提取
     const commitMessage = description!.trim() + (categoryValue ? `\n\n范式: ${categoryValue}${baseline ? '（baseline）' : ''}` : '');
+    const tUp = Date.now();
     const result = await uploadFolder(stagingDir, sid, commitMessage, rem, categoryValue, baseline, recording);
+    lakeLog.info('upload done', { sid, recording, category: categoryValue, baseline: baseline ?? false, submitter, unchanged: result.unchanged, ms: Date.now() - tUp });
     return { ...result, sid };
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });

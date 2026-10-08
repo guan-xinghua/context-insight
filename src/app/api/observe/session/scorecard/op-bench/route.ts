@@ -10,6 +10,7 @@
 // 评分时折算 0-10 进 D3「CANN-Bench 评分」子项。GET 读当前值，POST 写入。
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logError, logInfo } from '@/lib/logger';
 import { prisma } from '@/lib/db';
 import { loadSessionOpBench, writeSessionOpBench, type SessionOpBenchFile } from '@/lib/scoring/core/op-bench/session-op-bench';
 
@@ -30,6 +31,7 @@ export async function GET(request: NextRequest) {
     const bench = await loadSessionOpBench(sessionId);
     return NextResponse.json({ score: bench?.score ?? null, note: bench?.note ?? null, filledAt: bench?.filledAt ?? null });
   } catch (e) {
+    logError('route:observe/session/scorecard/op-bench', 'op-bench 失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'internal error' }, { status: 500 });
   }
 }
@@ -53,8 +55,10 @@ export async function POST(request: NextRequest) {
       filledAt: new Date().toISOString(),
     };
     const written = await writeSessionOpBench(file);
+    logInfo('route:observe/session/scorecard/op-bench', 'CANN-Bench 填报', { taskId: sessionId, score });
     return NextResponse.json({ ok: true, score, file: written });
   } catch (e) {
+    logError('route:observe/session/scorecard/op-bench', 'op-bench 失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'internal error' }, { status: 500 });
   }
 }

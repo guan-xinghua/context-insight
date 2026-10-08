@@ -48,6 +48,18 @@ export default function SettingsPage() {
   const [branchLoading, setBranchLoading] = useState(false)
   const [branchError, setBranchError] = useState<string | null>(null)
 
+  // 运行日志配置块（logger-config.json 的 UI 面）：client 组件绝不 import
+  // logger（node:fs 依赖），一律走 /api/settings/logger-config
+  const [logEnabled, setLogEnabled] = useState(true)
+  const [logLevel, setLogLevel] = useState<"debug" | "info" | "warn" | "error">("info")
+  const [logFile, setLogFile] = useState(true)
+  const [logStdout, setLogStdout] = useState(true)
+  const [logSavedFlag, setLogSavedFlag] = useState(false)
+  const [logHydrated, setLogHydrated] = useState(false)
+  const [logEnvOverrides, setLogEnvOverrides] = useState<string[]>([])
+  const [logDir, setLogDir] = useState<string | null>(null)
+  const [logHint, setLogHint] = useState<string | null>(null)
+
   useEffect(() => {
     // 渲染期零读 localStorage（hydration 契约，同 v1.84 AIProviderConfigPanel）。
     // 单源架构：服务端 lake-config.json 为准（全机生效）；未配置时用 legacy
@@ -86,6 +98,23 @@ export default function SettingsPage() {
         setToken(legacy.token)
       }
       setHydrated(true)
+    })()
+  }, [])
+
+  // 运行日志配置回填（缺省 = 全默认：开 / info / 双开）
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings/logger-config")
+        const data = await res.json() as { enabled?: boolean; level?: string; file?: boolean; stdout?: boolean; logDir?: string; envOverrides?: string[] }
+        if (typeof data.enabled === "boolean") setLogEnabled(data.enabled)
+        if (data.level === "debug" || data.level === "info" || data.level === "warn" || data.level === "error") setLogLevel(data.level)
+        if (typeof data.file === "boolean") setLogFile(data.file)
+        if (typeof data.stdout === "boolean") setLogStdout(data.stdout)
+        if (typeof data.logDir === "string" && data.logDir) setLogDir(data.logDir)
+        if (Array.isArray(data.envOverrides)) setLogEnvOverrides(data.envOverrides)
+      } catch { /* 读取失败按默认渲染，不阻塞页面 */ }
+      setLogHydrated(true)
     })()
   }, [])
 
@@ -295,6 +324,45 @@ export default function SettingsPage() {
     setBranchError(null)
   }
 
+  function logDirty() {
+    setLogSavedFlag(false)
+  }
+
+  async function handleLogSave() {
+    setLogHint(null)
+    try {
+      const res = await fetch("/api/settings/logger-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: logEnabled, level: logLevel, file: logFile, stdout: logStdout }),
+      })
+      if (res.ok) {
+        setLogSavedFlag(true)
+      } else {
+        const data = await res.json().catch(() => ({})) as { error?: string }
+        setLogHint(`保存失败：${data.error ?? res.status}`)
+      }
+    } catch (e) {
+      setLogHint(`保存失败：${e instanceof Error ? e.message : "网络错误"}`)
+    }
+  }
+
+  async function handleLogClear() {
+    setLogHint(null)
+    try {
+      const res = await fetch("/api/settings/logger-config", { method: "DELETE" })
+      if (!res.ok) throw new Error(String((await res.json().catch(() => ({}))).error ?? res.status))
+      setLogEnabled(true)
+      setLogLevel("info")
+      setLogFile(true)
+      setLogStdout(true)
+      setLogSavedFlag(false)
+    } catch (e) {
+      // DELETE 失败不重置本地态——UI 显示默认而服务端仍是旧值会造成脱节
+      setLogHint(`恢复默认失败：${e instanceof Error ? e.message : "网络错误"}`)
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <main className="flex w-full max-w-3xl flex-col gap-6 px-6 py-8 mx-auto">
@@ -468,6 +536,73 @@ export default function SettingsPage() {
               {savedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
             </div>
               <p className="text-xs text-muted-foreground">凭据保存在本机服务端（~/.cannbot-insight/lake-auth.json，权限 0600），cpx 与 insight 上传/下载共用同一份；地址/分支/目录偏好同时存浏览器本地与服务端（~/.cannbot-insight/lake-config.json）——viewer 与跨浏览器共享同一配置。数据仓默认需凭据推送（需仓主将你的账号加为协作者）。</p>
+          </CardContent>
+        </Card>
+
+        <div className="h-px bg-border" />
+
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">运行日志</h2>
+          <p className="text-xs text-muted-foreground">
+            服务端运行过程日志（导入管线 / 数据之湖同步 / API 错误），按天滚动落盘于 ~/.cannbot-insight/logs/ 并同时输出到启动终端。保存后即时生效，无需重启；环境变量（CANNBOT_LOG*）优先于此处设置。
+          </p>
+        </div>
+        <Card>
+          <CardContent className="py-3 space-y-3">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">启用日志</span>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant={logEnabled ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogEnabled(true); logDirty() }}>开</Button>
+                  <Button size="sm" variant={!logEnabled ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogEnabled(false); logDirty() }}>关</Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">日志级别</span>
+                <div className="flex items-center gap-1">
+                  {(["debug", "info", "warn", "error"] as const).map(lv => (
+                    <Button key={lv} size="sm" variant={logLevel === lv ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogLevel(lv); logDirty() }}>
+                      {lv === "debug" ? "Debug" : lv === "info" ? "Info" : lv === "warn" ? "Warn" : "Error"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">写入文件</span>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant={logFile ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogFile(true); logDirty() }}>开</Button>
+                  <Button size="sm" variant={!logFile ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogFile(false); logDirty() }}>关</Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">输出到屏幕</span>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant={logStdout ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogStdout(true); logDirty() }}>开</Button>
+                  <Button size="sm" variant={!logStdout ? "default" : "outline"} className="h-6 px-2 text-xs" disabled={!logHydrated} onClick={() => { setLogStdout(false); logDirty() }}>关</Button>
+                </div>
+              </div>
+              {logDir && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground w-16 shrink-0">日志位置</span>
+                  <code className="text-xs text-muted-foreground break-all select-text">{logDir}/insight-&lt;日期&gt;.log</code>
+                </div>
+              )}
+              {logEnvOverrides.length > 0 && (
+                <p className="text-xs text-red-600 pl-[72px]">环境变量 {logEnvOverrides.join("、")} 正在覆盖此处设置（改动部署环境变量后本页设置才会生效）。</p>
+              )}
+              <p className="text-xs text-muted-foreground pl-[72px]">也可用环境变量配置（优先于此页）：<code>CANNBOT_LOG</code> 总开关（0/off 关）、<code>CANNBOT_LOG_LEVEL</code> 级别、<code>CANNBOT_LOG_FILE</code> 写文件、<code>CANNBOT_LOG_STDOUT</code> 输出到屏幕、<code>CANNBOT_LOG_DIR</code> 日志目录——置 0/off 即关对应通道。</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="text-xs" onClick={handleLogSave} disabled={!logHydrated}>
+                保存配置
+              </Button>
+              <Button size="sm" variant="ghost" className="text-xs" onClick={handleLogClear} disabled={!logHydrated}>
+                恢复默认值
+              </Button>
+              {logSavedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
+              {logHint && <span className="text-xs text-red-600 break-all">{logHint}</span>}
+            </div>
+            <p className="text-xs text-muted-foreground">配置存于本机服务端（~/.cannbot-insight/logger-config.json）；默认开（Info 级、文件与终端双输出）。</p>
           </CardContent>
         </Card>
       </main>

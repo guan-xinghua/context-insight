@@ -11,36 +11,60 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Node.js version check (>= 20.0.0 required; v18.19.x fails with better-sqlite3 / Prisma 6)
-NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])" 2>/dev/null || echo "0")
-if [ "$NODE_MAJOR" -lt 20 ]; then
+# 启动器统一日志：与 TS 侧 logger 同款格式 [time][level][module]:message。
+# 屏幕恒显（启动器 UX 不受日志开关影响）；同时追加统一日志文件
+# （~/.cannbot-insight/logs 或 CANNBOT_LOG_DIR），env CANNBOT_LOG /
+# CANNBOT_LOG_FILE 置 0/off/false/no 时不落文件（与运行期同语义）
+LAKE_LOG_DIR="${CANNBOT_LOG_DIR:-$HOME/.cannbot-insight/logs}"
+# %3N 是 GNU 扩展：BSD/macOS date 输出字面 '3N'，探测一次决定带不带毫秒
+SLOG_MS=""
+[ "$(date -u +%3N 2>/dev/null)" != "3N" ] && SLOG_MS=".%3N"
+# off 判定（trim + 大小写归一，与 TS 侧 OFF_RE 同语义）
+slog_is_off() {
+  case "$(printf '%s' "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in
+    0|off|false|no) return 0 ;;
+  esac
+  return 1
+}
+slog() { # level module message
+  local line="[$(date -u +%Y-%m-%dT%H:%M:%S${SLOG_MS}Z)][$1][$2]:$3"
+  # WARN/ERROR 走 stderr（与 TS 侧 console.error 同通道），INFO 走 stdout
+  if [ "$1" = "WARN" ] || [ "$1" = "ERROR" ]; then echo "$line" >&2; else echo "$line"; fi
+  if slog_is_off "${CANNBOT_LOG:-}" || slog_is_off "${CANNBOT_LOG_FILE:-}"; then return 0; fi
+  mkdir -p "$LAKE_LOG_DIR" 2>/dev/null || return 0
+  echo "$line" >> "$LAKE_LOG_DIR/insight-$(date -u +%F).log" 2>/dev/null || true
+}
+
+# Node.js version check (>= 22.12.0 required; better-sqlite3@13 / commander@14 need Node 22+)
+NODE_NUM=$(node -e "const [M,m]=process.versions.node.split('.').map(Number);console.log(M*100+(m||0))" 2>/dev/null || echo "0")
+if [ "$NODE_NUM" -lt 2212 ]; then
   NODE_VERSION=$(node -v 2>/dev/null || echo "unknown")
-  echo "[setup] Node.js $NODE_VERSION is not supported. Requires >= 20.0.0." >&2
-  echo "[setup] v18.19.x fails to install better-sqlite3 and Prisma 6 native modules." >&2
+  slog WARN setup "Node.js $NODE_VERSION is not supported. Requires >= 22.12.0." >&2
+  slog WARN setup "better-sqlite3@13 needs Node >= 22; older versions segfault at runtime." >&2
 
   # Try auto-switch via nvm if available
   if command -v nvm &>/dev/null || [ -s "$HOME/.nvm/nvm.sh" ]; then
     [ -s "$HOME/.nvm/nvm.sh" ] && source "$HOME/.nvm/nvm.sh"
-    NVM_LTS=$(nvm ls-remote --lts=20 2>/dev/null | tail -1 | awk '{print $1}')
+    NVM_LTS=$(nvm ls-remote --lts=22 2>/dev/null | tail -1 | awk '{print $1}')
     if [ -n "$NVM_LTS" ]; then
-      echo "[setup] Found nvm — installing Node.js $NVM_LTS..."
+      slog INFO setup "Found nvm — installing Node.js $NVM_LTS..."
       nvm install "$NVM_LTS" && nvm use "$NVM_LTS"
-      NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])")
-      if [ "$NODE_MAJOR" -ge 20 ]; then
-        echo "[setup] Switched to Node.js $(node -v) ✓"
+      NODE_NUM=$(node -e "const [M,m]=process.versions.node.split('.').map(Number);console.log(M*100+(m||0))")
+      if [ "$NODE_NUM" -ge 2212 ]; then
+        slog INFO setup "Switched to Node.js $(node -v) ✓"
       else
-        echo "[setup] nvm install failed, please run: nvm install 20 && nvm use 20" >&2
+        slog WARN setup "nvm install failed, please run: nvm install 22 && nvm use 22" >&2
         exit 1
       fi
     else
-      echo "[setup] nvm found but no Node 20 LTS available. Run: nvm install 20" >&2
+      slog WARN setup "nvm found but no Node 22 LTS available. Run: nvm install 22" >&2
       exit 1
     fi
   else
-    echo "[setup] No nvm detected. Quick fix:" >&2
-    echo "[setup]   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash" >&2
-    echo "[setup]   source ~/.nvm/nvm.sh && nvm install 20 && nvm use 20" >&2
-    echo "[setup] Or install Node 20+ directly: https://nodejs.org" >&2
+    slog WARN setup "No nvm detected. Quick fix:" >&2
+    slog WARN setup "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash" >&2
+    slog WARN setup "  source ~/.nvm/nvm.sh && nvm install 22 && nvm use 22" >&2
+    slog WARN setup "Or install Node 22+ directly: https://nodejs.org" >&2
     exit 1
   fi
 fi
@@ -76,7 +100,7 @@ if [ "$CLI" = true ]; then
     if [ "$CLI_CMD" = "$cmd" ]; then valid=true; break; fi
   done
   if [ "$valid" = false ]; then
-    echo "[start] ERROR: Invalid CLI command '$CLI_CMD'. Allowed: $ALLOWED_CLI_COMMANDS" >&2
+    slog WARN start "ERROR: Invalid CLI command '$CLI_CMD'. Allowed: $ALLOWED_CLI_COMMANDS" >&2
     exit 1
   fi
 fi
@@ -94,15 +118,15 @@ install_deps_if_needed() {
     deps_ready=true
   fi
   if [ "$UPDATE" = true ] || [ "$deps_ready" = false ]; then
-    echo "[setup] Installing dependencies..."
+    slog INFO setup "Installing dependencies..."
     if npm install; then
       return 0
     fi
     if [ "$deps_ready" = false ]; then
-      echo "[setup] npm install failed — deps incomplete, build would fail (Module not found). Check network/registry or run: npm ci" >&2
+      slog WARN setup "npm install failed — deps incomplete, build would fail (Module not found). Check network/registry or run: npm ci" >&2
       return 1
     fi
-    echo "[setup] npm install failed (non-fatal — existing deps still usable)" >&2
+    slog WARN setup "npm install failed (non-fatal — existing deps still usable)" >&2
   fi
   return 0
 }
@@ -119,9 +143,9 @@ if [ -f "$PROXY_INSTALL" ]; then
   mkdir -p "$SCRIPT_DIR/tmp"
   PROXY_LOG="$SCRIPT_DIR/tmp/cpx-install.log"
   if bash "$PROXY_INSTALL" "${PROXY_INSTALL_ARGS[@]}" > "$PROXY_LOG" 2>&1; then
-    echo "[setup] cpx ready"
+    slog INFO setup "cpx ready"
   else
-    echo "[setup] proxy install failed (non-fatal):"
+    slog WARN setup "proxy install failed (non-fatal):"
     tail -n 20 "$PROXY_LOG"
   fi
 fi
@@ -132,33 +156,33 @@ fi
 # runtime. Auto-rebuild so the same script works across Node versions.
 if [ -d "node_modules/better-sqlite3" ]; then
   if ! node -e "require('better-sqlite3')" 2>/dev/null; then
-    echo "[setup] better-sqlite3 native module mismatched for Node $(node -v) — rebuilding..."
+    slog WARN setup "better-sqlite3 native module mismatched for Node $(node -v) — rebuilding..."
     npm rebuild better-sqlite3
     if ! node -e "require('better-sqlite3')" 2>/dev/null; then
-      echo "[setup] better-sqlite3 rebuild failed. If build tools are missing, install them or run: npm ci" >&2
+      slog WARN setup "better-sqlite3 rebuild failed. If build tools are missing, install them or run: npm ci" >&2
       exit 1
     fi
-    echo "[setup] better-sqlite3 rebuilt for Node $(node -v) ✓"
+    slog INFO setup "better-sqlite3 rebuilt for Node $(node -v) ✓"
   fi
 fi
 
 if [ "$FRESH" = true ]; then
-  echo "[setup] Clearing .next cache for fresh build..."
+  slog INFO setup "Clearing .next cache for fresh build..."
   rm -rf .next
 fi
 
 # Ensure .env exists with DATABASE_URL
 if [ ! -f ".env" ]; then
-  echo "[setup] Creating .env with DATABASE_URL..."
+  slog INFO setup "Creating .env with DATABASE_URL..."
   echo 'DATABASE_URL="file:./dev.db"' > .env
 fi
 
 # Advanced tabs toggle (subagents, interactions, AI workflow)
 export NEXT_PUBLIC_SHOW_ADVANCED_TABS="${ADVANCED}"
-[ "$ADVANCED" = true ] && echo "[setup] Advanced tabs enabled"
+[ "$ADVANCED" = true ] && slog INFO setup "Advanced tabs enabled"
 
 if [ "$UPDATE" = true ] || [ ! -f "prisma/dev.db" ]; then
-  echo "[setup] Running Prisma migration..."
+  slog INFO setup "Running Prisma migration..."
   npx prisma migrate dev --name init
 fi
 
@@ -167,7 +191,7 @@ LOCK_FILE=".next/dev/lock"
 if [ -f "$LOCK_FILE" ]; then
   OLD_PID=$(python3 -c "import json; print(json.load(open('$LOCK_FILE'))['pid'])" 2>/dev/null || cat "$LOCK_FILE" | grep -o '"pid":[0-9]*' | grep -o '[0-9]*')
   if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-    echo "[start] Stopping existing dev server (PID $OLD_PID)..."
+    slog INFO start "Stopping existing dev server (PID $OLD_PID)..."
     kill "$OLD_PID" 2>/dev/null || true
     sleep 2
   fi
@@ -217,9 +241,9 @@ ensure_base_port_free() {
       local holder_pid holder_cmd
       holder_pid=$(port_pid "$BASE_PORT")
       holder_cmd=$(ps -o command= -p "$holder_pid" 2>/dev/null || echo "unknown (may have exited, port in TIME_WAIT)")
-      echo "[start] ERROR: port $BASE_PORT still occupied after ${waited}s." >&2
-      echo "[start]   held by PID ${holder_pid}: ${holder_cmd}" >&2
-      echo "[start] Single-instance mode does not port-drift. Kill it (kill ${holder_pid}) or change BASE_PORT." >&2
+      slog WARN start "ERROR: port $BASE_PORT still occupied after ${waited}s." >&2
+      slog WARN start "  held by PID ${holder_pid}: ${holder_cmd}" >&2
+      slog WARN start "Single-instance mode does not port-drift. Kill it (kill ${holder_pid}) or change BASE_PORT." >&2
       exit 1
     fi
     sleep 0.5
@@ -276,7 +300,7 @@ kill_all_insight() {
     fi
   done
   [ -z "$pids" ] && return 0
-  echo "[start] Stopping old instances (PID$pids)"
+  slog INFO start "Stopping old instances (PID$pids)"
   for pid in $pids; do
     kill "$pid" 2>/dev/null || true
     killed=1
@@ -289,7 +313,7 @@ kill_all_insight() {
   done
   for pid in $pids; do
     if kill -0 "$pid" 2>/dev/null; then
-      echo "[start] Force killing PID $pid (ignored SIGTERM)"
+      slog INFO start "Force killing PID $pid (ignored SIGTERM)"
       kill -9 "$pid" 2>/dev/null || true
       killed=1
     fi
@@ -325,19 +349,19 @@ if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
     export CANNBOT_AGENT_URL="http://localhost:$AGENT_PORT"
     for i in $(seq 1 10); do
       if curl -s "http://localhost:$AGENT_PORT/health" > /dev/null 2>&1; then
-        echo "[start] smart-agent ready (port $AGENT_PORT)"
+        slog INFO start "smart-agent ready (port $AGENT_PORT)"
         break
       fi
       sleep 0.5
     done
   else
-    echo "[start] smart-agent skipped (no free candidate port in $((BASE_PORT + 1))-$((BASE_PORT + 3)) after avoiding PORT=$PORT)"
+    slog WARN start "smart-agent skipped (no free candidate port in $((BASE_PORT + 1))-$((BASE_PORT + 3)) after avoiding PORT=$PORT)"
   fi
 fi
 
 cleanup() {
   if [ -n "$AGENT_PID" ] && kill -0 "$AGENT_PID" 2>/dev/null; then
-    echo "[start] Stopping smart-agent (PID $AGENT_PID)..."
+    slog INFO start "Stopping smart-agent (PID $AGENT_PID)..."
     kill "$AGENT_PID" 2>/dev/null || true
   fi
 }
@@ -345,7 +369,7 @@ trap cleanup EXIT INT TERM
 
 # 端口已由上方 ensure_base_port_free 定死为 BASE_PORT（单实例不漂移）；
 # smart-agent 端口由 pick 脚本避让 PORT 自选。
-echo "[start] Launching on port $PORT..."
+slog INFO start "Launching on port $PORT..."
 
 # 生产模式（默认）：next build + next start。dev 模式对 API 路由按需编译——
 # "某个 turn 首次点击数秒"的主因即此；生产模式启动时一次性构建，请求零编译。
@@ -361,25 +385,25 @@ if [ "$PROD" = true ] && [ "$CLI" != true ]; then
     STALE=$(find src prisma public package.json next.config.ts tsconfig.json -newer .next/BUILD_ID ! -path "public/export-view.js" -print -quit 2>/dev/null || true)
     if [ -z "$STALE" ]; then
       NEED_BUILD=false
-      echo "[start] Build cached — skip"
+      slog INFO start "Build cached — skip"
     fi
   fi
   if [ "$NEED_BUILD" = true ]; then
     mkdir -p "$SCRIPT_DIR/tmp"
     BUILD_LOG="$SCRIPT_DIR/tmp/next-build.log"
     if ! npm run build > "$BUILD_LOG" 2>&1; then
-      echo "[start] ERROR: build failed — tail of $BUILD_LOG:" >&2
+      slog WARN start "ERROR: build failed — tail of $BUILD_LOG:" >&2
       tail -n 40 "$BUILD_LOG" >&2
       exit 1
     fi
     COMPILED=$(grep -o 'Compiled successfully in [0-9.]*m\?s' "$BUILD_LOG" | head -1 | sed 's/Compiled successfully in //')
-    echo "[start] Build OK${COMPILED:+ ($COMPILED)}"
+    slog INFO start "Build OK${COMPILED:+ ($COMPILED)}"
   fi
   NEXT_CMD="start"
 fi
 
 # Build the embedded export-view bundle (self-contained interactive HTML export)
-npm run build:export-view >/dev/null 2>&1 || echo "[start] export-view build failed — HTML export disabled"
+npm run build:export-view >/dev/null 2>&1 || slog WARN start "export-view build failed — HTML export disabled"
 
 if [ "$CLI" = true ]; then
   SERVER_URL="http://localhost:$PORT"
@@ -389,28 +413,31 @@ if [ "$CLI" = true ]; then
   npx next $NEXT_CMD -H 127.0.0.1 --port $PORT > "$SCRIPT_DIR/tmp/next-$NEXT_CMD.log" 2>&1 &
   BACKEND_PID=$!
   # Wait for backend to be ready
-  echo "[start] Waiting for backend (port $PORT)..."
+  slog INFO start "Waiting for backend (port $PORT)..."
   for i in $(seq 1 60); do
     if curl -s "$SERVER_URL/api/observe/data?pageSize=1" > /dev/null 2>&1; then
-      echo "[start] Backend ready (port $PORT)"
+      slog INFO start "Backend ready (port $PORT)"
       break
     fi
     sleep 1
   done
 
-  echo "[start] Launching CLI: $CLI_CMD"
+  slog INFO start "Launching CLI: $CLI_CMD"
   npx tsx src/cli/index.ts -- "$CLI_CMD" --server "$SERVER_URL"
   kill $BACKEND_PID 2>/dev/null || true
-  echo "[start] CLI exited, backend stopped"
+  slog INFO start "CLI exited, backend stopped"
 else
-  npx next $NEXT_CMD -H 127.0.0.1 --port $PORT > "$SCRIPT_DIR/tmp/next-$NEXT_CMD.log" 2>&1 &
+  # 服务端输出直接上屏（终端实时看 next 自身输出与统一日志的 stdout 通道）；
+  # 持久化由统一日志文件通道承担（~/.cannbot-insight/logs/），tmp/next-*.log
+  # 不再留服务期副本（用户选择：文件日志已有，屏幕直出即可）
+  npx next $NEXT_CMD -H 127.0.0.1 --port $PORT 2>&1 &
   NEXT_PID=$!
   if [ "$NEXT_CMD" = "start" ]; then echo "$NEXT_PID" > "$PROD_PID_FILE"; fi
 
-  echo "[start] Waiting for server..."
+  slog INFO start "Waiting for server..."
   for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
-      echo "[start] Server ready (port $PORT)"
+      slog INFO start "Server ready (port $PORT)"
       # WSL: use Windows cmd.exe to open browser
       if grep -qi microsoft /proc/version 2>/dev/null && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
         /mnt/c/Windows/System32/cmd.exe /c start "http://localhost:$PORT" 2>/dev/null || true
@@ -421,7 +448,7 @@ else
       elif [ -n "$DISPLAY" ] && command -v sensible-browser > /dev/null 2>&1; then
         sensible-browser "http://localhost:$PORT" 2>/dev/null || true
       else
-        echo "[start] No graphical session — open in your local browser: http://localhost:$PORT"
+        slog INFO start "No graphical session — open in your local browser: http://localhost:$PORT"
       fi
       break
     fi

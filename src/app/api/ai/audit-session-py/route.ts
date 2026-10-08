@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db"
 import { exportSessionToMarkdown } from "@/lib/export/markdown-exporter"
 import { buildAgentIO } from "@/lib/export/agent-io-export"
 import { isSafeTaskId } from "@/lib/task-id"
+import { logError, logInfo } from '@/lib/logger';
 
 const PYTHON_AGENT_URL = process.env.CANNBOT_AGENT_URL ?? "http://localhost:21026"
 
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing provider config" }, { status: 400 })
   }
 
+  logInfo("route:ai/audit-session-py", "分析开始", { taskId, mode: mode ?? "agent" })
   // v2/v3 用 session-trajectory-analyse.md；v4 的 prompt 由 Python 自载 prompts/audit-v4-*.md
   const promptPath = path.resolve(process.cwd(), "prompts/session-trajectory-analyse.md")
   const promptMd = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, "utf-8") : ""
@@ -35,7 +37,7 @@ export async function POST(req: Request) {
   try {
     const t0 = Date.now()
     trajectoryText = await exportSessionToMarkdown(taskId, prisma, framework)
-    console.log(`[audit-py] exportSessionToMarkdown ${Date.now() - t0}ms (${(trajectoryText.length / 1024).toFixed(0)}KB)`)
+    logInfo("audit-py", "exportSessionToMarkdown", { ms: Date.now() - t0, kb: Math.round(trajectoryText.length / 1024) })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "MD 组装失败" }, { status: 500 })
   }
@@ -47,7 +49,7 @@ export async function POST(req: Request) {
       const t0 = Date.now()
       agentIo = await buildAgentIO(taskId, prisma, framework)
       const agentCount = Array.isArray((agentIo as { agents?: unknown[] } | null)?.agents) ? (agentIo as { agents: unknown[] }).agents.length : 0
-      console.log(`[audit-py] buildAgentIO ${Date.now() - t0}ms (${agentCount} agents)`)
+      logInfo("audit-py", "buildAgentIO", { ms: Date.now() - t0, agents: agentCount })
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "agent-IO 提取失败" }, { status: 500 })
     }
@@ -67,10 +69,11 @@ export async function POST(req: Request) {
       }),
       signal: AbortSignal.timeout(1800000),
     })
-    console.log(`[audit-py] upstream fetch ${Date.now() - t0}ms (status ${upstream.status})`)
+    logInfo("audit-py", "upstream fetch", { ms: Date.now() - t0, status: upstream.status })
   } catch (e) {
     const cause = (e as { cause?: { code?: string } })?.cause?.code
     const msg = e instanceof Error ? e.message : "unknown error"
+    logError("route:ai/audit-session-py", "上游不可达", { taskId, error: msg.slice(0, 200) })
     return NextResponse.json({
       error: `Python 分析后端（${PYTHON_AGENT_URL}）不可达：${msg}${cause ? `（${cause}）` : ""}。Audit v2/v3/v4 依赖本机 Python 后端（smart-agent，默认 :21026）：未随主服务启动（python3 缺失或启动失败）、正忙于上一次生成，或地址被 CANNBOT_AGENT_URL 覆盖不符。排查：启动服务的终端里有 [audit-py]/smart-agent 日志；连续失败请重启 ./start.sh（会拉起 smart-agent）。`,
     }, { status: 502 })

@@ -11,6 +11,7 @@
 // 度量提取与评分同一组函数（core/baseline/measures），设基线时怎么量、评分时就怎么量。
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logError, logInfo } from '@/lib/logger';
 import { prisma } from '@/lib/db';
 import { assembleInput } from '@/lib/scoring/core/assembler';
 import { BASELINE_MEASURES } from '@/lib/scoring/core/baseline/measures';
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       },
     };
     const written = await writeSessionBaseline(file);
+    logInfo('route:observe/session/scorecard/baseline', '基线已写入', { taskId: file.sessionId, taskType: file.taskType, metricsCount: Object.keys(metrics).length });
     return NextResponse.json({
       ok: true,
       taskType: file.taskType,
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
       file: written,
     });
   } catch (e) {
+    logError('route:observe/session/scorecard/baseline', '基线操作失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'internal error' }, { status: 500 });
   }
 }

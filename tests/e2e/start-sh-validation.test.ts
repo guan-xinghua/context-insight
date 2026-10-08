@@ -18,6 +18,13 @@ const START_SH = path.join(PROJECT_ROOT, 'start.sh');
 
 const ALLOWED_COMMANDS = ['tui', 'sessions', 'session', 'turn', 'search', 'compare', 'stats', 'import', 'delete', 'config'];
 
+// 单函数提取执行的沙箱依赖：install_deps_if_needed / ensure_base_port_free
+// 内部用 slog 输出诊断，提取时必须一并带上（提取纪律：helper 同步提取）
+const SLOG_FNS = [
+  'sed -n \'/^slog_is_off() {/,/^}/p\'',
+  'sed -n \'/^slog() {/,/^}/p\'',
+].map(cmd => execSync(`${cmd} ${JSON.stringify(START_SH)}`, { encoding: 'utf8' })).join('\n');
+
 function isValidCliCmd(input: string): boolean {
   if (!input) return false;
   return ALLOWED_COMMANDS.includes(input);
@@ -162,6 +169,8 @@ describe('start.sh 依赖实装守卫（旧 node_modules × 新依赖声明 → 
         { encoding: 'utf8' },
       );
       expect(fn).toContain('npm ls');
+      // fn.sh 追加 slog 基础设施（install_deps_if_needed 内部用它输出诊断）
+      fs.writeFileSync(path.join(dir, 'fn.sh'), ['LAKE_LOG_DIR=""', 'SLOG_MS=""', SLOG_FNS, fn].join('\n'));
       const runner = path.join(dir, 'runner.sh');
       fs.writeFileSync(runner, [
         `UPDATE=${opts.update}`,
@@ -169,7 +178,6 @@ describe('start.sh 依赖实装守卫（旧 node_modules × 新依赖声明 → 
         'install_deps_if_needed 2>guard.err',
         'echo "GUARD_EXIT=$?"',
       ].join('\n'));
-      fs.writeFileSync(path.join(dir, 'fn.sh'), fn);
       const stdout = execSync(`bash ${JSON.stringify(runner)}`, {
         encoding: 'utf8',
         cwd: dir,
@@ -324,9 +332,11 @@ describe('start.sh 单实例收口（默认=杀已有自家实例后固定 BASE_
       // 单函数提取执行（与 -k 击杀升级测试同款纪律）：port_pid/port_busy/
       // ensure_base_port_free + BASE_PIN 高位端口
       const fns = [
+        'LAKE_LOG_DIR=""', 'SLOG_MS=""',
         execSync(`sed -n '/^port_pid() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
         execSync(`sed -n '/^port_busy() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
         execSync(`sed -n '/^ensure_base_port_free() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        SLOG_FNS,
       ].join('\n');
       const runner = path.join(fakeRoot, 'runner.sh');
       fs.writeFileSync(runner, [
@@ -351,9 +361,11 @@ describe('start.sh 单实例收口（默认=杀已有自家实例后固定 BASE_
     try {
       const port = 23000 + Math.floor(Math.random() * 2000);
       const fns = [
+        'LAKE_LOG_DIR=""', 'SLOG_MS=""',
         execSync(`sed -n '/^port_pid() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
         execSync(`sed -n '/^port_busy() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
         execSync(`sed -n '/^ensure_base_port_free() {/,/^}/p' ${JSON.stringify(START_SH)}`, { encoding: 'utf8' }),
+        SLOG_FNS,
       ].join('\n');
       const runner = path.join(fakeRoot, 'runner.sh');
       fs.writeFileSync(runner, [`BASE_PORT=${port}`, fns, 'ensure_base_port_free', 'echo OK'].join('\n'));

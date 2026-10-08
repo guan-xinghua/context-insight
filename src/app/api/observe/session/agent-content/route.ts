@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { resolveScanRoot, scanAgentDirs, resolveAgentMd } from '@/lib/agent-md-scan';
 import { recoverAgentMdFromSystem } from '@/lib/agent-md-session-recover';
 import { prisma } from '@/lib/db';
+import { withRouteLog } from '@/lib/api-route';
 
 /**
  * Skills tab 的 subagent 行"全文"按钮（单一入口）：取 agent .md 内容。
@@ -35,88 +36,83 @@ import { prisma } from '@/lib/db';
  * 与 skill-content 路由平行：skill-content 取 SKILL.md（从 session invoke 恢复），
  * agent-content 取 agent .md（从子代理 system 注入恢复）。
  */
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = request.nextUrl;
-    const taskId = searchParams.get('taskId');
-    const framework = searchParams.get('framework');
-    const agentName = searchParams.get('agentName');
-    const source = searchParams.get('source'); // 'system' | 'disk' | null
+export const GET = withRouteLog('observe/session/agent-content', async (request: NextRequest) => {
+  const { searchParams } = request.nextUrl;
+  const taskId = searchParams.get('taskId');
+  const framework = searchParams.get('framework');
+  const agentName = searchParams.get('agentName');
+  const source = searchParams.get('source'); // 'system' | 'disk' | null
 
-    if (!taskId) {
-      return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
-    }
-    if (!agentName) {
-      return NextResponse.json({ error: 'Missing agentName' }, { status: 400 });
-    }
+  if (!taskId) {
+    return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+  }
+  if (!agentName) {
+    return NextResponse.json({ error: 'Missing agentName' }, { status: 400 });
+  }
 
-    const session = await prisma.session.findFirst({
-      where: framework ? { taskId, framework } : { taskId },
-      select: { id: true, taskId: true, sourcePath: true },
+  const session = await prisma.session.findFirst({
+    where: framework ? { taskId, framework } : { taskId },
+    select: { id: true, taskId: true, sourcePath: true },
+  });
+
+  // ① system 注入恢复（sourcePath 指向本地 jsonl——本机 cpx 捕获与 lake
+  //    materialized 布局一致（<sid>/subagents/），listSubagentSessions 统一发现）
+  const recoverFromSystem = () => {
+    if (!session?.sourcePath) return null;
+    return recoverAgentMdFromSystem(session.sourcePath, session.taskId, agentName);
+  };
+
+  const systemResponse = (r: NonNullable<ReturnType<typeof recoverFromSystem>>) =>
+    NextResponse.json({
+      agentName,
+      content: r.content,
+      source: r.source,
+      length: r.content.length,
+      via: 'system',
     });
 
-    // ① system 注入恢复（sourcePath 指向本地 jsonl——本机 cpx 捕获与 lake
-    //    materialized 布局一致（<sid>/subagents/），listSubagentSessions 统一发现）
-    const recoverFromSystem = () => {
-      if (!session?.sourcePath) return null;
-      return recoverAgentMdFromSystem(session.sourcePath, session.taskId, agentName);
-    };
-
-    const systemResponse = (r: NonNullable<ReturnType<typeof recoverFromSystem>>) =>
-      NextResponse.json({
-        agentName,
-        content: r.content,
-        source: r.source,
-        length: r.content.length,
-        via: 'system',
-      });
-
-    const scanFromDisk = async () => {
-      const scanRoot = resolveScanRoot();
-      if (!scanRoot) {
-        return NextResponse.json({ agentName, content: null, source: null, length: 0, via: null });
-      }
-
-      // 收集本 session 被派发的 agent 名（用于多插件消歧）
-      const sessionAgentNames = new Set<string>();
-      if (session) {
-        const dispatchEvents = await prisma.skillEvent.findMany({
-          where: { turn: { sessionId: session.id }, eventType: 'dispatch' },
-          select: { skillName: true },
-          distinct: ['skillName'],
-        });
-        for (const se of dispatchEvents) sessionAgentNames.add(se.skillName);
-      }
-
-      const dirs = scanAgentDirs(scanRoot);
-      const resolved = resolveAgentMd(agentName, dirs, sessionAgentNames);
-      if (!resolved) {
-        return NextResponse.json({ agentName, content: null, source: null, length: 0, via: null });
-      }
-
-      const content = fs.readFileSync(resolved.mdPath, 'utf8');
-      return NextResponse.json({
-        agentName,
-        content,
-        source: resolved.dir,
-        length: content.length,
-        via: 'disk',
-      });
-    };
-
-    if (source === 'system') {
-      const r = recoverFromSystem();
-      if (!r) return NextResponse.json({ agentName, content: null, source: null, length: 0, via: null });
-      return systemResponse(r);
+  const scanFromDisk = async () => {
+    const scanRoot = resolveScanRoot();
+    if (!scanRoot) {
+      return NextResponse.json({ agentName, content: null, source: null, length: 0, via: null });
     }
-    if (source === 'disk') return scanFromDisk();
-    {
-      // 缺省：system 优先、磁盘兜底
-      const r = recoverFromSystem();
-      return r ? systemResponse(r) : scanFromDisk();
+
+    // 收集本 session 被派发的 agent 名（用于多插件消歧）
+    const sessionAgentNames = new Set<string>();
+    if (session) {
+      const dispatchEvents = await prisma.skillEvent.findMany({
+        where: { turn: { sessionId: session.id }, eventType: 'dispatch' },
+        select: { skillName: true },
+        distinct: ['skillName'],
+      });
+      for (const se of dispatchEvents) sessionAgentNames.add(se.skillName);
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+
+    const dirs = scanAgentDirs(scanRoot);
+    const resolved = resolveAgentMd(agentName, dirs, sessionAgentNames);
+    if (!resolved) {
+      return NextResponse.json({ agentName, content: null, source: null, length: 0, via: null });
+    }
+
+    const content = fs.readFileSync(resolved.mdPath, 'utf8');
+    return NextResponse.json({
+      agentName,
+      content,
+      source: resolved.dir,
+      length: content.length,
+      via: 'disk',
+    });
+  };
+
+  if (source === 'system') {
+    const r = recoverFromSystem();
+    if (!r) return NextResponse.json({ agentName, content: null, source: null, length: 0, via: null });
+    return systemResponse(r);
   }
-}
+  if (source === 'disk') return scanFromDisk();
+  {
+    // 缺省：system 优先、磁盘兜底
+    const r = recoverFromSystem();
+    return r ? systemResponse(r) : scanFromDisk();
+  }
+});

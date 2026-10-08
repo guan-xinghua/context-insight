@@ -13,7 +13,8 @@ import { formatDateTime, formatDuration, formatScore, formatTokens } from '@/app
 import type { RunItemView } from './RunsTable';
 
 interface NoteEntry { ts: string; type: 'note'; text: string }
-interface ScorecardEntry { ts: string; type: 'scorecard'; totalScore: number | null; dimensions: Array<{ dimensionId: string; name: string; score: number | null }>; computedAt: string }
+interface ScorecardEntry { ts: string; type: 'scorecard'; totalScore: number | null; dimensions: Array<{ dimensionId: string; name: string; score: number | null }>; computedAt: string
+  formula?: string; profile?: string; reviewer?: string; completedAt?: string; durationMs?: number; coverage?: number }
 type LakeRecord = NoteEntry | ScorecardEntry;
 interface SubmitInfo { author: string | null; description: string | null; remark: string | null }
 
@@ -85,7 +86,14 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
     if (await post({ kind: 'note', text }, setPosting)) setText('');
   };
 
-  const postScorecard = () => post({ kind: 'scorecard' }, setPostingScore);
+  // 覆盖语义：已有快照时先确认（两段式按钮），避免一键静默覆盖
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const hasSnapshot = (records ?? []).some(r => r.type === 'scorecard');
+  const postScorecard = async () => {
+    if (hasSnapshot && !confirmOverwrite) { setConfirmOverwrite(true); return; }
+    setConfirmOverwrite(false);
+    await post({ kind: 'scorecard' }, setPostingScore);
+  };
 
   const saveEdit = async () => {
     if (!editing || !editText.trim() || savingEdit) return;
@@ -242,6 +250,18 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
                         ))}
                       </div>
                     )}
+                    {r.type === 'scorecard' && (
+                      <div className="mt-1 space-y-0.5 text-[11px] leading-relaxed text-neutral-500">
+                        {r.formula && <div className="font-mono">{r.formula}</div>}
+                        <div>
+                          {r.reviewer && <span>{r.reviewer} · </span>}
+                          评完 {formatDateTime(r.completedAt ?? r.computedAt)}
+                          {r.durationMs != null && <span> · 耗时 {Math.max(1, Math.round(r.durationMs / 1000))}s</span>}
+                          {r.profile && <span> · 模板 {r.profile}</span>}
+                          {r.coverage != null && <span> · 覆盖度 {Math.round(r.coverage * 100)}%</span>}
+                        </div>
+                      </div>
+                    )}
                   </li>
                   );
                 })}
@@ -273,12 +293,12 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
               </button>
               <button
                 type="button"
-                className="rounded border border-violet-300 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                className={`rounded border px-3 py-1.5 text-xs disabled:opacity-50 ${confirmOverwrite ? 'border-amber-400 text-amber-700 hover:bg-amber-50' : 'border-violet-300 text-violet-700 hover:bg-violet-50'}`}
                 disabled={postingScore}
-                title="把当前 6 维评分快照追加进记录"
+                title="把当前评分卡快照写入记录——已有快照时覆盖（旧快照只留在 git 提交历史里）"
                 onClick={() => void postScorecard()}
               >
-                {postingScore ? '写入中…' : '写入评分快照'}
+                {postingScore ? '写入中…' : confirmOverwrite ? '已有快照，确认覆盖？' : '写入评分快照'}
               </button>
             </div>
           </div>

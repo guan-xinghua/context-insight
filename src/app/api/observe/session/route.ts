@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logError } from '@/lib/logger';
 import { prisma } from '@/lib/db';
 import { computeSessionActiveSplit } from '@/lib/active-time';
 import { isProxyVersion } from '@/lib/shared/session-format';
@@ -261,6 +262,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logError('route:observe/session', '查询失败', { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

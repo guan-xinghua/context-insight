@@ -13,6 +13,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
 import { prisma } from '@/lib/db';
+import { logDebug, logError } from '@/lib/logger';
 
 export const maxDuration = 300;
 
@@ -86,9 +87,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     // unrecognized sqlite schema → actionable 400 instead of a raw 500
     if (error instanceof NotOpencodeDbError) {
+      logDebug('route:ingest/import-file', '非 opencode-db 文件被拒', { error: error.message });
       return NextResponse.json({ error: error.message, reason: 'not-opencode-db' }, { status: 400 });
     }
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logError('route:ingest/import-file', '导入失败', { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

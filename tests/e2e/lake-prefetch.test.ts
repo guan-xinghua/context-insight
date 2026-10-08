@@ -179,6 +179,8 @@ describe('lake blob 批量预取 + 合并列表（读路径性能）', () => {
     const overview = listOverview(remote);
     expect(overview.topDirs).toContain('sessions');
     expect(overview.sessions.length).toBeGreaterThan(0);
-    expect(overview.sessions.every(s => s.paradigm === null)).toBe(true);
+    // spec §2：sessions/ 存量区特判已退役——它就是普通范式目录，
+    // 仓内全部会话落在其下 → paradigm 一律 'sessions'（根级缺省位才是 null）
+    expect(overview.sessions.every(s => s.paradigm === 'sessions')).toBe(true);
   });
 });

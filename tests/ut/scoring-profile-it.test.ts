@@ -209,9 +209,9 @@ describe('自定义项：真实 profile 文件 → loadRegistry → 评分器出
       def, llm: stubLlm, samples: 1,
     });
     expect(r.status).toBe('ok');
-    expect(r.score).toBe(1);
-    expect(r.formula).toContain('10/10');
-    expect(r.formula).toContain('原始 9');
+    expect(r.score).toBe(0.9);
+    expect(r.formula).toContain('9/10');
+    expect(r.formula).not.toContain('拉回最近档');
 
     const ruleResult = await registry.scorerOf.get('D6.turns-cap')!.run({
       input: { trajectoryDigest: '', turns: [{ turnIndex: 0 }], toolCalls: [], measures: { totalTokens: 1, toolTimeMs: 0, llmTimeMs: 0, inputTokens: 1 } } as unknown as AssembledInput,
@@ -219,5 +219,40 @@ describe('自定义项：真实 profile 文件 → loadRegistry → 评分器出
     });
     expect(ruleResult.status).toBe('ok');
     expect(ruleResult.verdict).toBe('pass');
+  });
+
+  it('binary 两档判定自定义项：达成 1 / 未达成 0；判定标准太短被拒', async () => {
+    const bad = await PUT({
+      schema: 'scoring-profile', version: 1, id: 'with-binary-bad', name: '坏两档',
+      customItems: [{ id: 'D3.doc-sync', targetDimension: 'D3', name: '文档同步', kind: 'binary', note: '短' }],
+    });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error?: string }).error).toContain('判定标准');
+
+    await PUT({
+      schema: 'scoring-profile', version: 1, id: 'with-binary', name: '带两档判定',
+      customItems: [{ id: 'D3.doc-sync', targetDimension: 'D3', name: '文档同步', kind: 'binary', note: '设计变更同步更新到 docs/ 下的设计文档' }],
+    });
+    await ACTIVATE('with-binary');
+
+    const registry = await loadRegistry();
+    const d3 = registry.defs.find(d => d.id === 'D3')!;
+    const def = d3.items.find(i => i.id === 'D3.doc-sync')!;
+    expect(def.scorerKind).toBe('llm');
+    expect(def.bands).toBeUndefined();
+
+    const run = async (content: string) => registry.scorerOf.get('D3.doc-sync')!.run({
+      input: { trajectoryDigest: '#0 👤 "task"', turns: [{ turnIndex: 12 }] } as unknown as AssembledInput,
+      def,
+      llm: { model: 'stub', complete: async () => ({ content, promptTokens: 1, completionTokens: 1 }) },
+      samples: 1,
+    });
+    const met = await run('{"verdict":"met","reason":"更新了设计文档","evidence":[{"turn":12,"note":"写入 docs/design.md"}]}');
+    expect(met.status).toBe('ok');
+    expect(met.score).toBe(1);
+    expect(met.verdict).toBe('pass');
+    const unmet = await run('{"verdict":"unmet","reason":"全程未写任何文档","evidence":[]}');
+    expect(unmet.score).toBe(0);
+    expect(unmet.verdict).toBe('fail');
   });
 });

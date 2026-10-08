@@ -29,14 +29,18 @@ export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hadExisting, setHadExisting] = useState(false);   // 库里已有填报 → 覆盖需确认
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setConfirming(false);
     try {
       const res = await fetch(`/api/observe/session/scorecard/op-bench?taskId=${encodeURIComponent(taskId)}${framework ? `&framework=${encodeURIComponent(framework)}` : ''}`);
       const data = await res.json() as { score?: number | null; note?: string | null; error?: string };
       if (!res.ok) { setError(data.error ?? `HTTP ${res.status}`); return; }
       setScore(data.score != null ? String(data.score) : '');
+      setHadExisting(data.score != null);
       setNote(data.note ?? '');
       setError(null);
     } catch (e) {
@@ -44,7 +48,7 @@ export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }
     } finally {
       setLoading(false);
     }
-  }, [taskId]);
+  }, [taskId, framework]);
 
   useEffect(() => {
     if (open) queueMicrotask(() => { void load(); });
@@ -54,6 +58,11 @@ export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }
     const v = Number(score);
     if (!Number.isFinite(v) || v < 0 || v > 100) {
       setError('总分必须是 0-100 的数字（CANN-Bench 百分制）');
+      return;
+    }
+    // 已有填报：先确认再覆盖
+    if (hadExisting && !confirming) {
+      setConfirming(true);
       return;
     }
     setSaving(true);
@@ -73,7 +82,7 @@ export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }
     } finally {
       setSaving(false);
     }
-  }, [taskId, score, note, onOpenChange, onSaved]);
+  }, [taskId, score, note, onOpenChange, onSaved, hadExisting, confirming]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -81,7 +90,7 @@ export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }
         <DialogHeader>
           <DialogTitle>CANN-Bench 填报</DialogTitle>
           <DialogDescription>
-            从 cannbench.com 排行榜抄本会话产出算子的总分（百分制），折算 0-10 计入 D3「CANN-Bench 评分」；未填报按默认 80（持平档）计。
+            从 cannbench.com 排行榜抄本会话产出算子的总分（百分制），折算 0-10 计入 D3「CANN-Bench 评分」；未填报按默认 80（持平档）计。保存后立即生效，不需要重算、不影响已完成的评审。
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -117,11 +126,24 @@ export function OpBenchDialog({ open, onOpenChange, taskId, framework, onSaved }
           </div>
         )}
         <DialogFooter>
-          <Button size="sm" onClick={() => onOpenChange(false)} disabled={saving}>取消</Button>
-          <Button size="sm" onClick={() => void save()} disabled={saving || loading}>
-            {saving ? <LoaderIcon className="size-3.5 animate-spin" /> : null}
-            保存并重算
-          </Button>
+          {confirming ? (
+            <>
+              <span className="text-xs text-orange-600 dark:text-orange-400 mr-auto">该会话已有填报，确认覆盖为新填的值？</span>
+              <Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={saving}>返回修改</Button>
+              <Button size="sm" onClick={() => void save()} disabled={saving || loading}>
+                {saving ? <LoaderIcon className="size-3.5 animate-spin" /> : null}
+                确认覆盖
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" onClick={() => onOpenChange(false)} disabled={saving}>取消</Button>
+              <Button size="sm" onClick={() => void save()} disabled={saving || loading}>
+                {saving ? <LoaderIcon className="size-3.5 animate-spin" /> : null}
+                保存
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

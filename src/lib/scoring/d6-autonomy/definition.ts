@@ -16,7 +16,7 @@ const items: ScoreItemSchema[] = [
   { id: 'D6.interrupts', dimension: 'D6', name: '用户打断', scorerKind: 'rule', note: '中途取消标记（中断信号）' },
   { id: 'D6.correctionKeywords', dimension: 'D6', name: '纠正关键词（疑似）', scorerKind: 'rule', diagnostic: true, note: '只作疑似防误伤：中文纠正词命中，LLM 层复核后才真扣' },
   { id: 'D6.similarMessages', dimension: 'D6', name: '相似消息反复发', scorerKind: 'rule', note: '同一诉求换着说法重发（用户没得到想要的东西的信号）' },
-  { id: 'D6.classification', dimension: 'D6', name: '用户消息九分类', scorerKind: 'llm', note: '逐条分类：纠正/打断/澄清/不该问的问/推卸决策…（Phoenix 豁免清单+三纪律进 prompt）' },
+  { id: 'D6.classification', dimension: 'D6', name: '用户消息九分类', scorerKind: 'llm', note: '逐条分类：纠正/打断/推卸决策扣重，不该问的问扣轻；合理澄清/用户改主意/越界求确认/高危先问/补充信息不扣，证据两可不判' },
 ];
 
 export const d6Autonomy: DimensionDefinition = {

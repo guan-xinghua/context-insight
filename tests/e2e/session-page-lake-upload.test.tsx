@@ -46,9 +46,14 @@ beforeAll(() => {
   ;(globalThis as { fetch: typeof fetch }).fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     const json = (data: unknown) => Promise.resolve(new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } }))
+    // 上传前预检：服务端已配远端（单源 lake-config.json）+ 已存凭据——
+    // 两关都过才真正发 upload，否则弹凭据引导框、请求不发出
+    if (url.includes('/api/settings/lake-config')) return json({ configured: true, address: 'https://example.com/lake.git', branch: 'main' })
+    if (url.includes('/api/settings/lake-auth')) return json({ remotes: [{ url: 'https://example.com/lake.git', username: 'tester', tokenMasked: 'glpat-****' }] })
     if (url.includes('/api/ingest/lake')) {
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
-      if (body.action === 'dirs') return json({ dirs: ['others'] })
+      // 弹窗取范式走 action:'list'（dirs+sessions 单轮合并；旧 'dirs' 动作已无前端调用方）
+      if (body.action === 'list') return json({ dirs: ['others'], sessions: [] })
       if (body.action === 'upload') {
         uploadBody = body
         return json({ folder: 'others/x/', unchanged: false, gitattributesFixed: false, sid: body.taskId })

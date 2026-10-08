@@ -24,9 +24,16 @@ export async function assembleInput(taskId: string, prisma: PrismaClient, framew
 
   const { trajectoryDigest, userMessages } = buildDigest(raw.turns, raw.toolCalls, raw.bridges);
   const workflowDecl = parseWorkflowDeclaration(raw.fullContext);
-  const taskType = classifyTask(workflowDecl, raw.toolCalls);
+  // 任务文本 = 首条主链用户消息（算子类任务自述里就带着"算子/operator/kernel"）
+  const firstUser = raw.turns.find(t => !t.isSubagent && t.role === 'user');
+  const taskType = classifyTask(workflowDecl, raw.toolCalls, firstUser?.content ?? firstUser?.contentSummary ?? '');
 
-  const toolTimeMs = raw.toolCalls.reduce((s, tc) => s + (tc.durationMs || 0), 0);
+  // 工具时长：wire 轮间隙推导优先（DB per-call duration 采集侧未回填，全库为 0）；
+  // 无 wire（原生导入）回落 DB——两处都空则 D4.toolTime 如实无法评判
+  const wireToolMs = raw.wire?.toolIntervals?.reduce((s, i) => s + (i.kind === 'local' ? i.endMs - i.startMs : 0), 0) ?? 0;
+  const toolTimeMs = wireToolMs > 0
+    ? wireToolMs
+    : raw.toolCalls.reduce((s, tc) => s + (tc.durationMs || 0), 0);
   const llmTimeMs = raw.turns.reduce((s, t) => s + (t.latencyMs || 0), 0);
   const inputTokens = raw.turns.reduce((s, t) => s + (t.inputMessagesTokens || t.inputTokens || 0), 0);
 

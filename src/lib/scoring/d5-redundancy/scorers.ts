@@ -44,14 +44,6 @@ export function d5Scorers(): Scorer[] {
     new RepeatScorer(),
     new ToolErrorsScorer(),
     new BandJudgeScorer(
-      { id: 'D5.memory', dimension: 'D5', name: '没用上的项目说明', scorerKind: 'llm' },
-      {
-        focus: '塞进上下文的项目说明（CLAUDE.md / AGENTS.md）与本次任务的相关性：无关的部分是白背的',
-        material: input => input.memoryDigest ? `\n\n## 项目说明全文（节选）\n${input.memoryDigest}` : '',
-        notApplicableWhen: input => input.memoryDigest ? null : '缺少项目说明注入，无法评判',
-      },
-    ),
-    new BandJudgeScorer(
       { id: 'D5.proficiency', dimension: 'D5', name: '工作过程熟练度', scorerKind: 'llm' },
       {
         focus: 'agent 干活的每一轮有没有实际进展：每步是否直接推进任务、有没有绕路和无效尝试；工具返回的结果后续有没有真正用上（结果为空或失败后的合理重试不算忽略）',
@@ -198,11 +190,17 @@ class UnusedInjectionScorer extends Scorer {
     if (total <= 0) return notApplicable(ctx.def, `缺少${this.label}的 token 记录，无法统计`);
     const unused = unusedItems.reduce((s, t) => s + t.approxTokens, 0);
     const ratio = round2(unused / total);
+    // 公示全量清单（与公式计数一致）；超大工具集封顶 30 防刷屏，超出补一条计数说明
+    const shown = unusedItems.slice(0, 30);
+    const rest = unusedItems.length - shown.length;
     return okResult(ctx.def, {
       value: ratio,
       unit: 'ratio',
       formula: `${this.label} ${declared.length} 个、未用 ${unusedItems.length} 个，未用部分占注入 ${Math.round(ratio * 100)}%——只统计不扣分`,
-      evidence: unusedItems.slice(0, 5).map(t => ev(null, `未用：${t.name}`)),
+      evidence: [
+        ...shown.map(t => ev(null, `未用：${t.name}`)),
+        ...(rest > 0 ? [ev(null, `…还有 ${rest} 个未列出`)] : []),
+      ],
       note: `${this.label}每会话全量注入，单会话没用不代表浪费（任务不需要而已）`,
     });
   }

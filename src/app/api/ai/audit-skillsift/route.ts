@@ -22,6 +22,7 @@ import { llmExtractWorkflowDeclaration } from "@/lib/llm-workflow-extract"
 import { makeStreamingAuditResponse } from "@/lib/sift-runner"
 import { ensureWorkflowExtractPluginLoaded } from "@/lib/workflow-extract-config"
 import type { AuditLayerInfo } from "@/lib/sift-audit-types"
+import { logError, logWarn } from '@/lib/logger'
 
 /**
  * 对当前 session 的某个 skill 跑 sift 对账（审"真实执行 vs SKILL.md 声明"）。
@@ -74,6 +75,7 @@ export async function POST(req: Request) {
         rootLayers = llmDecl?.layers
       } catch (e) {
         // CLI 基础设施失败（认证 403 / 非 0 退出 / 超时）→ 带具体原因返回，不再吞成笼统 404
+        logWarn('route:ai/audit-skillsift', 'LLM 提取失败', { error: e instanceof Error ? e.message : String(e) });
         return NextResponse.json(
           { error: `LLM 提取失败：${e instanceof Error ? e.message : String(e)}` },
           { status: 502 },
@@ -149,6 +151,7 @@ export async function POST(req: Request) {
       fs.rmSync(skillTmp, { recursive: true, force: true }),
     { _layers: rootLayers })
   } catch (e) {
+    logError('route:ai/audit-skillsift', '准备 skill 对账失败', { error: e instanceof Error ? e.message : String(e) });
     fs.rmSync(skillTmp, { recursive: true, force: true })
     return NextResponse.json(
       { error: `准备 skill 对账失败：${e instanceof Error ? e.message : String(e)}` },

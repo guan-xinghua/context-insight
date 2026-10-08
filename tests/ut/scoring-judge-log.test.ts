@@ -135,7 +135,7 @@ describe('judge 过程日志：并发子代理布局 + 重试链留痕', () => {
     expect(lines).toHaveLength(4);
     const [req1, res1, , res2] = lines;
     expect(req1.message.content).toBe(`你是评审员${JUDGE_SYSTEM_USER_SPLIT}评一下 D1.goalCoverage`);
-    for (const [res, attempt, maxTokens] of [[res1, 1, 4096], [res2, 2, 8192]] as const) {
+    for (const [res, attempt, maxTokens] of [[res1, 1, 4096], [res2, 2, 16384]] as const) {
       expect(res.type).toBe('assistant');
       expect(res.message.model).toBe('judge-model');
       expect(String(res.message.content).startsWith('[judge-error]')).toBe(true);
@@ -249,6 +249,8 @@ describe('judge 过程日志：runner 端到端', () => {
     stubJudgeFetch();
     const card = await runScorecard(RUN_SID, prisma, { store, withSemantic: true, provider, llmConcurrency: 2 });
     expect(card!.status).toBe('completed');
+    expect(card!.review).toMatchObject({ reviewer: 'llm', tool: 'judge-model' });
+    expect(card!.review!.completedAt).toBe(card!.computedAt);
     expect(card!.meta!.judgeLogFile).toBeTruthy();
     expect(fs.existsSync(card!.meta!.judgeLogFile!)).toBe(true);
 

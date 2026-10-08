@@ -37,6 +37,7 @@ import { POST as refreshSessionPost } from '@/app/api/ingest/refresh-session/rou
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(''),
+  useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, refresh: () => {} }),
 }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

@@ -49,7 +49,7 @@ export interface JudgeRoundData {
   status?: number;
   stopReason?: string;
   error?: string;
-  retryReason?: 'timeout' | 'empty-content';
+  retryReason?: 'timeout' | 'empty-content' | 'truncated';
 }
 
 export interface JudgeAttemptOutcome {
@@ -63,7 +63,7 @@ export interface JudgeAttemptOutcome {
   status?: number;
   stopReason?: string;
   error?: string;
-  retryReason?: 'timeout' | 'empty-content';
+  retryReason?: 'timeout' | 'empty-content' | 'truncated';
 }
 
 const JUDGE_LOGS_DIR_NAME = 'score-judge-logs';

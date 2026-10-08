@@ -14,65 +14,68 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   activeApplyWarnings, deleteProfile, findPreset, getActiveId, loadProfiles, saveProfile, setActiveId,
 } from '@/lib/scoring';
+import { withRouteLog } from '@/lib/api-route';
+import { logInfo, logWarn } from '@/lib/logger';
 
-export async function GET() {
-  try {
-    return NextResponse.json({
-      profiles: await loadProfiles(),
-      activeId: await getActiveId(),
-      warnings: await activeApplyWarnings(),
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = withRouteLog('observe/scoring/profiles', async () => {
+  return NextResponse.json({
+    profiles: await loadProfiles(),
+    activeId: await getActiveId(),
+    warnings: await activeApplyWarnings(),
+  });
+});
 
-export async function PUT(request: NextRequest) {
+export const PUT = withRouteLog('observe/scoring/profiles', async (request: NextRequest) => {
+  const body = await request.json() as { profile?: unknown };
   try {
-    const body = await request.json() as { profile?: unknown };
     const { warnings } = await saveProfile(body.profile);
+    logInfo('route:observe/scoring/profiles', 'profile 已保存', { id: (body.profile as { id?: string } | null)?.id ?? '' });
     return NextResponse.json({ ok: true, profiles: await loadProfiles(), warnings });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logWarn('route:observe/scoring/profiles', 'profile 保存被拒', { error: message });
     return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});
 
 /** 激活/恢复默认；body = { activeId: string | null }（null = 默认口径） */
-export async function POST(request: NextRequest) {
+export const POST = withRouteLog('observe/scoring/profiles', async (request: NextRequest) => {
+  const body = await request.json() as { activeId?: unknown };
+  const activeId = body.activeId;
   try {
-    const body = await request.json() as { activeId?: unknown };
-    const activeId = body.activeId;
-    if (activeId !== null) {
-      if (typeof activeId !== 'string' || activeId.length === 0) {
-        return NextResponse.json({ error: 'activeId 必须是非空字符串或 null' }, { status: 400 });
-      }
-      const exists = findPreset(activeId) != null || (await loadProfiles()).some(p => p.id === activeId);
-      if (!exists) {
-        return NextResponse.json({ error: `profile 不存在：${activeId}` }, { status: 400 });
-      }
+  if (activeId !== null) {
+    if (typeof activeId !== 'string' || activeId.length === 0) {
+      return NextResponse.json({ error: 'activeId 必须是非空字符串或 null' }, { status: 400 });
     }
+    const exists = findPreset(activeId) != null || (await loadProfiles()).some(p => p.id === activeId);
+    if (!exists) {
+      return NextResponse.json({ error: `profile 不存在：${activeId}` }, { status: 400 });
+    }
+  }
     await setActiveId(activeId);
+    logInfo('route:observe/scoring/profiles', '评分口径切换', { activeId: activeId ?? '(默认)' });
     return NextResponse.json({ ok: true, activeId, warnings: await activeApplyWarnings() });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logWarn('route:observe/scoring/profiles', '激活被拒', { error: message });
     return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});
 
-export async function DELETE(request: NextRequest) {
+export const DELETE = withRouteLog('observe/scoring/profiles', async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  }
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-    if (!id) {
-      return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-    }
     await deleteProfile(id);
     if ((await getActiveId()) === id) await setActiveId(null);
+    logInfo('route:observe/scoring/profiles', 'profile 已删除', { id });
     return NextResponse.json({ ok: true, profiles: await loadProfiles(), activeId: await getActiveId() });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logWarn('route:observe/scoring/profiles', '删除被拒', { id, error: message });
     return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});

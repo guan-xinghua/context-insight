@@ -30,6 +30,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import type { AuditLayerInfo } from "@/lib/sift-audit-types"
+import { logError, logInfo, logWarn } from "@/lib/logger"
 
 export interface SiftEvent {
   stage: "progress" | "result" | "error"
@@ -181,6 +182,8 @@ function runSiftAuditStreaming(opts: {
       onEvent({ stage: "progress", percent: computePercent(stages, started, transcriptK, transcriptTotal), msg: line })
     }
 
+    const t0 = Date.now()
+    logInfo("sift", "audit start", { kind: args.includes("--kind") ? (args[args.indexOf("--kind") + 1] ?? "") : "", outputDir })
     let proc: ChildProcess
     try {
       proc = spawn("sift", args, {
@@ -207,7 +210,7 @@ function runSiftAuditStreaming(opts: {
 
     timerRef.t = setTimeout(() => {
       try {
-        proc.kill("SIGKILL")
+        proc.kill("SIGKILL"); logWarn("sift", "静默超时击杀", { ms: Date.now() - t0 })
       } catch {
         /* ignore */
       }
@@ -228,7 +231,7 @@ function runSiftAuditStreaming(opts: {
       silenceTimer = setTimeout(() => {
         if (settled) return
         try {
-          proc.kill("SIGKILL")
+          proc.kill("SIGKILL"); logWarn("sift", "静默超时击杀（兜底）", { ms: Date.now() - t0 })
         } catch {
           /* ignore */
         }
@@ -247,8 +250,10 @@ function runSiftAuditStreaming(opts: {
       clearTimeout(timerRef.t)
       clearTimeout(silenceTimer)
       if (e.code === "ENOENT") {
+        logError("sift", "sift 未找到（不在 PATH）", { ms: Date.now() - t0 })
         onEvent({ stage: "error", msg: "sift 未找到：装好 sift 并确保 `sift` 在 PATH。" })
       } else {
+        logError("sift", "spawn 失败", { error: e.message, ms: Date.now() - t0 })
         onEvent({ stage: "error", msg: e.message })
       }
       resolve()
@@ -262,6 +267,7 @@ function runSiftAuditStreaming(opts: {
       if (stdoutBuf) handleLine(stdoutBuf)
       if (code !== 0) {
         const tail = stderrBuf.trim().slice(-500)
+        logError("sift", "audit 失败", { code: code ?? null, tail: tail.slice(0, 300), ms: Date.now() - t0 })
         onEvent({
           stage: "error",
           msg: `sift audit 失败${code != null ? ` (exit ${code})` : ""}${tail ? `: ${tail}` : ""}`,
@@ -271,6 +277,7 @@ function runSiftAuditStreaming(opts: {
       }
       const reportPath = path.join(outputDir, "audit-report.json")
       if (!fs.existsSync(reportPath)) {
+        logError("sift", "跑完但报告缺失", { reportPath, ms: Date.now() - t0 })
         onEvent({ stage: "error", msg: "sift 跑完但没产出 audit-report.json。" })
         resolve()
         return
@@ -279,12 +286,14 @@ function runSiftAuditStreaming(opts: {
       try {
         report = JSON.parse(fs.readFileSync(reportPath, "utf8"))
       } catch (e: unknown) {
+        logError("sift", "报告解析失败", { error: e instanceof Error ? e.message : String(e), ms: Date.now() - t0 })
         onEvent({ stage: "error", msg: `audit-report.json 解析失败：${e instanceof Error ? e.message : String(e)}` })
         resolve()
         return
       }
       const htmlPath = path.join(outputDir, "audit-report.html")
       const _html = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, "utf8") : undefined
+      logInfo("sift", "audit done", { ms: Date.now() - t0 })
       onEvent({ stage: "result", percent: 100, report, _html, _layers: layers })
       resolve()
     })

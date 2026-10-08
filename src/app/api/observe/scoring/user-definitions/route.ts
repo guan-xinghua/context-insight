@@ -12,54 +12,58 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteUserGroup, importUserGroups, loadUserGroups, saveUserGroup } from '@/lib/scoring';
+import { withRouteLog } from '@/lib/api-route';
+import { logInfo, logWarn } from '@/lib/logger';
 
-export async function GET() {
-  try {
-    return NextResponse.json({ groups: await loadUserGroups() });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = withRouteLog('observe/scoring/user-definitions', async () => {
+  return NextResponse.json({ groups: await loadUserGroups() });
+});
 
-export async function PUT(request: NextRequest) {
+export const PUT = withRouteLog('observe/scoring/user-definitions', async (request: NextRequest) => {
+  const body = await request.json() as { group?: unknown };
   try {
-    const body = await request.json() as { group?: unknown };
     await saveUserGroup(body.group as never);
+    logInfo('route:observe/scoring/user-definitions', '自定义维度组已保存', { id: (body.group as { id?: string } | null)?.id ?? '' });
     return NextResponse.json({ ok: true, groups: await loadUserGroups() });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logWarn('route:observe/scoring/user-definitions', '组保存被拒', { error: message });
     return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});
 
 /** 导入组；body = { groups: [...], mode?: 'merge' | 'replace' }（merge 只补缺不覆盖，replace 清空本地以文件为准） */
-export async function POST(request: NextRequest) {
+export const POST = withRouteLog('observe/scoring/user-definitions', async (request: NextRequest) => {
+  const body = await request.json() as { groups?: unknown; mode?: unknown };
+  if (!Array.isArray(body.groups)) {
+    return NextResponse.json({ error: 'Missing groups array' }, { status: 400 });
+  }
+  const mode = body.mode === 'replace' ? 'replace' as const : 'merge' as const;
   try {
-    const body = await request.json() as { groups?: unknown; mode?: unknown };
-    if (!Array.isArray(body.groups)) {
-      return NextResponse.json({ error: 'Missing groups array' }, { status: 400 });
-    }
-    const mode = body.mode === 'replace' ? 'replace' as const : 'merge' as const;
     const summary = await importUserGroups(body.groups, undefined, mode);
+    (mode === 'replace' ? logWarn : logInfo)('route:observe/scoring/user-definitions', '自定义维度组已导入',
+      { mode, addedGroups: summary.addedGroups, mergedGroups: summary.mergedGroups, addedDims: summary.addedDims, skippedDims: summary.skippedDims });
     return NextResponse.json({ ok: true, summary, groups: await loadUserGroups() });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logWarn('route:observe/scoring/user-definitions', '组导入被拒', { error: message });
     return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});
 
-export async function DELETE(request: NextRequest) {
+export const DELETE = withRouteLog('observe/scoring/user-definitions', async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  }
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-    if (!id) {
-      return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-    }
     await deleteUserGroup(id);
+    logInfo('route:observe/scoring/user-definitions', '自定义维度组已删除', { id });
     return NextResponse.json({ ok: true, groups: await loadUserGroups() });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    logWarn('route:observe/scoring/user-definitions', '组删除被拒', { id, error: message });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
-}
+});

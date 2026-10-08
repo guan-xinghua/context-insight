@@ -12,8 +12,10 @@
 // LLM 配置复用现有语义评审面板的配置来源（localStorage → 请求体传入），不另建配置入口。
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logError, logInfo } from '@/lib/logger';
 import { prisma } from '@/lib/db';
-import { runScorecard } from '@/lib/scoring';
+import { runScorecard, loadRegistry, deriveItemScores } from '@/lib/scoring';
+import { applyOverlays } from '@/lib/scoring/core/overlays';
 
 export async function POST(request: NextRequest) {
   let apiKey = '';
@@ -36,6 +38,8 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
+        const t0 = Date.now();
+        logInfo('route:observe/session/scorecard/semantic', '语义评审开始', { taskId, framework: framework ?? '', model: provider.model ?? '' });
         try {
           const card = await runScorecard(taskId, prisma, {
             withSemantic: true,
@@ -46,11 +50,15 @@ export async function POST(request: NextRequest) {
           if (!card) {
             send({ type: 'error', message: 'Session not found' });
           } else {
-            send({ type: 'done', card });
+            const registry = await loadRegistry();
+            // 与 scorecard GET 同口径：先套人工复核覆盖层再盖章（done 事件不丢确认态）
+            logInfo('route:observe/session/scorecard/semantic', '语义评审完成', { taskId, ms: Date.now() - t0 });
+            send({ type: 'done', card: deriveItemScores(await applyOverlays(card, registry.defs, registry.profile), registry.defs) });
           }
         } catch (err) {
           let message = err instanceof Error ? err.message : 'Unknown error';
           if (apiKey) message = message.split(apiKey).join('***');
+          logError('route:observe/session/scorecard/semantic', '语义评审失败', { error: message });
           send({ type: 'error', message });
         } finally {
           controller.close();
@@ -68,6 +76,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     let message = error instanceof Error ? error.message : 'Unknown error';
     if (apiKey) message = message.split(apiKey).join('***');
+    logError('route:observe/session/scorecard/semantic', '语义评审请求失败', { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

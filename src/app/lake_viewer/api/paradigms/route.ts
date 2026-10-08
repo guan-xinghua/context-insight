@@ -9,16 +9,12 @@
 import { NextResponse } from 'next/server';
 import { listParadigms } from '@/app/lake_viewer/_lib/runs';
 import { ensureMirrorAsync, markLakePhase } from '@/lib/lake/mirror';
+import { withRouteLog } from '@/lib/api-route';
 
-export async function GET() {
-  try {
-    await ensureMirrorAsync();
-    markLakePhase('list');
-    const items = await listParadigms();
-    markLakePhase('idle');
-    return NextResponse.json({ items });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = withRouteLog('lake_viewer/api/paradigms', async () => {
+  await ensureMirrorAsync();
+  markLakePhase('list');
+  const items = await listParadigms();
+  markLakePhase('idle');
+  return NextResponse.json({ items });
+});

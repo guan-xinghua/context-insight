@@ -12,7 +12,7 @@ import { Scorer, okResult, notApplicable, ev, round2, type ScorerContext } from 
 import type { SubItemResult } from '../core/types';
 import { BandJudgeScorer } from '../core/judge';
 import { OpBenchScorer } from '../core/op-bench/scorer';
-import { findLastVerifiedRun, lastWriteSeq } from '../core/test-parser';
+import { findLastVerifiedRun, lastWriteSeq, isCodeWrite } from '../core/test-parser';
 import { extractFilePath } from '@/lib/file-restore';
 
 import { d3Focus } from './definition';
@@ -24,8 +24,9 @@ class TestResultsScorer extends Scorer {
   readonly needs = ['toolCalls'] as const;
 
   async run(ctx: ScorerContext): Promise<SubItemResult> {
-    const writeFamilies = new Set(['write', 'edit', 'edit1', 'multiedit']);
-    const since = lastWriteSeq(ctx.input.toolCalls, tc => writeFamilies.has(tc.toolName.toLowerCase()) && extractFilePath(tc.argsJson) != null);
+    // 改代码口径与 D1.verifiedRun 共用（isCodeWrite）：文档写不算——机检/测试
+    // 跑完后只补报告的收尾不该把窗口推到最后、误判「缺测试运行」
+    const since = lastWriteSeq(ctx.input.toolCalls, tc => isCodeWrite(tc.toolName, tc.argsJson));
     const last = findLastVerifiedRun(ctx.input.toolCalls, { sinceSeq: since });
     if (!last || !last.summary) {
       return notApplicable(ctx.def, '缺少改代码后的测试运行，无法评判');
@@ -47,7 +48,7 @@ class TestResultsScorer extends Scorer {
 
 // ── D3.nakedWrite 不读就写（v1 computeNakedWrite 迁移）──────
 
-const VERIFY_CMD_RE = /(test|vitest|jest|pytest|build|make|compile|npm\s+run|lint)/i;
+const VERIFY_CMD_RE = /(test|vitest|jest|pytest|build|make|compile|npm\s+run|lint|check_[a-z0-9_.-]*|gate_lib|闸门)/i;
 
 class NakedWriteScorer extends Scorer {
   readonly id = 'D3.nakedWrite';
@@ -56,26 +57,60 @@ class NakedWriteScorer extends Scorer {
   async run(ctx: ScorerContext): Promise<SubItemResult> {
     const toolCalls = ctx.input.toolCalls;
     const isWriteFamily = (name: string) => ['write', 'edit', 'edit1', 'multiedit'].includes(name.toLowerCase());
-    const writes = toolCalls.filter(tc => isWriteFamily(tc.toolName) && extractFilePath(tc.argsJson) !== null);
+    // 一次线性预扫建索引（此前每个写全量重扫 toolCalls——重编辑会话 O(n·m) 上千万次正则解析）：
+    // readSeqsByFile / writeSeqsByFile 按 seq 升序（toolCalls 本身按序遍历），bashVerifySeqs 同
+    const readSeqsByFile = new Map<string, number[]>();
+    const writeSeqsByFile = new Map<string, number[]>();
+    const bashVerifySeqs: number[] = [];
+    const firstTouch = new Map<string, 'read' | 'write'>();
+    for (const tc of toolCalls) {
+      const name = tc.toolName.toLowerCase();
+      // 核验命令不看成败（跑了就算核验过）；失败的调用不算触达也不进批次窗口（原口径）
+      if (name === 'bash') {
+        if (VERIFY_CMD_RE.test(tc.argsJson ?? '')) bashVerifySeqs.push(tc.seq);
+        continue;
+      }
+      if (tc.state === 'error' || (name !== 'read' && !isWriteFamily(name))) continue;
+      const p = extractFilePath(tc.argsJson);
+      if (p == null) continue;
+      if (name === 'read') {
+        (readSeqsByFile.get(p) ?? readSeqsByFile.set(p, []).get(p)!).push(tc.seq);
+        if (!firstTouch.has(p)) firstTouch.set(p, 'read');
+      } else {
+        (writeSeqsByFile.get(p) ?? writeSeqsByFile.set(p, []).get(p)!).push(tc.seq);
+        // 首触达只认 Read/Write：Edit 不建文件（不是自建信号），但批次窗口要它的 seq
+        if (name === 'write' && !firstTouch.has(p)) firstTouch.set(p, 'write');
+      }
+    }
+    // 写失败的调用没有发生写入，不计（索引里保留其 seq 只用于窗口定位）
+    const writes = toolCalls.filter(tc => isWriteFamily(tc.toolName) && extractFilePath(tc.argsJson) !== null && tc.state !== 'error');
     if (writes.length === 0) return notApplicable(ctx.def, '缺少文件写操作，无法评判');
+
+    const seqIn = (sorted: number[], lo: number, hi: number): boolean => {
+      for (const s of sorted) {
+        if (s <= lo) continue;
+        return s < hi;
+      }
+      return false;
+    };
+    const nextWriteSeqOf = (file: string, after: number): number | undefined =>
+      writeSeqsByFile.get(file)?.find(s => s > after);
 
     let naked = 0;
     const evidence: SubItemResult['evidence'] = [];
     for (const w of writes) {
       const file = extractFilePath(w.argsJson)!;
-      const nextSameFileWrite = writes.find(x => x.seq > w.seq && extractFilePath(x.argsJson) === file);
-      const windowEnd = nextSameFileWrite ? nextSameFileWrite.seq : Infinity;
-      const verified = toolCalls.some(tc =>
-        tc.seq > w.seq
-        && tc.seq < windowEnd
-        && (
-          (tc.toolName.toLowerCase() === 'read' && extractFilePath(tc.argsJson) === file)
-          || (tc.toolName.toLowerCase() === 'bash' && VERIFY_CMD_RE.test(tc.argsJson ?? ''))
-        ),
-      );
+      if (firstTouch.get(file) === 'write') continue;               // 自建文件：豁免
+      const reads = readSeqsByFile.get(file) ?? [];
+      if (reads.some(s => s < w.seq)) continue;                     // 写前读过：不算不读就写
+      const nextWriteSeq = nextWriteSeqOf(file, w.seq);
+      // 批次中间的写：后面还有同文件写且中间没补读 → 以批次尾的核验为准，不逐次计
+      if (nextWriteSeq != null && !seqIn(reads, w.seq, nextWriteSeq)) continue;
+      const windowEnd = nextWriteSeq ?? Infinity;
+      const verified = seqIn(reads, w.seq, windowEnd) || seqIn(bashVerifySeqs, w.seq, windowEnd);
       if (!verified) {
         naked++;
-        evidence.push(ev(w.turnIndex, `${w.toolName} ${file}：写后无同文件 Read、无 test/build 命令`));
+        evidence.push(ev(w.turnIndex, `${w.toolName} ${file}：从未读过该文件就改（非会话内自建），写后亦无同文件 Read、无验证命令`));
       }
     }
     const ratio = naked / writes.length;
@@ -83,7 +118,7 @@ class NakedWriteScorer extends Scorer {
       value: round2(ratio),
       unit: 'ratio',
       score: round2(1 - ratio),
-      formula: `不读就写率 = 无验证写入 / 总写入 = ${naked} / ${writes.length} = ${round2(ratio)} → 得分 ${round2(1 - ratio)}`,
+      formula: `不读就写率 = 盲改未读文件 / 总写入 = ${naked} / ${writes.length} = ${round2(ratio)} → 得分 ${round2(1 - ratio)}（自建文件与写前已读的不计）`,
       evidence: evidence.slice(0, 8),
     });
   }

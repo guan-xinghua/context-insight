@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { probeAutoRefresh } from '@/lib/ingest/auto-refresh-probe';
+import { logWarn } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,7 +44,8 @@ export async function GET(request: NextRequest) {
       pendingInput: probe.pendingInput,
       settled: probe.settled,
     });
-  } catch {
+  } catch (e) {
+    logWarn('route:observe/auto-refresh', '探测失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ changed: false });
   }
 }

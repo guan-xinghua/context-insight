@@ -8,12 +8,14 @@
 
 import { NextResponse } from 'next/server';
 import { readParadigmTarget, setParadigmTarget, NotesConflictError } from '@/lib/lake/notes';
+import { logInfo, logWarn } from '@/lib/logger';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
   try {
     return NextResponse.json({ name, target: await readParadigmTarget(name) });
   } catch (e) {
+    logWarn('route:lake_viewer/paradigms/target', '读取优化目标失败', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'bad paradigm' }, { status: 400 });
   }
 }
@@ -43,8 +45,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ name: string }
   const expectedMs = typeof body.expectedMs === 'number' ? body.expectedMs : null;
   try {
     await setParadigmTarget(name, baselineMs, expectedMs);
+    logInfo('route:lake_viewer/paradigms/target', '优化目标已写入', { name, baselineMs, expectedMs });
     return NextResponse.json({ name, target: await readParadigmTarget(name) });
   } catch (e) {
+    logWarn('route:lake_viewer/paradigms/target', '写入优化目标失败', { error: e instanceof Error ? e.message : String(e) });
     if (e instanceof NotesConflictError) return NextResponse.json({ error: e.message }, { status: 409 });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'save failed' }, { status: 400 });
   }

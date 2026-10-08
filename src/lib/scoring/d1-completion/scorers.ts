@@ -12,7 +12,7 @@ import { Scorer, okResult, notApplicable, ev, round2, type ScorerContext } from 
 import type { ScoreItemSchema } from '../core/schema';
 import type { SubItemResult } from '../core/types';
 import { ChecklistJudgeScorer, CoverageJudgeScorer } from '../core/judge';
-import { findLastVerifiedRun, lastWriteSeq } from '../core/test-parser';
+import { findLastVerifiedRun, lastWriteSeq, isCodeWrite } from '../core/test-parser';
 import { extractFilePath } from '@/lib/file-restore';
 import type { ScoreToolCall } from '../core/assembler/types';
 
@@ -154,22 +154,24 @@ class PlanDeviationScorer extends Scorer {
 }
 
 // ── D1.verifiedRun 验证证据（白名单 + 时序：最后一次改代码之后）───────
-
-const WRITE_FAMILIES = new Set(['write', 'edit', 'edit1', 'multiedit']);
-const isWriteCall = (tc: ScoreToolCall) => WRITE_FAMILIES.has(tc.toolName.toLowerCase()) && extractFilePath(tc.argsJson) != null;
+// 改代码口径（isCodeWrite，与 D3.testResults 共用）：源码/配置/构建文件算，
+// 纯文档写不算——测试跑完后只补文档的收尾不该把验证窗口推到最后。
 
 class VerificationScorer extends Scorer {
   readonly id = 'D1.verifiedRun';
   readonly needs = ['toolCalls'] as const;
 
   async run(ctx: ScorerContext): Promise<SubItemResult> {
-    const since = lastWriteSeq(ctx.input.toolCalls, isWriteCall);
+    const since = lastWriteSeq(ctx.input.toolCalls, tc => isCodeWrite(tc.toolName, tc.argsJson));
     const last = findLastVerifiedRun(ctx.input.toolCalls, { sinceSeq: since });
     if (!last) {
+      // 指到最后一次改代码的轮次——用户可跳过去自查之后是否真的没验证
+      const lastWrite = since >= 0 ? ctx.input.toolCalls.find(tc => tc.seq === since) : undefined;
       return okResult(ctx.def, {
         verdict: 'none',
         value: since >= 0 ? '改代码后无验证运行' : '无验证运行',
         formula: '白名单验证命令（npm test / pytest / make / ctest…；grep "test"、cat 不算）在最后一次改代码之后无运行',
+        evidence: lastWrite ? [ev(lastWrite.turnIndex, `最后一次改代码：${extractFilePath(lastWrite.argsJson) ?? lastWrite.toolName}`)] : [],
         note: '宁漏勿错：只认白名单命令',
       });
     }

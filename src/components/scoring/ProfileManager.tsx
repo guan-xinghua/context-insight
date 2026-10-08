@@ -8,7 +8,7 @@
 
 'use client';
 
-// 评分配置 profile 管理：叠在内置口径上的覆盖层——勾选子项、双级权重、维度内自定义项、
+// 评分配置 profile 管理（评分模板）：叠在内置评分上的覆盖层——勾选子项、双级权重、维度内自定义项、
 // 模板（使用/复制）、导入导出、恢复默认。全局单激活；D7 自定义维度是独立系统（底部入口跳转）。
 // 子项清单/默认权重从客户端安全的 definitions 取；模板从 profile/presets 叶子模块取。
 
@@ -48,7 +48,12 @@ const BUILTIN_ITEM_IDS = new Set(BUILTIN_DIMENSIONS.flatMap(d => d.items.map(i =
 
 const slug = (name: string): string => {
   const s = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-  return s.length >= 2 ? s : 'custom';
+  if (s.length >= 2) return s;
+  // CJK/纯符号名剥完是空 → 'custom'：所有此类名字会同 id 互相覆盖（saveProfile
+  // 按文件名写）。缀名字短哈希让不同名字稳定不同 id；同名视为用户自己的重复
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+  return `custom-${h.toString(36)}`;
 };
 
 const summaryOf = (p: ScoringProfile): string => {
@@ -137,7 +142,7 @@ export function ProfileManager({ open, onOpenChange, onChanged, onOpenD7 }: {
       const data = await res.json() as { error?: string };
       if (!res.ok) { setError(data.error ?? `HTTP ${res.status}`); return; }
       setError(null);
-      setNotice(id == null ? '已恢复默认口径（重算后生效）' : '已激活（重算后生效）');
+      setNotice(id == null ? '已恢复默认评分模板（重算后生效）' : '已激活（重算后生效）');
       await load();
       onChanged?.();
     } catch (e) {
@@ -209,17 +214,17 @@ export function ProfileManager({ open, onOpenChange, onChanged, onOpenD7 }: {
   }, [profiles.length]);
 
   const activeName = activeId == null
-    ? '默认口径'
+    ? '默认评分模板'
     : PRESETS.find(p => p.id === activeId)?.name ?? profiles.find(p => p.id === activeId)?.name ?? activeId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-5xl w-[92vw] max-h-[88vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>评分配置 · 口径管理</DialogTitle>
+          <DialogTitle>评分配置 · 评分模板管理</DialogTitle>
           <DialogDescription>
-            profile 是叠在内置口径上的<b>覆盖层</b>：勾选子项参与、改子项/维度权重、加维度内自定义项。
-            全局单激活；<b>跨口径的评分卡总分不可直接比</b>。D7 自定义维度是独立系统（底部入口）。
+            profile 是叠在内置评分上的<b>覆盖层（评分模板）</b>：勾选子项参与、改子项/维度权重、加维度内自定义项。
+            全局单激活；<b>跨评分模板的总分不可直接比</b>。D7 自定义维度是独立系统（底部入口）。
           </DialogDescription>
         </DialogHeader>
 
@@ -240,7 +245,7 @@ export function ProfileManager({ open, onOpenChange, onChanged, onOpenD7 }: {
               )}
               {activeId != null && (
                 <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1" disabled={busy} onClick={() => void activate(null)}>
-                  <RotateCcwIcon className="size-3" /> 恢复默认口径
+                  <RotateCcwIcon className="size-3" /> 恢复默认模板
                 </Button>
               )}
             </div>
@@ -317,6 +322,10 @@ export function ProfileManager({ open, onOpenChange, onChanged, onOpenD7 }: {
 
             {editing != null && (
               <ProfileEditor
+                // key 随 id 换：编辑器草稿 useState(structuredClone(initial)) 只认
+                // 首挂载——duplicate 换 editing 对象不换 key 会继续显示旧草稿，
+                // 保存写回旧 id
+                key={editing.id || 'new'}
                 initial={editing}
                 busy={busy}
                 onCancel={() => setEditing(null)}
@@ -421,7 +430,7 @@ function ProfileEditor({ initial, busy, onCancel, onSave }: {
             className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
             value={draft.note ?? ''}
             onChange={e => setDraft(d => ({ ...d, note: e.target.value || undefined }))}
-            placeholder="这套口径给什么场景用"
+            placeholder="这套评分模板给什么场景用"
           />
         </label>
       </div>
@@ -591,11 +600,30 @@ function CustomItemEditor({ initial, existingIds, onCancel, onSave }: {
   if (isRule && rule.filter) { try { new RegExp(rule.filter, 'i'); } catch { regexOk = false; } }
   const thresholdOk = rule.compare === 'exists' || rule.compare === 'absent' || typeof rule.threshold === 'number';
   const ruleReady = !!rule.signal && thresholdOk && regexOk;
+  const isBinary = draft.kind === 'binary';
   const llmReady = (draft.bands ?? []).every(b => b.description.trim().length >= 4);
+  const binaryReady = (draft.note ?? '').trim().length >= 4;
   const weightRequired = CUSTOM_WEIGHT_REQUIRED.includes(draft.targetDimension);
   const weightOk = !weightRequired || (draft.weight != null && draft.weight > 0);
   const saveReady = draft.name.trim().length > 0 && draft.name.length <= 40
-    && !idTaken && weightOk && (isRule ? ruleReady : llmReady);
+    && !idTaken && weightOk && (isRule ? ruleReady : isBinary ? binaryReady : llmReady);
+
+  // 灰按钮不说原因 = 用户猜谜（每档标准填「1」这种常见）；把不满足的条件直接列出来
+  const problems: string[] = [];
+  if (draft.name.trim().length === 0) problems.push('名称必填');
+  if (draft.name.length > 40) problems.push('名称超 40 字');
+  if (!weightOk) problems.push('该维度的维度内权重必填且大于 0');
+  if (isRule) {
+    if (!rule.signal) problems.push('规则信号必选');
+    if (!thresholdOk) problems.push('阈值无效');
+    if (!regexOk) problems.push('过滤正则写错了');
+  } else if (isBinary) {
+    if (!binaryReady) problems.push('判定标准至少 4 字——写明白什么算「达成」（达成 1 分 / 未达成 0 分 / 判不了不扣分）');
+  } else {
+    const short = (draft.bands ?? []).filter(b => b.description.trim().length < 4);
+    if (short.length > 0) problems.push(`每档标准至少 4 字（${short.map(b => b.range).join('、')} 档还太短）——这是给评审的判卷标准，写明白什么样算这一档`);
+  }
+  const bandTooShort = (s: string) => !isRule && !isBinary && s.trim().length < 4;
 
   return (
     <div className="rounded border border-border bg-muted/20 space-y-2 px-2.5 py-2">
@@ -619,21 +647,23 @@ function CustomItemEditor({ initial, existingIds, onCancel, onSave }: {
             placeholder="如：文档同步"
           />
         </label>
-        <label className="text-xs space-y-1">
-          <span className="text-muted-foreground">一句话评什么（可选）</span>
-          <input
-            className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
-            value={draft.note ?? ''}
-            onChange={e => setDraft(d => ({ ...d, note: e.target.value || undefined }))}
-            placeholder="如：改代码的同时有没有更新文档"
-          />
-        </label>
+        {!isBinary && (
+          <label className="text-xs space-y-1">
+            <span className="text-muted-foreground">一句话评什么（可选）</span>
+            <input
+              className="w-full rounded border border-border bg-background px-2 py-1 text-sm"
+              value={draft.note ?? ''}
+              onChange={e => setDraft(d => ({ ...d, note: e.target.value || undefined }))}
+              placeholder="如：改代码的同时有没有更新文档"
+            />
+          </label>
+        )}
       </div>
       {idTaken && <p className="text-[11px] text-red-500 px-1">id「{idPreview}」与内置子项或已有自定义项冲突，换个名字</p>}
 
       <div className="flex items-center gap-3 text-xs">
         <span className="text-muted-foreground">类型</span>
-        {([['llm', 'LLM 评分'], ['rule', '规则判定（零 LLM）']] as const).map(([k, label]) => (
+        {([['llm', 'LLM 评分（五档）'], ['binary', '两档判定（是/否）'], ['rule', '规则判定（零 LLM）']] as const).map(([k, label]) => (
           <label key={k} className="flex items-center gap-1 cursor-pointer">
             <input type="radio" checked={draft.kind === k} onChange={() => setDraft(d => ({ ...d, kind: k }))} />
             {label}
@@ -704,6 +734,17 @@ function CustomItemEditor({ initial, existingIds, onCancel, onSave }: {
             </label>
           </div>
         </div>
+      ) : isBinary ? (
+        <div className="space-y-1">
+          <span className="text-xs text-muted-foreground">判定标准（是非题：达成 1 分 / 未达成 0 分 / 判不了不扣分——写明白什么算「达成」）</span>
+          <textarea
+            className={`w-full rounded border bg-background px-2 py-1 text-xs ${binaryReady ? 'border-border' : 'border-red-400'}`}
+            rows={2}
+            value={draft.note ?? ''}
+            onChange={e => setDraft(d => ({ ...d, note: e.target.value || undefined }))}
+            placeholder="如：设计变更同步更新到 docs/ 下的设计文档（只建文件不算，要有实质内容更新）"
+          />
+        </div>
       ) : (
         <div className="space-y-1">
           <span className="text-xs text-muted-foreground">每档标准（大白话写明白什么样算这一档）</span>
@@ -712,7 +753,7 @@ function CustomItemEditor({ initial, existingIds, onCancel, onSave }: {
               <span className="font-mono text-[11px] text-muted-foreground w-10 shrink-0">{b.range}</span>
               <span className="text-[11px] w-16 shrink-0">{b.label}</span>
               <input
-                className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+                className={`flex-1 rounded border bg-background px-2 py-1 text-xs ${bandTooShort(b.description) ? 'border-red-400' : 'border-border'}`}
                 value={b.description}
                 onChange={e => setBands(i, e.target.value)}
                 placeholder={`${b.label}：什么样算这一档`}
@@ -720,6 +761,10 @@ function CustomItemEditor({ initial, existingIds, onCancel, onSave }: {
             </div>
           ))}
         </div>
+      )}
+
+      {!saveReady && problems.length > 0 && (
+        <p className="text-[11px] text-red-500 px-1">还不能保存：{problems.join('；')}</p>
       )}
 
       <div className="flex items-center gap-2 justify-end">

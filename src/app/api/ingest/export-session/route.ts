@@ -11,37 +11,35 @@ import { exportSession } from '@/lib/ingest/export-service';
 import { prisma } from '@/lib/db';
 import { isSafeTaskId } from '@/lib/task-id';
 import fs from 'node:fs';
+import { withRouteLog } from '@/lib/api-route';
+import { logInfo } from '@/lib/logger';
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { taskId, framework } = body;
+export const POST = withRouteLog('ingest/export-session', async (request: NextRequest) => {
+  const body = await request.json();
+  const { taskId, framework } = body;
 
-    if (!taskId) {
-      return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
-    }
-    if (!isSafeTaskId(taskId)) {
-      return NextResponse.json({ error: 'Invalid taskId: must be non-empty, max 128 chars, no path separators or control characters' }, { status: 400 });
-    }
-
-    const filePath = await exportSession(taskId, undefined, prisma, framework);
-
-    const fileBuffer = fs.readFileSync(filePath);
-    const filename = `cannbot_session_${taskId}.db`;
-
-    // Clean up temp file
-    try { fs.unlinkSync(filePath); } catch {}
-
-    return new NextResponse(fileBuffer, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/x-sqlite3',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': String(fileBuffer.length),
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (!taskId) {
+    return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
   }
-}
+  if (!isSafeTaskId(taskId)) {
+    return NextResponse.json({ error: 'Invalid taskId: must be non-empty, max 128 chars, no path separators or control characters' }, { status: 400 });
+  }
+
+  const filePath = await exportSession(taskId, undefined, prisma, framework);
+
+  const fileBuffer = fs.readFileSync(filePath);
+  const filename = `cannbot_session_${taskId}.db`;
+  logInfo('route:ingest/export-session', '会话已导出（db）', { taskId, bytes: fileBuffer.length });
+
+  // Clean up temp file
+  try { fs.unlinkSync(filePath); } catch {}
+
+  return new NextResponse(fileBuffer, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/x-sqlite3',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(fileBuffer.length),
+    },
+  });
+});

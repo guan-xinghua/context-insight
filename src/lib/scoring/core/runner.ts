@@ -180,15 +180,17 @@ export async function runScorecard(
   }
 
   const framework = aggregateCard(dimensions, registry.defs);
+  const completedAt = new Date().toISOString();
   const card: Scorecard = {
     schemaVersion: SCORECARD_SCHEMA,
     sessionId: assembled.raw.session.sessionId,
     taskType: input.taskType,
-    computedAt: new Date().toISOString(),
+    computedAt: completedAt,
     status: 'completed',
     framework: { ...framework, profile: registry.profile ?? null },
     dimensions,
     judgeCost: rawLlm ? { calls: judgeCalls, tokens: judgeTokens } : null,
+    review: rawLlm ? { reviewer: 'llm', tool: rawLlm.model, completedAt, durationMs: Date.now() - runT0 } : undefined,
     context: {
       models: [...new Set(assembled.raw.turns.map(t => t.model).filter((m): m is string => m != null))],
       tools: [...new Set(input.toolCalls.map(tc => tc.toolName))].sort(),

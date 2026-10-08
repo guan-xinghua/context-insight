@@ -46,7 +46,7 @@ function extractSections(text: string, keywordRe: RegExp): string[] {
 
 const ACCEPT_RE = /验收|测试用例清单|交付标准|acceptance/i;
 const REDLINE_RE = /红线|禁止|不得|严禁|不得违反|redline/i;
-const OPERATOR_TAG_RE = /算子|operator|op 开发|kernel/i;
+export const OPERATOR_TAG_RE = /算子|operator|op 开发|kernel/i;
 
 export function parseWorkflowDeclaration(full: FullContext | null): WorkflowDeclaration | null {
   if (!full) return null;

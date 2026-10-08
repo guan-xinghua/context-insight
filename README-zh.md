@@ -26,6 +26,8 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 主页 Sessions 列表支持关键词 / sessionID 搜索；导入对话框提供常用路径一键直达。
 
+**运行日志** — 服务端过程日志（导入管线、数据之湖同步、API 错误）按天滚动写入 `~/.cannbot-insight/logs/insight-<日期>.log`，可选同时输出到启动终端。级别与「写入文件 / 输出到屏幕」开关在「设置 → 运行日志」即时调整（日志位置同页展示，免重启）；环境变量（`CANNBOT_LOG` / `CANNBOT_LOG_LEVEL` / `CANNBOT_LOG_FILE` / `CANNBOT_LOG_STDOUT` / `CANNBOT_LOG_DIR`）优先于设置页。
+
 ## 安装与使用
 
 ### 方式零：npm 一键安装（推荐）
@@ -35,7 +37,7 @@ npm install -g cannbot-insight
 cannbot-insight            # 首次：自动 build + migrate（约 30s-2min），随后启动 + 开浏览器
 ```
 
-- 需 Node.js >= 20；国内网络可加 `--registry=https://registry.npmmirror.com`
+- 需 Node.js >= 22.12；国内网络可加 `--registry=https://registry.npmmirror.com`
 - 离线环境可用 tgz：`npm install -g ./cannbot-insight-<版本>.tgz`
 - 可写状态集中在 `~/.cannbot-insight/`；默认端口 21025（占用自动顺延）
 - CLI 子命令直接透传：`cannbot-insight upload --file … --list` / `sessions`；短别名 `cbi`
@@ -58,7 +60,7 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 ./start.sh -d           # dev 模式（改源码热重载时用）
 ```
 
-- 需 Node.js >= 20；`./start.sh` 同时安装 cpx 捕获命令（详见 `../cpx/README.md`）
+- 需 Node.js >= 22.12；`./start.sh` 同时安装 cpx 捕获命令（详见 `../cpx/README.md`）
 - 浏览器打开 `http://localhost:21025`
 
 日志文件位置：

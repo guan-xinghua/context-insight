@@ -10,6 +10,7 @@
 
 import { useMemo, useState } from 'react';
 import { formatDateTime, formatDuration, formatScore, formatTokens, formatDelta } from '@/app/lake_viewer/_lib/format';
+import { agentFrameworkOf, isProxyVersion } from '@/lib/shared/session-format';
 import { NotesDialog } from './NotesDialog';
 import { toast } from 'sonner';
 
@@ -34,6 +35,7 @@ export interface RunItemView {
   model: string | null;
   imported: boolean;
   totalScore: number | null;
+  scoreSource: 'local' | 'lake-note' | null;
   dimensions: Array<{ dimensionId: string; name: string; score: number | null }>;
   baselineDelta: number | null;
   insightUrl: string;
@@ -169,9 +171,6 @@ export function RunsTable({
                 <span className="inline-flex items-center gap-1.5">
                   {r.isBaseline && <span className="text-emerald-600" title="范式基准">◆</span>}
                   <span title={r.sid}>{r.sid.slice(0, 8)}</span>
-                  {r.recording === 'native' && (
-                    <span className="rounded bg-amber-100 px-1 py-px text-[10px] leading-none text-amber-700" title="原生会话记录（仓内 <sid>.native/ 位）">原生</span>
-                  )}
                   <button
                     type="button"
                     className="text-neutral-400 hover:text-neutral-700"
@@ -191,10 +190,23 @@ export function RunsTable({
                 {r.author ?? <span className="text-neutral-300">—</span>}
               </td>
               <td className="whitespace-nowrap px-3 py-2">
-                <span className={`inline-block rounded px-1.5 py-0.5 text-xs ${r.framework ? (FRAMEWORK_BADGE[r.framework] ?? 'bg-neutral-100 text-neutral-700') : 'bg-neutral-100 text-neutral-400'}`}>
-                  {r.framework ?? '未知'}
-                </span>
-                {r.ccVersion && <span className="ml-1.5 text-xs text-neutral-500">{r.ccVersion}</span>}
+                {/* 与 insight 首页同款：框架按 agent 归属归一，proxy 记录挂黄色标签。
+                    lake 命名归一后 meta framework 是裸 agent 名——proxy 判据以记录类
+                    （capture = cpx 捕获）为准，framework 后缀只作兜底 */}
+                {(() => {
+                  const fw = r.framework ?? '';
+                  const agent = agentFrameworkOf(fw) ?? fw;
+                  const proxy = r.recording === 'capture' || fw.endsWith('-proxy') || isProxyVersion(r.ccVersion);
+                  return (
+                    <span className="inline-flex items-center gap-1">
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-xs ${agent ? (FRAMEWORK_BADGE[agent] ?? 'bg-neutral-100 text-neutral-700') : 'bg-neutral-100 text-neutral-400'}`}>
+                        {agent || '未知'}
+                      </span>
+                      {proxy && <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-amber-100 text-amber-800">proxy</span>}
+                      {r.ccVersion && <span className="ml-1 text-xs text-neutral-500">{r.ccVersion}</span>}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-xs text-neutral-600">
                 {r.model ? <span className="font-mono" title={r.model}>{r.model}</span> : <span className="text-neutral-300">—</span>}
@@ -212,8 +224,12 @@ export function RunsTable({
               </td>
               <td className="whitespace-nowrap px-3 py-2 tabular-nums text-neutral-700">{formatTokens(r.totalTokens)}</td>
               <td className="whitespace-nowrap px-3 py-2 tabular-nums">
-                <span className={r.totalScore == null ? 'text-neutral-400' : r.totalScore >= 60 ? 'font-medium text-emerald-700' : 'font-medium text-amber-700'}>
+                <span
+                  className={r.totalScore == null ? 'text-neutral-400' : r.totalScore >= 60 ? 'font-medium text-emerald-700' : 'font-medium text-amber-700'}
+                  title={r.scoreSource === 'lake-note' ? '来自仓内评审记录快照（本机未导入，未重算）' : undefined}
+                >
                   {formatScore(r.totalScore)}
+                  {r.scoreSource === 'lake-note' && <sup className="ml-0.5 text-[10px] font-normal text-neutral-400">仓</sup>}
                 </span>
                 <DimBars dims={r.dimensions} />
               </td>

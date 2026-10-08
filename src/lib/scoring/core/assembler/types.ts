@@ -69,6 +69,8 @@ export interface WireSummary {
   memoryTokens?: number;
   staleFiles?: Array<{ file: string; chars: number }>;
   perRound?: Array<{ index: number; dupCopyChars: number }>;
+  /** 工具执行区间（wire 轮间隙推导，主链+子代理）：D4.toolTime/parallel 与 Perf 共用 */
+  toolIntervals?: import('@/lib/tool-timing').ToolInterval[];
 }
 
 /** 捕获层脱敏命中（只记类型/位置/轮次，不含原文） */

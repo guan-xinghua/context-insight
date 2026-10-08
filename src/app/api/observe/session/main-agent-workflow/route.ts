@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { recoverCombinedWorkflowDeclaration, resolveWorkflowSkillName, MAIN_AGENT_WORKFLOW_NAME } from '@/lib/sift-audit';
 import { ensureWorkflowExtractPluginLoaded } from '@/lib/workflow-extract-config';
+import { withRouteLog } from '@/lib/api-route';
 
 /**
  * 主 agent 编排 对账目标的可用性 + 真名：
@@ -22,36 +23,31 @@ import { ensureWorkflowExtractPluginLoaded } from '@/lib/workflow-extract-config
  * 返回：{ available, name, source }。available=true 时 name 非 null、source 非 null；
  * available=false 时 name=null、source=null。
  */
-export async function GET(request: Request) {
-  try {
-    // 激活部署根的 workflow-extract-plugins.json（server-only fs 加载；幂等）
-    ensureWorkflowExtractPluginLoaded();
-    const { searchParams } = new URL(request.url);
-    const taskId = searchParams.get('taskId');
-    const framework = searchParams.get('framework');
+export const GET = withRouteLog('observe/session/main-agent-workflow', async (request: Request) => {
+  // 激活部署根的 workflow-extract-plugins.json（server-only fs 加载；幂等）
+  ensureWorkflowExtractPluginLoaded();
+  const { searchParams } = new URL(request.url);
+  const taskId = searchParams.get('taskId');
+  const framework = searchParams.get('framework');
 
-    if (!taskId) {
-      return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
-    }
-
-    const session = await prisma.session.findFirst({
-      where: framework ? { taskId, framework } : { taskId },
-    });
-    if (!session) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-    }
-
-    // available + source：组合声明（规程层 + 计划层）能否恢复——root 对账送它
-    const decl = await recoverCombinedWorkflowDeclaration(session.id, prisma);
-    if (!decl) {
-      return NextResponse.json({ available: false, name: null, source: null });
-    }
-
-    // name：主 agent Skill invoke 的 skillName（workflow skill 真名）
-    const name = (await resolveWorkflowSkillName(session.id, prisma)) ?? MAIN_AGENT_WORKFLOW_NAME;
-    return NextResponse.json({ available: true, name, source: decl.source });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (!taskId) {
+    return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
   }
-}
+
+  const session = await prisma.session.findFirst({
+    where: framework ? { taskId, framework } : { taskId },
+  });
+  if (!session) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+
+  // available + source：组合声明（规程层 + 计划层）能否恢复——root 对账送它
+  const decl = await recoverCombinedWorkflowDeclaration(session.id, prisma);
+  if (!decl) {
+    return NextResponse.json({ available: false, name: null, source: null });
+  }
+
+  // name：主 agent Skill invoke 的 skillName（workflow skill 真名）
+  const name = (await resolveWorkflowSkillName(session.id, prisma)) ?? MAIN_AGENT_WORKFLOW_NAME;
+  return NextResponse.json({ available: true, name, source: decl.source });
+});

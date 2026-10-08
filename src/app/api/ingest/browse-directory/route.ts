@@ -11,6 +11,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { expandHome } from '@/lib/ingest/import-paths';
 import fs from 'node:fs';
 import path from 'node:path';
+import { logError, logWarn } from '@/lib/logger';
 
 export async function POST(request: NextRequest) {
   try {
@@ -77,7 +78,8 @@ export async function POST(request: NextRequest) {
           isImportableFile,
           importableType: isCannbot ? BRAND_SOURCE_TYPE : isDb ? 'opencode-db' : isJsonl ? 'claude-jsonl' : null,
         };
-      } catch {
+      } catch (e) {
+        logWarn('route:ingest/browse-directory', '目录项读取失败', { name, error: e instanceof Error ? e.message : String(e) });
         return {
           name,
           fullPath: full,
@@ -99,6 +101,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logError('route:ingest/browse-directory', '浏览失败', { error: message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

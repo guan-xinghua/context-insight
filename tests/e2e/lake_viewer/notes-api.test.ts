@@ -132,6 +132,23 @@ describe('notes api（本地 bare 湖 + 真测试库评分卡）', () => {
     expect(data.records.filter(r => r.type === 'scorecard')).toHaveLength(1);
   });
 
+  it('POST scorecard 覆盖语义：再次上传替换旧快照（记录流只留最新一份，note 不动）', async () => {
+    const { GET, POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
+    // 第一次上传（上面用例已传过一份），改卡后再传 → scorecard 仍只 1 条且为新值
+    const { scorecardStore } = await import('../../../src/lib/scoring');
+    const { prisma } = await import('../../../src/lib/db');
+    const session = await prisma.session.findFirst({ where: { taskId: 'ele-note0001' }, select: { id: true } });
+    const stored = await scorecardStore().get(session!.id);
+    await scorecardStore().put({ ...stored!, framework: { ...stored!.framework, totalScore: 0.42 } });
+    const res = await POST(postReq(JSON.stringify({ kind: 'scorecard' })), ctx('ele-note0001'));
+    expect(res.status).toBe(200);
+    const { records } = await res.json() as { records: ApiRecord[] };
+    const cards = records.filter(r => r.type === 'scorecard');
+    expect(cards).toHaveLength(1);                       // 旧的被覆盖，不堆积
+    expect(cards[0]?.totalScore).toBe(0.42);
+    expect(records.some(r => r.type === 'note')).toBe(true);   // note 记录不受影响
+  });
+
   it('baseline 会话记录落到 baseline/ 路径', async () => {
     const { POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
     const res = await POST(postReq(JSON.stringify({ kind: 'note', text: '基准备注' })), ctx('ele-base0009'));
@@ -299,6 +316,28 @@ describe('notes api（本地 bare 湖 + 真测试库评分卡）', () => {
     const stale = await POST(postReq(JSON.stringify({ kind: 'edit', ts: target?.ts, text: target?.text, newText: 'x' })), ctx('ele-note0001'));
     expect(stale.status).toBe(409);
   });
+
+  it('存量裸目录（单记录位）带 recording 参数：回落现存捕获位不 404，评分卡照常入湖', async () => {
+    const { GET, POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
+    // ele-note0001 是存量裸目录会话（DB 行 framework=claude-code 无 -proxy），
+    // 客户端按框架推断会带 recording=native——仓内只有捕获位，应回落到它而
+    // 不是 404；评分卡取数也不按 capture→-proxy 启发式把已评分会话误判 409
+    //（回归：2026-10 review ②，存量数据写入评分快照永久 409/404）
+    const get = await GET(new Request('http://viewer.test/?recording=native'), ctx('ele-note0001'));
+    expect(get.status).toBe(200);
+
+    const post = await POST(new Request('http://viewer.test/lake_viewer/api/runs/x/notes?recording=native', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'scorecard' }),
+    }), ctx('ele-note0001'));
+    expect(post.status).toBe(200);
+    const { records } = await post.json() as { records: ApiRecord[] };
+    expect(records.filter(r => r.type === 'scorecard')).toHaveLength(1);
+    // 不钉具体分值：前面的「覆盖语义」用例已把卡改写为 0.42，本用例回归点是
+    // 状态码（404/409 不再发生）与快照入湖成功
+    expect(typeof records.filter(r => r.type === 'scorecard')[0]?.totalScore).toBe('number');
+  });
 });
 
 describe('归属取当前位置首传（跨位置迁移）', () => {
@@ -324,13 +363,12 @@ describe('归属取当前位置首传（跨位置迁移）', () => {
         sessions: [{ sid: 'ele-mig0001', paradigm: 'elementwise', framework: 'opencode' }],
       },
     ]);
-    // 远端 env 是模块加载时常量（lake/remote 的 LAKE_PULL_URL 在 import 时
-    // 求值）：换第二个湖必须 resetModules 后再导入，中途翻 env 只会改 cacheDir
-    // 不改 pullUrl（镜像会从旧湖克隆）
-    const prev = { remote: process.env.LAKE_REMOTE_URL, push: process.env.LAKE_PUSH_URL, cache: process.env.LAKE_VIEWER_CACHE_DIR };
-    process.env.LAKE_REMOTE_URL = BARE2;
-    process.env.LAKE_PUSH_URL = BARE2;
+    // 换湖走服务端 lake-config.json（单源；env 地址通道已退役，翻 env 不生效）。
+    // config 与镜像 cacheDir 都是模块加载时求值：换湖必须 resetModules 后再
+    // 导入，且给新湖独立 cacheDir（沿用旧镜像会拿着旧湖的克隆不重 fetch）
+    const prevCache = process.env.LAKE_VIEWER_CACHE_DIR;
     process.env.LAKE_VIEWER_CACHE_DIR = path.join(TMP, 'cache-mig');
+    switchLakeConfig({ address: BARE2 });
     try {
       vi.resetModules();
       const { listRuns } = await import('../../../src/app/lake_viewer/_lib/runs');
@@ -347,9 +385,8 @@ describe('归属取当前位置首传（跨位置迁移）', () => {
       expect(notes.submit.author).toBe('zhang3');
       expect(notes.submit.description).toBe('范式上传');
     } finally {
-      process.env.LAKE_REMOTE_URL = prev.remote;
-      process.env.LAKE_PUSH_URL = prev.push;
-      process.env.LAKE_VIEWER_CACHE_DIR = prev.cache;
+      switchLakeConfig({ address: BARE });
+      process.env.LAKE_VIEWER_CACHE_DIR = prevCache;
       vi.resetModules();
     }
   });

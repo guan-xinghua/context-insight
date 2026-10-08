@@ -53,6 +53,29 @@ export const NATIVES = [
 
 const STALE = /NODE_MODULE_VERSION|did not self-register|was compiled against a different Node\.js version|Could not locate the bindings file/i;
 
+// engines 预检判定：semver 是传递依赖（npm 生态几乎必在），走 satisfies
+// 全区间判定；被 dedupe 掉时退化为保守的数值比较（见 catch 内）。
+function nodeSatisfies(version, range) {
+  try {
+    return require('semver').satisfies(version, range, { includePrerelease: true });
+  } catch {
+    // 无 semver 时的保守判定：带 || 并集（低版本可能合法）或无 >= 下限的
+    // 区间一律放行——预检只拦「必崩」，不拦「可能合法」，误报会把能跑的
+    // 环境挡在门外。
+    if (range.includes('||')) return true;
+    const floors = [...range.matchAll(/>=\s*(\d+(?:\.\d+){0,2})/g)].map(m => m[1].split('.').map(Number));
+    if (floors.length === 0) return true;
+    const cur = version.replace(/^v/, '').split('.').map(Number);
+    const below = floors.some(f => {
+      for (let i = 0; i < f.length; i++) {
+        if ((cur[i] ?? 0) !== f[i]) return (cur[i] ?? 0) < f[i];
+      }
+      return false;
+    });
+    return !below;
+  }
+}
+
 // 子进程复探：带回 stderr——最终失败瞬间恰恰最需要真实原因（仍是 ABI 不匹配？
 // prebuild-install 按 PATH 里的 node 下错了 ABI？还是引入了新错误），布尔返回
 // 会把它丢掉（spawnSync 默认 stdio pipe 不透传终端）。
@@ -96,6 +119,25 @@ const invokedAsScript = process.argv[1]
   && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (invokedAsScript) {
+  // 版本门槛前移到 import 之前：engines 不满足的原生模块（N-API 稳定 ABI，
+  // 加载不抛错）常在构造时直接 SIGSEGV——守卫循环靠捕获异常触发自愈，对段
+  // 错误无效，自己先崩。npm 装依赖时只警告（EBADENGINE）不拦截（未开
+  // engine-strict 的机器），这里是运行路径上的最后一道人话报错。
+  for (const native of NATIVES) {
+    let pkg;
+    try {
+      pkg = require(`${native.name}/package.json`);
+    } catch {
+      continue; // 模块本体缺失/损坏交回下方守卫循环的结构化报错处理
+    }
+    const need = pkg.engines?.node;
+    if (need && !nodeSatisfies(process.version, need)) {
+      console.error(`[ensure-native] ${native.name}@${pkg.version} 要求 node ${need}，当前 ${process.version} —— 不满足，原生模块可能加载/构造即崩（SIGSEGV）`);
+      console.error('[ensure-native] 请切换 Node 后重跑（如 nvm use 22），或降级依赖至支持当前版本的分段');
+      process.exit(1);
+    }
+  }
+
   let rebuilt = false;
   for (const native of NATIVES) {
     try {

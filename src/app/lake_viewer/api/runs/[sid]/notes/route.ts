@@ -8,29 +8,36 @@
 
 import { NextResponse } from 'next/server';
 import { getLakeListing, invalidateCaches } from '@/app/lake_viewer/_lib/runs';
-import { appendNote, appendScorecard, editNote, readRecords, readSubmitInfo, setOpGen, NotesConflictError } from '@/lib/lake/notes';
+import { appendNote, putScorecard, editNote, readRecords, readSubmitInfo, setOpGen, NotesConflictError } from '@/lib/lake/notes';
 import type { SessionLoc, OpGenValue } from '@/lib/lake/notes';
 import { getScorecard } from '@/app/lake_viewer/_lib/insight-data';
+import { logError, logInfo, logWarn } from '@/lib/logger';
+import { withRouteLog } from '@/lib/api-route';
 
 // recording 消歧：同 sid 双记录（捕获 + 原生）时按参数定位；缺省优先捕获位
-// （存量兼容——旧客户端/裸目录会话无 recording 概念）
-async function findSession(sid: string, recording?: string | null): Promise<SessionLoc | null> {
+// （存量兼容——旧客户端/裸目录会话无 recording 概念）。请求位在仓里不存在
+// 且仓内只有一个记录位时回落到它：存量裸目录会话的 DB 行 framework 无
+// -proxy 后缀，调用方按框架推断的 recording 可能指错位，仓布局才是记录类
+// 的权威；真双记录两位都在、回落不触发，不跨记录借显。
+async function findSession(sid: string, recording?: string | null): Promise<{ loc: SessionLoc; dual: boolean } | null> {
   const lake = await getLakeListing();
   const matches = lake.sessions.filter(x => x.sid === sid);
-  const s = recording === 'native' || recording === 'capture'
+  let s = recording === 'native' || recording === 'capture'
     ? matches.find(x => x.recording === recording)
-    : (matches.find(x => x.recording === 'capture') ?? matches[0]);
+    : undefined;
+  if (!s) s = matches.find(x => x.recording === 'capture') ?? matches[0];
   if (!s || !s.paradigm) return null;
-  return { sid: s.sid, paradigm: s.paradigm, isBaseline: s.isBaseline, recording: s.recording };
+  const dual = matches.some(x => x.recording === 'capture') && matches.some(x => x.recording === 'native');
+  return { loc: { sid: s.sid, paradigm: s.paradigm, isBaseline: s.isBaseline, recording: s.recording }, dual };
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ sid: string }> }) {
+export const GET = withRouteLog('lake_viewer/runs/notes', async (req: Request, ctx: { params: Promise<{ sid: string }> }) => {
   const { sid } = await ctx.params;
-  const session = await findSession(sid, new URL(req.url).searchParams.get('recording'));
-  if (!session) return NextResponse.json({ error: 'session not found' }, { status: 404 });
-  const [records, submit] = await Promise.all([readRecords(session), readSubmitInfo(session)]);
+  const found = await findSession(sid, new URL(req.url).searchParams.get('recording'));
+  if (!found) return NextResponse.json({ error: 'session not found' }, { status: 404 });
+  const [records, submit] = await Promise.all([readRecords(found.loc), readSubmitInfo(found.loc)]);
   return NextResponse.json({ sid, records, submit });
-}
+});
 
 // body: {kind:'note', text} | {kind:'scorecard'}（评分卡快照取自 insight 当时刻值）
 //      | {kind:'edit', ts, text, newText}（按 ts+原文定位改写，保留原 ts）
@@ -38,8 +45,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ sid: string }> 
 //      | body.recording（'capture' | 'native'，双记录消歧，缺省捕获位）
 export async function POST(req: Request, ctx: { params: Promise<{ sid: string }> }) {
   const { sid } = await ctx.params;
-  const session = await findSession(sid, new URL(req.url).searchParams.get('recording'));
-  if (!session) return NextResponse.json({ error: 'session not found' }, { status: 404 });
+  const found = await findSession(sid, new URL(req.url).searchParams.get('recording'));
+  if (!found) return NextResponse.json({ error: 'session not found' }, { status: 404 });
+  const session = found.loc;
   let kind = 'note';
   let text = '';
   let edit = { ts: '', text: '', newText: '' };
@@ -64,9 +72,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ sid: string }>
   try {
     let records;
     if (kind === 'scorecard') {
-      const card = await getScorecard(sid);
+      // recording 消歧仅在真双记录（仓内两位并存）时传下去：快照必须取本记录行
+      // 的卡（capture=捕获行）。单记录位仓（存量裸目录）不传——其 DB 行 framework
+      // 无 -proxy 后缀，按 capture→-proxy 启发式查会永远落空，把已评分的存量
+      // 会话误判成「未导入或未评分」
+      const card = await getScorecard(sid, undefined, found.dual ? (session.recording === 'native' ? 'native' : 'capture') : undefined);
       if (!card) return NextResponse.json({ error: '无评分卡（该会话未导入或未评分）' }, { status: 409 });
-      records = await appendScorecard(session, card);
+      records = await putScorecard(session, card);
     } else if (kind === 'edit') {
       if (!edit.ts || !edit.text) return NextResponse.json({ error: 'ts and text required' }, { status: 400 });
       records = await editNote(session, { ts: edit.ts, text: edit.text }, edit.newText);
@@ -78,9 +90,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ sid: string }>
       records = await appendNote(session, text);
     }
     invalidateCaches();
+    logInfo('route:lake_viewer/runs/notes', 'lake 记录已推送', { sid, kind, paradigm: session.paradigm });
     return NextResponse.json({ sid, records });
   } catch (e) {
-    if (e instanceof NotesConflictError) return NextResponse.json({ error: e.message }, { status: 409 });
+    if (e instanceof NotesConflictError) {
+      logWarn('route:lake_viewer/runs/notes', '写入冲突', { sid, error: e.message });
+      return NextResponse.json({ error: e.message }, { status: 409 });
+    }
+    logError('route:lake_viewer/runs/notes', '写入失败', { sid, error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'append failed' }, { status: 502 });
   }
 }

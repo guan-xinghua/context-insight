@@ -51,6 +51,10 @@ const GLOBAL_RULES = [
   { find: '"CANNBay Viewer"', replace: '"contextBay Viewer"', minHits: 1 },
   { find: "'.cannbot-insight'", replace: "'.context-insight'", minHits: 2 },
   { find: '~/.cannbot-insight', replace: '~/.context-insight', minHits: 2 },
+  // shell 里 ~ 不在引号内展开，运行时只能 $HOME 拼路径（start.sh slog 的日志
+  // 目录）——与上一条同属数据目录翻转面，漏了会把 context 变体的日志写进
+  // CANNBot 的家目录并击穿泄漏哨兵
+  { find: '$HOME/.cannbot-insight', replace: '$HOME/.context-insight', minHits: 1 },
   { find: '[cbi]', replace: '[ctxi]', minHits: 2 },
   { find: '"cbi"', replace: '"ctxi"', minHits: 1 },
   { find: 'cannbot-insight.mjs', replace: 'context-insight.mjs', minHits: 2 },

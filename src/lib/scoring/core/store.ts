@@ -48,6 +48,12 @@ function isValidCard(v: unknown): v is Scorecard {
 export class FileScorecardStore implements ScorecardStore {
   constructor(private readonly dir: string) {}
 
+  /** 同 sessionId 写串行化：put 是读-归档-替换序列，并发交错会让第二个
+   * rename 吃 ENOENT（上抛 500）或 tmp 互踩。本仓有多个并发触发源（viewer
+   * 清单 8 路并发现算、评审 done、上报重算），进程内队列互斥即可——多进程
+   * 写同卡本就不支持（事实源是 turns，卡只是缓存）。 */
+  private writeQueues = new Map<string, Promise<void>>();
+
   private latestPath(sessionId: string): string {
     return path.join(this.dir, safeFileName(sessionId));
   }
@@ -75,14 +81,31 @@ export class FileScorecardStore implements ScorecardStore {
   async put(scorecard: Scorecard): Promise<void> {
     // aborted 卡不写盘（整卡出局），调用方直接返回
     if (scorecard.status !== 'completed') return;
+    const id = scorecard.sessionId;
+    const prev = this.writeQueues.get(id) ?? Promise.resolve();
+    const next = prev.then(() => this.putLocked(scorecard));
+    // 队列续命用吞错副本：本亲失败不清空后续排队者；错误仍抛给本次调用方
+    const tail = next.then(() => undefined, () => undefined);
+    this.writeQueues.set(id, tail);
+    try {
+      await next;
+    } finally {
+      if (this.writeQueues.get(id) === tail) this.writeQueues.delete(id);
+    }
+  }
+
+  private async putLocked(scorecard: Scorecard): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true });
     const latest = this.latestPath(scorecard.sessionId);
     const prev = await this.get(scorecard.sessionId);
     if (prev) {
-      // 历史保留：重算不删旧卡，挪 archive（趋势/对比/远期人工修正都要）
+      // 历史保留：重算不删旧卡，挪 archive（趋势/对比/远期人工修正都要）。
+      // ENOENT 容忍：跨进程并发的兜底（本进程队列管不到的窗口）
       const archive = this.archivePath(scorecard.sessionId, prev.computedAt);
       await fs.mkdir(path.dirname(archive), { recursive: true });
-      await fs.rename(latest, archive);
+      await fs.rename(latest, archive).catch((err: NodeJS.ErrnoException) => {
+        if (err.code !== 'ENOENT') throw err;
+      });
     }
     const tmp = `${latest}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(scorecard, null, 2), 'utf-8');

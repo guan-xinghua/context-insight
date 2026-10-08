@@ -34,7 +34,7 @@ export interface ScoreItemSchema {
 }
 
 export type AggregationPolicy =
-  | { kind: 'three-state'; rules: ThreeStateRule[]; fallback: string; completionScoreOf?: string[]; verdictScore?: { violation: number; suspectedPenalty: number } }
+  | { kind: 'three-state'; rules: ThreeStateRule[]; fallback: string; completionScoreOf?: string[]; verdictScore?: { violation: number; suspectedPenalty: number; violationPenalty?: number } }
   | { kind: 'average-with-floor'; floorItemId: string; floorMaxScore: number; floorThreshold: number }
   | { kind: 'weighted-average' }
   | { kind: 'count-deduction'; perEvent: Record<string, number> }

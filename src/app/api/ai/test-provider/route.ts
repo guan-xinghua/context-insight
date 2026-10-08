@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { buildChatUrl } from '@/lib/ai/analyzer';
+import { logError } from '@/lib/logger';
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    logError('route:ai/test-provider', '连接测试异常', { error: message });
     return NextResponse.json({ success: false, message: `❌ ${message}` }, { status: 500 });
   }
 }

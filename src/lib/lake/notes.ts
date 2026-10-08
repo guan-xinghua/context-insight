@@ -27,6 +27,9 @@ import { redactRemoteSecrets } from './remote';
 import type { LakeRemote } from './remote';
 import { requirePushCredentials } from '@/lib/lake/auth';
 import { readEnvelope, envelopeFields } from '@/lib/shared/envelope';
+import { createLogger } from '@/lib/logger';
+
+const notesLog = createLogger('lake:notes');
 
 export interface NoteEntry { ts: string; type: 'note'; text: string }
 
@@ -36,6 +39,18 @@ export interface ScorecardEntry {
   totalScore: number | null;
   dimensions: Array<{ dimensionId: string; name: string; score: number | null }>;
   computedAt: string;
+  /** 总分算式（权重×得分 → × 覆盖度 = 总分），Score 页同款文案 */
+  formula?: string;
+  /** 评分模板名（默认 = 内置） */
+  profile?: string;
+  /** 评审工具描述（Mate Agent · opencode / LM · model / 确定性层评审完成 · LLM 评审未执行） */
+  reviewer?: string;
+  /** 评完时间（无评审盖章回落 computedAt） */
+  completedAt?: string;
+  /** 评审耗时 ms（无盖章缺省） */
+  durationMs?: number;
+  /** 覆盖度 0-1 */
+  coverage?: number;
 }
 
 export type LakeRecord = NoteEntry | ScorecardEntry
@@ -75,7 +90,7 @@ interface GitCapture { code: number | null; out: string; err: string }
 
 function captureGitAsync(dir: string, args: string[], timeoutMs = 120_000): Promise<GitCapture> {
   return new Promise(resolve => {
-    const child = spawn('git', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('git', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     const chunks: Buffer[] = [];
     const errChunks: Buffer[] = [];
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
@@ -89,6 +104,24 @@ function captureGitAsync(dir: string, args: string[], timeoutMs = 120_000): Prom
   });
 }
 
+/** 带一次性凭据 helper 的 captureGitAsync（argv 形态，与 mirror 的
+ *  spawnGitAuthed 同协议）：showFile 的懒取（partial clone blob 按需回源）
+ *  在私有仓上匿名必 401——凭据走 pullAuth 同链；auth=null 原样执行。 */
+async function captureGitAuthed(dir: string, args: string[], auth: LakeRemote['pullAuth'], timeoutMs = 120_000): Promise<GitCapture> {
+  if (!auth) return captureGitAsync(dir, args, timeoutMs);
+  if (/[\r\n]/.test(auth.username) || /[\r\n]/.test(auth.password)) {
+    throw new Error('git credentials contain newline (invalid for credential helper protocol)');
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-lake-auth-'));
+  try {
+    const helper = path.join(tmp, 'helper.sh');
+    fs.writeFileSync(helper, `#!/bin/sh\ncat <<'LAKEEOF'\nusername=${auth.username}\npassword=${auth.password}\nLAKEEOF\n`, { mode: 0o700 });
+    return await captureGitAsync(dir, ['-c', 'credential.helper=', '-c', `credential.helper=${helper}`, ...args], timeoutMs);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 const ABSENT_HINT = /exists on disk, but not in|does not exist|path .* does not exist/i;
 
 /**
@@ -96,8 +129,8 @@ const ABSENT_HINT = /exists on disk, but not in|does not exist|path .* does not 
  * 瞬态失败（超时 SIGKILL / 网络断 / spawn 失败）必须抛错——写路径把 null
  * 当「文件不存在」处理，误吞瞬态失败会让 append 只带新记录、抹掉全部历史。
  */
-async function showFile(dir: string, refPath: string): Promise<string | null> {
-  const r = await captureGitAsync(dir, ['-c', 'filter.lfs.process=', '-c', 'filter.lfs.smudge=cat', '-c', 'filter.lfs.clean=cat', '-c', 'filter.lfs.required=false', 'show', refPath]);
+async function showFile(dir: string, refPath: string, auth: LakeRemote['pullAuth'] = null): Promise<string | null> {
+  const r = await captureGitAuthed(dir, ['-c', 'filter.lfs.process=', '-c', 'filter.lfs.smudge=cat', '-c', 'filter.lfs.clean=cat', '-c', 'filter.lfs.required=false', 'show', refPath], auth);
   if (r.code === 0) return r.out;
   if (ABSENT_HINT.test(r.err)) return null;
   throw new Error(`git show 失败（exit ${r.code}）：${r.err.slice(0, 200).trim() || '无 stderr'}`);
@@ -122,6 +155,12 @@ function parseRecord(raw: string): LakeRecord | null {
       totalScore: typeof v.totalScore === 'number' ? v.totalScore : null,
       dimensions: dims,
       computedAt: typeof v.computedAt === 'string' ? v.computedAt : '',
+      ...(typeof v.formula === 'string' ? { formula: v.formula } : {}),
+      ...(typeof v.profile === 'string' ? { profile: v.profile } : {}),
+      ...(typeof v.reviewer === 'string' ? { reviewer: v.reviewer } : {}),
+      ...(typeof v.completedAt === 'string' ? { completedAt: v.completedAt } : {}),
+      ...(typeof v.durationMs === 'number' ? { durationMs: v.durationMs } : {}),
+      ...(typeof v.coverage === 'number' ? { coverage: v.coverage } : {}),
     };
   }
   return null; // 未知记录类型：前向兼容跳过
@@ -141,7 +180,7 @@ export function parseRecords(content: string | null): LakeRecord[] {
 
 export async function readRecords(s: SessionLoc, remote: LakeRemote = defaultLakeRemote()): Promise<LakeRecord[]> {
   const dir = await ensureMirrorAsync(remote);
-  return parseRecords(await showFile(dir, `origin/${remote.branch}:${notesPath(s)}`));
+  return parseRecords(await showFile(dir, `origin/${remote.branch}:${notesPath(s)}`, remote.pullAuth));
 }
 
 // 提交信息字段以「下一标签或行尾」为界（格式：提交人: X 内容描述: Y 日志路径: Z 备注: W 框架/时间…）。
@@ -255,16 +294,21 @@ export async function editNote(
   return parseRecords(content);
 }
 
-export async function appendScorecard(
+/** 评分卡快照：整类覆盖写——旧 scorecard 记录全部替换为本条（历史仍在 git 提交里，
+ * 记录流只留最新一份；note 等其他类型记录不动） */
+export async function putScorecard(
   s: SessionLoc,
-  card: { totalScore: number | null; dimensions: ScorecardEntry['dimensions']; computedAt: string },
+  card: Omit<ScorecardEntry, 'ts' | 'type'>,
   remote: LakeRemote = defaultLakeRemote(),
 ): Promise<LakeRecord[]> {
   if (card.dimensions.length === 0) throw new Error('评分卡无维度数据');
   const content = await enqueueWrite(s, notesPath(s), remote, old => {
-    const base = old ? (old.endsWith('\n') ? old : `${old}\n`) : '';
-    return `${base}${JSON.stringify({ ts: new Date().toISOString(), type: 'scorecard', ...card })}\n`;
-  }, 'scorecard +1');
+    const kept = old
+      ? old.split('\n').filter(Boolean).filter(l => parseRecord(l)?.type !== 'scorecard')
+      : [];
+    kept.push(JSON.stringify({ ts: new Date().toISOString(), type: 'scorecard', ...card }));
+    return `${kept.join('\n')}\n`;
+  }, 'scorecard put');
   return parseRecords(content);
 }
 
@@ -287,7 +331,7 @@ function paradigmTargetPath(paradigm: string): string {
 
 export async function readParadigmTarget(paradigm: string, remote: LakeRemote = defaultLakeRemote()): Promise<ParadigmTarget | null> {
   const dir = await ensureMirrorAsync(remote);
-  const content = await showFile(dir, `origin/${remote.branch}:${paradigmTargetPath(paradigm)}`);
+  const content = await showFile(dir, `origin/${remote.branch}:${paradigmTargetPath(paradigm)}`, remote.pullAuth);
   if (!content) return null;
   let out: ParadigmTarget | null = null;
   for (const line of content.split('\n')) {
@@ -356,7 +400,7 @@ async function writeLakeFileLocked(
     const dir = await ensureMirrorAsync(remote);
     const parent = revParseMain(dir, remote);
     if (!parent) throw new Error('数据湖镜像缺 main 分支');
-    const old = await showFile(dir, `origin/${remote.branch}:${relPath}`);
+    const old = await showFile(dir, `origin/${remote.branch}:${relPath}`, remote.pullAuth);
     const content = mutate(old);
     if (content === null) throw new NotesConflictError('记录不存在或已被修改，请刷新后重试');
     const idx = path.join(os.tmpdir(), `lake-index-${process.pid}-${Date.now()}`);
@@ -373,6 +417,7 @@ async function writeLakeFileLocked(
       ).toString('utf8').trim();
       const code = await pushLakeAsync(dir, remote, commit);
       if (code !== 0) {
+        notesLog.warn('推送被拒，换父提交重试', { sid: s.sid, attempt: attempt + 1 });
         lastErr = new Error('推送被远端拒绝（并发更新），fetch 换父提交后重试');
         // 重试必须建立在新 origin/main 上：上一轮 ensure 刚把 lastFreshAt 写新，
         // 再走 ensureMirrorAsync 会被 15s TTL 短路拿到同一旧父提交 → 死循环式
@@ -383,6 +428,7 @@ async function writeLakeFileLocked(
       // push 到 URL 不更新本地远端跟踪 ref，补一次 fetch 让后续读取立即可见
       await runGitAsync(`git fetch --quiet origin ${remote.branch}`, dir, 120_000);
       markLakePhase('idle');
+      notesLog.debug('notes pushed', { sid: s.sid, label });
       return content;
     } catch (e) {
       lastErr = e;

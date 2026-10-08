@@ -8,6 +8,9 @@
 
 export const ACTIVE_GAP_THRESHOLD_MS = 5 * 60 * 1000
 
+/** 单轮 LLM 调用区间（latencyMs 展开）的可信上限——防 wire 伪延迟桥接挂机间隙 */
+export const ACTIVE_LATENCY_CAP_MS = 10 * 60 * 1000
+
 export interface ActiveTimeSplit {
   wallMs: number
   activeMs: number
@@ -63,7 +66,12 @@ export async function computeSessionActiveSplit(
   const rows = await fetchTurns()
   const intervals = rows.map((t) => {
     const ts = (t.createdAt_ts ?? t.createdAt).getTime()
-    const lat = expandLatency && t.role === 'assistant' && typeof t.latencyMs === 'number' && t.latencyMs > 0 ? t.latencyMs : 0
+    // 单轮调用区间的可信上限：真实 LLM 调用是秒到分钟级；wire/导入侧存在伪
+    // latency（实测 49.66h——疑似 resume/补行的时间戳错位），不截断会把挂机
+    // 间隙整个桥进活跃段（121h 墙钟算出 117h 活跃）
+    const lat = expandLatency && t.role === 'assistant' && typeof t.latencyMs === 'number' && t.latencyMs > 0
+      ? Math.min(t.latencyMs, ACTIVE_LATENCY_CAP_MS)
+      : 0
     return (lat > 0 ? [ts - lat, ts] : [ts, ts]) as [number, number]
   })
   return computeActiveTimeSplit(intervals, sessionStartMs, sessionEndMs)

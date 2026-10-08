@@ -110,7 +110,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     })
     expect(pkgJson.scripts?.postinstall).toBe("node scripts/postinstall.mjs")
     expect(pkgJson.license).toBeTruthy()
-    expect(pkgJson.engines?.node).toMatch(/>=20/)
+    expect(pkgJson.engines?.node).toMatch(/>=22\.12/)
   }, 120_000)
 
   it("CLI bundle 可运行：dist/cli.mjs --version 输出与展示版本一致（node_modules 内别名免疫）", () => {
