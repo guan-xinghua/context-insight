@@ -55,6 +55,7 @@
     "esbuild": "^0.25.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "geist": "^1.7.2",
     "ink": "^7.0.6",
     "ink-testing-library": "^4.0.0",
     "lucide-react": "^1.18.0",

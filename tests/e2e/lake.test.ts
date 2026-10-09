@@ -145,7 +145,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const [taskId, framework] of [[SID, 'claude-code'], ['cc-lake-it-0002', 'claude-code'], [OPENCODE_SID, 'opencode'], [OPENCODE_SID, 'claude-code']] as const) {
+  for (const [taskId, framework] of [[SID, 'claude-code'], ['cc-lake-it-0002', 'claude-code'], ['cc-lake-it-0003', 'claude-code'], [OPENCODE_SID, 'opencode'], [OPENCODE_SID, 'claude-code']] as const) {
     try { await prisma.session.deleteMany({ where: { taskId, framework } }); } catch { /* ignore */ }
   }
   await prisma.$disconnect();
@@ -263,8 +263,8 @@ describe('lake 闭环：上传（治理）→ push → 列表 → 物化 → 导
     expect(env.data.model).toBe('test-model');
   });
 
-  it('重复上传同内容 → unchanged', async () => {
-    const again = await lake.uploadLakeSession(prisma, SID, '提交人: 测试者\n内容描述: 重复上传', undefined, 'others');
+  it('重复上传同内容 → unchanged（描述已随 meta 持久化，同内容 = 同提交人+同描述）', async () => {
+    const again = await lake.uploadLakeSession(prisma, SID, '提交人: 测试者\n内容描述: lake IT 上传', undefined, 'others');
     expect(again.unchanged).toBe(true);
   });
 
@@ -286,6 +286,79 @@ describe('lake 闭环：上传（治理）→ push → 列表 → 物化 → 导
   });
 });
 
+// D 根治层：提交人/描述/备注随 meta 持久化（spec §4.4 可选字段）——列表
+// 归属 meta 优先、log 推导回落（存量）。与方案 A（notes(viewer): 前缀跳过）
+// 分层：A 防不了普通格式维护提交（meta 指标回填等无前缀 subject），meta
+// 快照对这类提交免疫——本 describe 用独立会话锁死该形态
+describe('lake 归属快照（D 根治）：提交人/描述/备注随 meta 持久化', () => {
+  const D_SID = 'cc-lake-it-0003';
+  const metaRef = `main:others/${D_SID}.native/${D_SID}.meta.json`;
+
+  beforeAll(async () => {
+    // 独立会话：不与 SID 的 unchanged 断言互相干扰（描述已随 meta 持久化，
+    // 跨 describe 的描述漂移会破坏幂等判定）
+    fs.writeFileSync(path.join(FIXTURES, `${D_SID}.jsonl`), [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'D 归属快照验证' }, timestamp: '2026-08-19T04:00:00.000Z' }),
+      JSON.stringify({ type: 'assistant', message: { id: 'msg_d_1', role: 'assistant', content: [{ type: 'text', text: '完成' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-08-19T04:00:05.000Z' }),
+    ].join('\n') + '\n');
+    await importSession(path.join(FIXTURES, `${D_SID}.jsonl`), D_SID, prisma, path.join(FIXTURES, `${D_SID}.jsonl`), 'claude-jsonl');
+  });
+
+  function readMeta(): Record<string, unknown> {
+    const j = JSON.parse(execSync(`git -C "${BARE}" show "${metaRef}"`, { encoding: 'utf8' })) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
+    return (j.x_lake ?? j.x_cannbay!).data;
+  }
+
+  it('上传 → meta 落 submitter/description/remark（与提交信息同源同值）', async () => {
+    await lake.uploadLakeSession(prisma, D_SID, '提交人: 张三\n内容描述: D 归属快照\n备注: 回填免疫', undefined, 'others');
+    const data = readMeta();
+    expect(data.submitter).toBe('张三');
+    expect(data.description).toBe('D 归属快照');
+    expect(data.remark).toBe('回填免疫');
+  });
+
+  it('根治锁：普通格式维护提交触碰会话目录 → 归属不变（meta 优先，前缀跳过层防不住的形态）', async () => {
+    // 模拟 meta 指标回填类维护提交：普通 subject（非 notes(viewer): 前缀——
+    // A 的跳过管不到），meta 读改写保留既有字段（真实回填工具的行为）
+    git('git pull -q origin main', SEED);
+    const metaFile = path.join(SEED, 'others', `${D_SID}.native`, `${D_SID}.meta.json`);
+    const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
+    (meta.x_lake ?? meta.x_cannbay!).data.backfilledAt = '2026-08-20T00:00:00Z';
+    fs.writeFileSync(metaFile, JSON.stringify(meta));
+    git('git add .', SEED);
+    git('git -c user.name=maintbot -c user.email=maint@localhost commit -q -m "meta 指标回填: 耗时快照（模拟维护提交）"', SEED);
+    git('git push -q origin main', SEED);
+
+    // 同步列表（导入侧）：log 推导按「最后非 viewer 提交」会被维护提交顶掉
+    //（subject 无提交人标签 → submitter=git author maintbot）——meta 快照赢
+    const entry = lake.listLakeSessions().find(s => s.sid === D_SID);
+    expect(entry?.submitter).toBe('张三');
+    expect(entry?.description).toBe('D 归属快照');
+    // 详细列表（viewer 运行表数据源）：meta 直供
+    const detail = (await mirror.listSessionsDetailed()).find(s => s.sid === D_SID);
+    expect(detail?.submitter).toBe('张三');
+    expect(detail?.description).toBe('D 归属快照');
+    // 备注面板（readSubmitInfo）：meta 优先
+    const notes = await import('../../src/lib/lake/notes');
+    const submit = await notes.readSubmitInfo({ sid: D_SID, paradigm: 'others', isBaseline: false, recording: 'native' });
+    expect(submit.author).toBe('张三');
+    expect(submit.description).toBe('D 归属快照');
+    expect(submit.remark).toBe('回填免疫');
+  });
+
+  it('重传改描述 → meta 覆盖更新，列表同步显示 v2（覆盖重传仍更新）', async () => {
+    const up = await lake.uploadLakeSession(prisma, D_SID, '提交人: 李四\n内容描述: D 覆盖重传 v2', undefined, 'others');
+    expect(up.unchanged).toBe(false); // meta 变了 → tree 变 → 真实覆盖
+    const data = readMeta();
+    expect(data.submitter).toBe('李四');
+    expect(data.description).toBe('D 覆盖重传 v2');
+    expect(data.remark).toBeUndefined(); // v2 未填备注 → 不落键
+    const entry = lake.listLakeSessions().find(s => s.sid === D_SID);
+    expect(entry?.submitter).toBe('李四');
+    expect(entry?.description).toBe('D 覆盖重传 v2');
+  });
+});
+
 describe('lake opencode 导出上传', () => {
   it('opencode 会话 → DB 导出 jsonl → 上传 → 导入回读一致', async () => {
     const imported = await withDbRaceRetry(() => importSession(OPENCODE_DB, OPENCODE_SID, prisma, OPENCODE_DB, 'opencode-db'));
@@ -298,6 +371,10 @@ describe('lake opencode 导出上传', () => {
     const entry = lake.listLakeSessions().find(s => s.sid === OPENCODE_SID);
     expect(entry?.framework).toBe('opencode');
     expect(entry?.ccVersion).toBeTruthy();
+    // insight-export 路径：DB 导出 meta 同一补丁点落提交信息快照；导入行
+    //（DB 已有）列表展示 submitter 同样 meta 优先
+    expect(entry?.submitter).toBe('测试者');
+    expect(entry?.description).toBe('opencode 导出上传');
 
     const result = await withDbRaceRetry(() => lake.importLakeSession(OPENCODE_SID, prisma, undefined, 'native'));
     expect(result).toBeTruthy();
@@ -371,6 +448,14 @@ describe('lake 上传快路径（governed 直传）与兜底回退', () => {
       expect(spy).not.toHaveBeenCalled(); // 直传：治理未执行
       const remote = execSync(`git cat-file -p $(git rev-parse main:others/${SID_F}/${SID_F}.jsonl.7z)`, { cwd: BARE, stdio: 'pipe' });
       expect(remote.equals(expected7z)).toBe(true); // 字节级一致（确定性 7z，未重压）
+      // cpx 伴生 meta 路径：annotateSessionMeta 补丁伴生 meta——governed 保留、
+      // 提交信息快照落地（三条 staging 路径同一补丁点）
+      const fastMeta = JSON.parse(execSync(`git -C "${BARE}" show "main:others/${SID_F}/${SID_F}.meta.json"`, { encoding: 'utf8' })) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
+      const fastData = (fastMeta.x_lake ?? fastMeta.x_cannbay!).data;
+      expect(fastData.governed).toBe(true);
+      expect(fastData.producer).toBe('cpx');
+      expect(fastData.submitter).toBe('测试者');
+      expect(fastData.description).toBe('governed 直传');
       await prisma.session.deleteMany({ where: { taskId: SID_F } });
       await lake.importLakeSession(SID_F, prisma);
       const s = await prisma.session.findFirst({ where: { taskId: SID_F } });
@@ -466,8 +551,9 @@ describe('lake route', () => {
       await expect(lake.uploadLakeSession(prisma, SID, bad))
         .rejects.toThrow(/提交人不能为空/);
     }
-    // 合法提交人照常通过（含全角冒号；与首条上传内容一致 → 覆盖更新走 unchanged）
-    const ok = await lake.uploadLakeSession(prisma, SID, '提交人：全角冒号\n内容描述: lake IT 上传', undefined, 'others');
+    // 合法提交人照常通过（含全角冒号）；提交人/描述已随 meta 持久化，
+    // unchanged 要求快照与首传一致——全角/半角冒号解析值相同（同提交人+同描述）
+    const ok = await lake.uploadLakeSession(prisma, SID, '提交人：测试者\n内容描述: lake IT 上传', undefined, 'others');
     expect(ok.unchanged).toBe(true);
     expect(ok.sid).toBe(SID);
   });

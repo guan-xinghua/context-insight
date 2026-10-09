@@ -8,16 +8,18 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // CANNBot-Insight 全局启动器（npm install -g / npx 入口）。
-// 无参数 → 启动 Web UI（首次自动 build + migrate，后续直接 start）。
+// 无参数 → 启动 Web UI（首次自动 build + migrate，后续直接 start）；
+//          端口固定 BASE_PORT，被占 fail-fast（多人服务器每人固定端口）。
+// --stop → 停止自家实例（PID 文件 + 候选区间验明正身锚定，绝不盲杀）。
 // 子命令 → 透传给 CLI（tsx 运行 src/cli/index.ts）。
 
 import { spawn, spawnSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { homedir, platform } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { isTcpFree, isHttpHealthy, isSmartAgent, findFreePort } from './ports.mjs'
+import { isTcpFree, isHttpHealthy, isSmartAgent, findPortOwnerPid } from './ports.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -26,6 +28,19 @@ const require = createRequire(PKG_DIR + '/')
 
 const DATA_DIR = process.env.CANNBOT_INSIGHT_HOME || path.join(homedir(), '.cannbot-insight')
 const BASE_PORT = Number.parseInt(process.env.CANNBOT_INSIGHT_PORT || '21025', 10)
+// --stop/-k 的击杀锚定：每次启动记录自家全家福（launcher/next/agent 的 PID）。
+// 崩溃（SIGKILL/断电）后残留进程仍记录在内 → 下次 --stop 可回收。
+const PID_FILE = path.join(DATA_DIR, 'insight.pid')
+
+// 发现契约登记文件（读侧：cpx src/cli/insight-discovery.ts 与本包 src/cli/config.ts，
+// 解析链 env → 本文件 → 21025 兜底）。锚定与读侧严格一致：设了 CANNBOT_PROXY_DIR
+// 登记随它走（与其父目录同源），否则随 DATA_DIR。持久保留、不随实例退出删除
+// （删除会在实例未运行窗口期让 cpx 回落 21025，把捕获导进别人实例）。
+function registryPath() {
+  return process.env.CANNBOT_PROXY_DIR
+    ? path.join(path.dirname(process.env.CANNBOT_PROXY_DIR), 'insight-port')
+    : path.join(DATA_DIR, 'insight-port')
+}
 
 const CLI_COMMANDS = new Set([
   'tui', 'sessions', 'session', 'stats', 'compare', 'search', 'turn',
@@ -37,8 +52,113 @@ const args = process.argv.slice(2)
 const log = (msg) => process.stdout.write(`[cbi] ${msg}\n`)
 const warn = (msg) => process.stderr.write(`[cbi] ${msg}\n`)
 
-// ─── 1. CLI 子命令透传 ──────────────────────────────────────────
-if (args[0] && CLI_COMMANDS.has(args[0])) {
+// ─── 0. --stop / -k 击杀机制 ────────────────────────────────────
+// （先于分发定义：dispatch 的同步段就会调到这里，放文件后部会 TDZ）
+// 击杀锚定（多人服务器红线：绝不盲杀、绝不无差别 pkill）：
+//   ① DATA_DIR/insight.pid —— 上次启动记录的自家全家福（launcher/next/agent）
+//   ② smart-agent 候选区间验明正身的孤儿（旧版本启动器无 PID 文件时的兜底）
+//   ③ BASE_PORT 仍被占 → 报错退出：那是别人的实例或无关进程，绝不代杀
+
+// smart-agent 端口候选区间：BASE+1 起 3 个。历史教训：next 曾漂移到 BASE+1
+// 与钉死 BASE+1 的 smart-agent 撞车 EADDRINUSE（客户实测 21026）——现在
+// next 固定 BASE_PORT 不再漂移，避让保留为结构保险。
+const agentPortCandidates = (nextPort) => {
+  const out = []
+  for (let p = BASE_PORT + 1; p < BASE_PORT + 4; p++) if (p !== nextPort) out.push(p)
+  return out
+}
+
+async function stopExisting() {
+  let hadPidFile = false
+  if (existsSync(PID_FILE)) {
+    hadPidFile = true
+    try {
+      const rec = JSON.parse(readFileSync(PID_FILE, 'utf8'))
+      const entries = [
+        { pid: rec.launcher, group: false },
+        { pid: rec.next, group: false },
+        ...(Array.isArray(rec.agents) ? rec.agents : []).map((pid) => ({ pid, group: true })),
+      ].filter((e) => Number.isInteger(e.pid))
+      await killPidList(entries, 'PID 记录')
+    } catch { warn('PID 记录损坏，按无记录处理') }
+  } else {
+    log(`无 PID 记录（${PID_FILE}）—— 没有自家实例在跑`)
+  }
+  for (const p of agentPortCandidates(BASE_PORT)) {
+    if (!(await isSmartAgent(p))) continue
+    const pid = findPortOwnerPid(p)
+    if (pid) {
+      log(`清理候选区间孤儿 smart-agent (port ${p}, PID ${pid})`)
+      await killPidList([{ pid, group: true }], '孤儿 smart-agent')
+    } else {
+      warn(`端口 ${p} 有验明正身的 smart-agent 但定位不到属主（可能是他人的）—— 避让`)
+    }
+  }
+  if (!(await waitTcpFree(BASE_PORT, 10000))) {
+    console.error(`[cbi] 端口 ${BASE_PORT} 仍被占用 —— PID 记录与候选区间里都没有它，不是自家实例；请确认属主后手动处理，不代杀。`)
+    process.exit(1)
+  }
+  if (hadPidFile) rmSync(PID_FILE, { force: true })
+  log(`端口 ${BASE_PORT} 空闲 ✓`)
+}
+
+const OUR_FAMILY = /next|server\.py|cannbot-insight|context-insight/
+
+// PID 复用防御：只杀 /proc/<pid>/cmdline 形态对得上自家三种进程
+// （launcher / next / smart-agent）的 PID。非 Linux 无 /proc → 放行（尽力而为）。
+function pidMatchesOurFamily(pid) {
+  if (pid === process.pid) return false
+  try { return OUR_FAMILY.test(readFileSync(`/proc/${pid}/cmdline`, 'utf8')) } catch { return true }
+}
+
+function isAlive(pid) {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+
+// group=true 优先组杀（detached 的 smart-agent 是独立进程组组长），回退单杀
+function signalPid({ pid, group }, sig) {
+  if (group) { try { process.kill(-pid, sig); return } catch { /* 组不存在/无权限 */ } }
+  try { process.kill(pid, sig) } catch { /* 已退出 */ }
+}
+
+// TERM → 3s 宽限 → KILL 升级（next-server 曾实测无视 SIGTERM，start.sh 同款路径）
+// TERM → 3s 宽限 → KILL 升级（next-server 曾实测无视 SIGTERM，start.sh 同款路径）。
+// entries 元素：number（单杀）或 { pid, group }（group=true 优先组杀，detached 的
+// smart-agent 是独立进程组组长）。跳过存活但形态不符的 PID 时如实告警——
+// 击杀锚定的诚实性比静默乐观重要（冒烟实测：假 agent 无形态标记被静默跳过）。
+async function killPidList(entries, label) {
+  const norm = entries.map((e) => (typeof e === 'number' ? { pid: e, group: false } : e))
+  const alive = norm.filter((e) => Number.isInteger(e.pid) && pidMatchesOurFamily(e.pid) && isAlive(e.pid))
+  for (const e of norm) {
+    if (!Number.isInteger(e.pid)) { warn(`${label}: 非法 pid 记录 ${JSON.stringify(e)}，跳过`); continue }
+    if (isAlive(e.pid) && !pidMatchesOurFamily(e.pid)) warn(`${label}: pid ${e.pid} 存活但 cmdline 形态不符（PID 复用？），跳过`)
+  }
+  if (alive.length === 0) return false
+  log(`${label}: 停止 ${alive.map((e) => e.pid).join(', ')}...`)
+  for (const e of alive) signalPid(e, 'SIGTERM')
+  for (let i = 0; i < 30 && alive.some((e) => isAlive(e.pid)); i++) await sleep(100)
+  const stubborn = alive.filter((e) => isAlive(e.pid))
+  if (stubborn.length > 0) {
+    log(`${label}: SIGTERM 未生效，SIGKILL ${stubborn.map((e) => e.pid).join(', ')}`)
+    for (const e of stubborn) signalPid(e, 'SIGKILL')
+    await sleep(200)
+  }
+  return true
+}
+
+async function waitTcpFree(port, ms) {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) {
+    if (await isTcpFree(port)) return true
+    await sleep(200)
+  }
+  return await isTcpFree(port)
+}
+
+// ─── 1. 命令分发：--stop / CLI 透传 / Web UI ────────────────────
+if (args[0] === '--stop') {
+  stopExisting().then(() => process.exit(0), (e) => { console.error(e); process.exit(1) })
+} else if (args[0] && CLI_COMMANDS.has(args[0])) {
   log(`CLI: ${args.join(' ')}`)
   // 优先 dist/cli.mjs（prepack 时的 esbuild 单文件产物）；
   // tsx 回退仅用于仓内开发态 —— npm 全局安装位置在 node_modules 内，
@@ -71,16 +191,38 @@ async function startWebUi(rawArgs) {
     process.exit(1)
   }
 
-  // 数据目录：所有可写状态集中到 ~/.cannbot-insight/，全局包目录保持只读
+  // 数据目录：可写状态（库/登记/PID）集中到 ~/.cannbot-insight/。构建产物在包目录
+  // .next——Next 16 Turbopack 强制 distDir 不许逃出项目根（外置 distDir 会被拼进
+  // 包目录深处成垃圾路径且 BUILD_ID 探测永远落空 → 每次启动重建）；多人隔离靠
+  // 每人各自的 npm 安装（包目录按用户隔离）。
   mkdirSync(DATA_DIR, { recursive: true })
   const dbPath = path.join(DATA_DIR, 'insight.db')
-  const distDir = path.join(DATA_DIR, '.next')
+  const distDir = path.join(PKG_DIR, '.next')
+  // 历史清理：旧版启动器曾把绝对 distDir 传给 Next，被拼成包目录深处的垃圾路径
+  // （如 <PKG>/home/<user>/.cannbot-insight/.next），一次性回收
+  const legacyJunk = path.join(PKG_DIR, DATA_DIR, '.next')
+  if (legacyJunk !== distDir) rmSync(legacyJunk, { recursive: true, force: true })
   process.env.DATABASE_URL = `file:${dbPath}`
-  process.env.CANNBOT_INSIGHT_DIST_DIR = distDir
   process.env.NEXT_PUBLIC_SHOW_ADVANCED_TABS = advanced ? 'true' : 'false'
 
   log(`Node ${process.versions.node} ✓`)
   log(`数据目录: ${DATA_DIR}`)
+
+  // 固定端口语义（多人服务器，与 start.sh 单实例收口对齐）：默认钉死 BASE_PORT，
+  // 被占 fail-fast；-k 先杀自家旧实例再复用。绝不静默漂移——漂移断 cpx 端口
+  // 登记发现与浏览器书签，且静默起第二个实例 = 同一 HOME 两套库、数据分叉
+  // （历史默认行为最多漂移 +128，用户全程无感）。
+  if (killExisting) await stopExisting()
+  if (!(await isTcpFree(BASE_PORT))) {
+    const healthy = await isHttpHealthy(BASE_PORT, '/', 1500)
+    console.error(`[cbi] 端口 ${BASE_PORT} 被占用${healthy ? '（疑似另一个 insight 实例在运行）' : ''}。`)
+    console.error('[cbi] 自家旧实例：加 --stop 参数先停掉（或 -k 杀旧重启）。')
+    console.error('[cbi] 不是自家的，换自己的固定端口（多人每人固定、间隔 ≥5）：')
+    console.error('[cbi]   export CANNBOT_INSIGHT_PORT=<你的端口>')
+    process.exit(1)
+  }
+  const port = BASE_PORT
+  log(`端口: ${port}`)
 
   // better-sqlite3 native ABI 守卫：Node 版本切换后旧 .node 会 self-register 失败
   ensureNative()
@@ -114,37 +256,50 @@ async function startWebUi(rawArgs) {
     }
   }
 
-  // 端口探测
-  const port = killExisting ? BASE_PORT : await findFreePort(BASE_PORT)
-  if (port == null) { console.error('[cbi] 无可用端口'); process.exit(1) }
-  log(`端口: ${port}`)
-
   // smart-agent 可选：检测到 python3 + server.py 才启动，缺失静默降级；
-  // 端口必须避让 next 实占端口（见 maybeStartSmartAgent）
-  const agent = await maybeStartSmartAgent(port)
+  // 恒 clean：候选区间验明正身的旧 agent 先回收再起全新的（见 startSmartAgentClean）
+  const agent = await startSmartAgentClean(port)
 
   // 启动 next start
   log('启动 CANNBot-Insight...')
   const nextProc = spawn(process.execPath, [nextBin(), 'start', '-H', '127.0.0.1', '-p', String(port)], {
     cwd: PKG_DIR,
     stdio: 'inherit',
-    env: { ...process.env, CANNBOT_INSIGHT_DIST_DIR: distDir },
+    env: { ...process.env },
   })
 
-  // 等待 ready + 开浏览器
+  // PID 全家福落盘：--stop/-k 的击杀锚定（SIGKILL/断电后残留子进程仍可凭它回收）
+  try {
+    writeFileSync(PID_FILE, JSON.stringify({
+      launcher: process.pid,
+      next: nextProc.pid,
+      agents: agent?.pid ? [agent.pid] : [],
+      port,
+      savedAt: new Date().toISOString(),
+    }, null, 2) + '\n')
+  } catch (e) { warn(`PID 记录写入失败（--stop 将退化到候选区间兜底）: ${e.message}`) }
+
+  // 等待 ready → 端口登记 → 开浏览器
   await waitForReady(port)
+  // 发现契约登记（读侧 cpx insight-discovery / cbi config；持久保留，不随退出删除）
+  try { writeFileSync(registryPath(), `${port}\n`) } catch (e) { warn(`端口登记写入失败: ${e.message}`) }
   openBrowser(port)
 
-  // 信号清理：退出时带走 smart-agent + next
-  const cleanup = () => {
-    if (agent?.pid && !agent.killed) {
-      try { process.kill(-agent.pid, 'SIGTERM') } catch { try { process.kill(agent.pid, 'SIGTERM') } catch {} }
-    }
-    if (!nextProc.killed) { try { nextProc.kill('SIGTERM') } catch {} }
+  // 信号清理（随会话语义，与 start.sh 同拍板）：INT/TERM/HUP 任一路径带走
+  // smart-agent + next，TERM→3s→KILL 升级（next-server 曾实测无视 SIGTERM）。
+  // HUP = SSH 断开/终端关闭的内核信号——此前没挂，detached 的 smart-agent
+  // 收不到任何清理信号，断连即残留（npm 形态多人零残留的病根）。
+  let exiting = false
+  const cleanup = async () => {
+    if (exiting) return
+    exiting = true
+    await killPidList(agent?.pid ? [{ pid: agent.pid, group: true }] : [], 'smart-agent')
+    if (!nextProc.killed) await killPidList([nextProc.pid], 'next')
   }
-  process.on('SIGINT', () => { cleanup(); process.exit(0) })
-  process.on('SIGTERM', () => { cleanup(); process.exit(0) })
-  nextProc.on('exit', (code) => { cleanup(); process.exit(code ?? 0) })
+  process.on('SIGINT', () => { if (exiting) process.exit(0); cleanup().finally(() => process.exit(0)) })
+  process.on('SIGTERM', () => { if (exiting) process.exit(0); cleanup().finally(() => process.exit(0)) })
+  process.on('SIGHUP', () => { if (exiting) process.exit(0); cleanup().finally(() => process.exit(0)) })
+  nextProc.on('exit', (code) => { cleanup().finally(() => process.exit(code ?? 0)) })
 }
 
 // ─── helpers ────────────────────────────────────────────────────
@@ -205,28 +360,24 @@ function ensurePrismaClient() {
   }
 }
 
-// smart-agent 端口候选区间：BASE+1 起 3 个。必须避开 next 实占端口——
-// BASE 被占时 next 会滚到 BASE+1，若 smart-agent 仍钉 BASE+1 且先 spawn，
-// python 抢先绑定 → next start EADDRINUSE 崩溃（客户实测 21026）。
-const agentPortCandidates = (nextPort) => {
-  const out = []
-  for (let p = BASE_PORT + 1; p < BASE_PORT + 4; p++) if (p !== nextPort) out.push(p)
-  return out
-}
-
-async function maybeStartSmartAgent(nextPort) {
+async function startSmartAgentClean(nextPort) {
   const serverPy = path.join(PKG_DIR, 'smart-agent', 'server.py')
   if (!existsSync(serverPy)) return null
 
-  // ① 已有存活的 smart-agent（上次运行遗留）→ 直接复用，不重复 spawn。
-  // 正身判定：/health 响应体须带 cannbot-smart-agent 服务标识——通用 /health
-  // 服务（Actuator、dev server 等）绝不复用，否则 CANNBOT_AGENT_URL 指向
-  // 陌生后端，audit v2/v3/v4 分析调用打错服务
+  // ① 恒 clean（与 checkout 流 pick-smart-agent-port 同拍板）：候选区间内验明
+  // 正身的旧 smart-agent 一律击杀回收、再起全新的——复用是残留泄漏的来源
+  // （checkout 流实测 2026-09-21：keep 模式残留的 21026 python3 从上午活到
+  // 晚间）。正身判定：/health 响应体须带 cannbot-smart-agent 服务标识——通用
+  // /health 服务（Actuator、dev server 等）绝不击杀。属主定位走 /proc，
+  // 他人进程天然定位不到 → 避让不越权。
   for (const p of agentPortCandidates(nextPort)) {
-    if (await isSmartAgent(p)) {
-      log(`smart-agent 已在运行 (port ${p})，复用`)
-      process.env.CANNBOT_AGENT_URL = `http://localhost:${p}`
-      return null
+    if (!(await isSmartAgent(p))) continue
+    const pid = findPortOwnerPid(p)
+    if (pid) {
+      log(`回收旧 smart-agent (port ${p}, PID ${pid})`)
+      await killPidList([{ pid, group: true }], '旧 smart-agent')
+    } else {
+      warn(`端口 ${p} 有验明正身的 smart-agent 但定位不到属主（可能是他人的）—— 避让`)
     }
   }
 

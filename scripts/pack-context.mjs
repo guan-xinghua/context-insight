@@ -49,12 +49,16 @@ const GLOBAL_RULES = [
   { find: 'CANNBot-Insight', replace: 'Context-Insight', minHits: 1 },
   { find: '"CANNbay"', replace: '"contextBay"', minHits: 1 },
   { find: '"CANNBay Viewer"', replace: '"contextBay Viewer"', minHits: 1 },
+  // 数据目录三种形态全覆盖：单引号字面量（TS 源码）/ ~ 波浪线（文档示例）/
+  // 斜杠嵌入（bash 的 $HOME/.cannbot-insight/...——引号规则够不到，漏翻=品牌泄漏哨兵红）
   { find: "'.cannbot-insight'", replace: "'.context-insight'", minHits: 2 },
   { find: '~/.cannbot-insight', replace: '~/.context-insight', minHits: 2 },
   // shell 里 ~ 不在引号内展开，运行时只能 $HOME 拼路径（start.sh slog 的日志
   // 目录）——与上一条同属数据目录翻转面，漏了会把 context 变体的日志写进
   // CANNBot 的家目录并击穿泄漏哨兵
   { find: '$HOME/.cannbot-insight', replace: '$HOME/.context-insight', minHits: 1 },
+  // 宽形态兜底：$HOME 规则之后残留的斜杠嵌入（bin 启动器的注释示例等拼接路径）
+  { find: '/.cannbot-insight', replace: '/.context-insight', minHits: 1 },
   { find: '[cbi]', replace: '[ctxi]', minHits: 2 },
   { find: '"cbi"', replace: '"ctxi"', minHits: 1 },
   { find: 'cannbot-insight.mjs', replace: 'context-insight.mjs', minHits: 2 },

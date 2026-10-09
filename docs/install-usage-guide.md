@@ -56,8 +56,11 @@ cannbot-insight   # 首次自动 build + migrate，随后启动 + 开浏览器�
 ```
 
 `start.sh` 标志：`-u` 更新依赖 / `-f` 清构建缓存 / `-a` 显示高级 tab
-（wireRounds/replay）/ `-k` 杀 21025 占用进程 / `-c tui`（后端 + TUI，退出即停）。
-可写状态集中在 `~/.cannbot-insight/`（SQLite 库 + 构建缓存 + 捕获产物）。
+（wireRounds/replay）/ `-k` 历史别名（=默认：杀自家旧实例后重启）/ `-c tui`（后端 + TUI，退出即停）。
+可写状态：`~/.cannbot-insight/`（npm 形态的 SQLite 库 + 捕获产物 + 端口登记/PID 记录）；
+构建缓存在各自 checkout / 安装目录的 `.next/`。两种形态关终端、断 SSH 都会当场
+清干净全部子进程；npm 形态显式停止用 `cbi --stop`（多人服务器见
+`docs/multi-user-server.md`）。
 
 ---
 

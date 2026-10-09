@@ -62,6 +62,8 @@ beforeAll(() => {
     }
     const detail = url.match(/\/api\/observe\/session\/turns\/([^?]+)/)
     if (detail) return json({})
+    // 服务端配置预检（单源化后弹窗上传前置）：未配 → 令牌引导、不发上传
+    if (url.includes('/api/settings/lake-config')) return json({ configured: true, address: 'https://example.com/lake.git', branch: 'main' })
     if (url.includes('/api/observe/session/turns') && url.includes('includeToolDetail=true')) return json(readJson('turns-full.json'))
     if (url.includes('/api/observe/session/turns')) return json(readJson('turns-plain.json'))
     if (url.includes('/api/observe/session?')) return json(readJson('session.json'))

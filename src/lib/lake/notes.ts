@@ -199,11 +199,41 @@ export function parseSubmitInfo(msg: string | null): SessionSubmitInfo {
   return { author: pick('提交人'), description: pick('内容描述'), remark: pick('备注') };
 }
 
+/** 提交信息快照（spec §4.4 可选字段，上传时刻随 meta 写入）：归属权威源。
+ *  meta 缺失/畸形/无字段 → null（调用方回落 log 推导），绝不抛错拖垮面板 */
+async function readMetaSubmitSnapshot(s: SessionLoc, dir: string, remote: LakeRemote): Promise<SessionSubmitInfo | null> {
+  let text: string | null;
+  try {
+    text = await showFile(dir, `origin/${remote.branch}:${metaPath(s)}`);
+  } catch { return null; }
+  if (!text) return null;
+  try {
+    const d = readEnvelope(JSON.parse(text))?.data;
+    if (!d || typeof d !== 'object') return null;
+    const pick = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+    const snap: SessionSubmitInfo = { author: pick(d.submitter), description: pick(d.description), remark: pick(d.remark) };
+    return snap.author || snap.description || snap.remark ? snap : null;
+  } catch { return null; }
+}
+
 export async function readSubmitInfo(s: SessionLoc, remote: LakeRemote = defaultLakeRemote()): Promise<SessionSubmitInfo> {
   const dir = await ensureMirrorAsync(remote);
-  // log 新→旧持续覆写 → 留存最老一条非 viewer 提交 = 当前位置的首传（与
-  // readLakeSessions 归属同口径）：普通「提交人: …」格式的维护提交（meta
-  // 指标回填、baseline 搬移）不该顶掉上传时填的提交人/内容描述
+  // meta 快照优先（根治层）；旧 meta 无字段 → 逐字段回落 log 推导。快照
+  // 齐全时 log walk 整个跳过
+  const snap = await readMetaSubmitSnapshot(s, dir, remote);
+  if (snap && snap.author != null && snap.description != null && snap.remark != null) return snap;
+  const walked = await walkSubmitInfo(s, dir, remote);
+  return {
+    author: snap?.author ?? walked.author,
+    description: snap?.description ?? walked.description,
+    remark: snap?.remark ?? walked.remark,
+  };
+}
+
+// log 新→旧持续覆写 → 留存最老一条非 viewer 提交 = 当前位置的首传（与
+// readLakeSessions 归属同口径）：普通「提交人: …」格式的维护提交（meta
+// 指标回填、baseline 搬移）不该顶掉上传时填的提交人/内容描述
+async function walkSubmitInfo(s: SessionLoc, dir: string, remote: LakeRemote): Promise<SessionSubmitInfo> {
   const r = await captureGitAsync(dir, ['-c', 'core.quotepath=off', 'log', '--format=%x00%B', `origin/${remote.branch}`, '--', sessionDir(s)]);
   if (r.code !== 0) return parseSubmitInfo(null); // 降级为空提交信息，不拖垮面板
   let oldest = '';

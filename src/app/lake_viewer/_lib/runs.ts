@@ -340,8 +340,10 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         ccVersion: s.ccVersion,
         workflow: s.workflow,
         producer: s.producer,
-        description: parseSubmitInfo(s.commitSubject).description,
-        author: parseSubmitInfo(s.commitSubject).author,
+        // 归属 meta 优先（提交人/描述快照随 meta 写入），旧 meta 回落
+        // commitSubject 推导（存量同行为）
+        description: s.description ?? parseSubmitInfo(s.commitSubject).description,
+        author: s.submitter ?? parseSubmitInfo(s.commitSubject).author,
         opGen: s.opGen,
         startTime: insight.startTime ?? (s.commitTime || null),
         startTimeApprox: !insight.startTime,
@@ -370,8 +372,10 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         ccVersion: s.ccVersion,
         workflow: s.workflow,
         producer: s.producer,
-        description: parseSubmitInfo(s.commitSubject).description,
-        author: parseSubmitInfo(s.commitSubject).author,
+        // 归属 meta 优先（提交人/描述快照随 meta 写入），旧 meta 回落
+        // commitSubject 推导（存量同行为）
+        description: s.description ?? parseSubmitInfo(s.commitSubject).description,
+        author: s.submitter ?? parseSubmitInfo(s.commitSubject).author,
         opGen: s.opGen,
         // 未导入行：优先用上传时刻写进 meta 的指标快照（精确）；存量旧 meta
         // 无快照时退化为 commit 时间（≈近似），耗时/Token 为空。耗时优先

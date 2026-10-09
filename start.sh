@@ -80,6 +80,18 @@ ADVANCED=false
 # 首击秒级卡顿的主因）；开发改代码要热重载时用 -d
 PROD=true
 ALLOWED_CLI_COMMANDS="tui sessions session turn search compare stats import delete config"
+# --stop：长参 getopts 不识别（会落进 *) 分支报 usage），先扫描剥离再走正常解析
+STOP_REQUESTED=false
+ARGS=()
+for arg in "$@"; do
+  if [ "$arg" = "--stop" ]; then
+    STOP_REQUESTED=true
+  else
+    ARGS+=("$arg")
+  fi
+done
+set -- "${ARGS[@]}"
+
 while getopts "uc:kfadp" opt; do
   case $opt in
     u) UPDATE=true ;;
@@ -89,8 +101,9 @@ while getopts "uc:kfadp" opt; do
     a) ADVANCED=true ;;
     d) PROD=false ;;
     p) PROD=true ;;
-    *) echo "Usage: $0 [-u] [-f] [-a] [-d] [-c <command|tui>]  (-u: update; -f: force rebuild; -a: show advanced tabs; -d: dev mode — default is production; -c: CLI mode)" >&2
-       echo "       -k 仍被接受（历史别名，语义=默认：杀已有自家实例后从 BASE_PORT 单实例重启）" >&2; exit 1 ;;
+    *) echo "Usage: $0 [-u] [-f] [-a] [-d] [-c <command|tui>] [--stop]  (-u: update; -f: force rebuild; -a: show advanced tabs; -d: dev mode — default is production; -c: CLI mode)" >&2
+       echo "       -k 仍被接受（历史别名，语义=默认：杀已有自家实例后从 BASE_PORT 单实例重启）" >&2
+       echo "       --stop 显式停止自家实例（击杀 next + smart-agent 并确认端口释放后退出；不启动新实例）" >&2; exit 1 ;;
   esac
 done
 
@@ -130,14 +143,18 @@ install_deps_if_needed() {
   fi
   return 0
 }
-install_deps_if_needed || exit 1
+# --stop 只做击杀回收：跳过依赖/代理安装与迁移——全新 checkout 上 stop 一个
+# 不存在的实例，不该先跑几分钟 npm install
+if [ "$STOP_REQUESTED" != true ]; then
+  install_deps_if_needed || exit 1
+fi
 
 # Proxy (cpx) setup — delegated to the standalone proxy installer, so both
 # `./start.sh` (integrated) and `../cpx/install.sh` (standalone, capture works
 # without insight) share one code path. Non-fatal: if it fails, insight still
 # starts (just without a fresh cpx wrapper).
 PROXY_INSTALL="$SCRIPT_DIR/../cpx/install.sh"
-if [ -f "$PROXY_INSTALL" ]; then
+if [ "$STOP_REQUESTED" != true ] && [ -f "$PROXY_INSTALL" ]; then
   PROXY_INSTALL_ARGS=()
   if [ "$UPDATE" = true ]; then PROXY_INSTALL_ARGS+=("-u"); fi
   mkdir -p "$SCRIPT_DIR/tmp"
@@ -181,7 +198,7 @@ fi
 export NEXT_PUBLIC_SHOW_ADVANCED_TABS="${ADVANCED}"
 [ "$ADVANCED" = true ] && slog INFO setup "Advanced tabs enabled"
 
-if [ "$UPDATE" = true ] || [ ! -f "prisma/dev.db" ]; then
+if [ "$STOP_REQUESTED" != true ] && { [ "$UPDATE" = true ] || [ ! -f "prisma/dev.db" ]; }; then
   slog INFO setup "Running Prisma migration..."
   npx prisma migrate dev --name init
 fi
@@ -203,8 +220,24 @@ fi
 # BASE_PORT。PID 文件仅作记录（launch 段写入最新实例）。
 PROD_PID_FILE="$SCRIPT_DIR/tmp/next-prod.pid"
 
-BASE_PORT=21025
+# 多人服务器（每用户一实例，docs/design/multi-user/）：端口按用户固定分配，
+# CANNBOT_INSIGHT_PORT 覆盖默认 21025——单人本机不设 env 行为不变。
+# 端口固定不漂移是单实例收口的既有决策，多人化只是把「一台机一个」精确化
+# 为「一个用户一个」。
+BASE_PORT="${CANNBOT_INSIGHT_PORT:-21025}"
 PORT=$BASE_PORT
+
+# 实例端口登记（发现契约，写入端）：服务就绪后把实际端口落到用户级登记文件，
+# cpx 自动导入 / cbi CLI 默认连接按 env → 本登记文件 → 21025 兜底解析
+# （读侧实现在 cpx src/cli/insight-discovery.ts 与 insight src/cli/config.ts）。
+# 登记目录与 lake-config.json 同目录锚定（'.cannbot-insight' 字面量是
+# pack-context 品牌翻转点，与 src/lib/lake/server-config.ts 口径一致）。
+# 锚定与读侧及 npm 启动器严格一致：dirname(CANNBOT_PROXY_DIR) →
+# CANNBOT_INSIGHT_HOME → $HOME/.cannbot-insight。
+# 登记文件持久保留、不随实例退出删除——删除会在「实例未运行」窗口期让
+# cpx 回落 21025，把捕获静默导入别人（占 21025 的那个）的实例。
+CANNBOT_HOME_DIR="$(dirname "${CANNBOT_PROXY_DIR:-${CANNBOT_INSIGHT_HOME:-$HOME/.cannbot-insight}/proxy}")"
+INSIGHT_PORT_REGISTRY="$CANNBOT_HOME_DIR/insight-port"
 
 # 端口占用查询三级 fallback（与 pick-smart-agent-port.sh 同款）：本机 WSL2
 # 上 lsof 对部分 LISTEN 套接字失明（ss 可见 21025 占用、lsof 全列表为空，
@@ -326,6 +359,17 @@ kill_all_insight() {
 # 超时仍被占 = 占用者是无关进程 → fail-fast 报占用者诊断——绝不端口漂移
 # （漂移会断 cpx 自动导入的 INSIGHT_BASE=21025 探测与浏览器书签，静默换
 # 址比明确报错更伤）
+# --stop：显式停止自家实例——击杀（kill_all_insight：cwd 锚定，只杀本
+# checkout 的 next 系 + smart-agent，SIGTERM→3s 宽限→SIGKILL 补刀）→ 等
+# BASE_PORT 释放确认死透 → 退出。端口校验用的 BASE_PORT 需与实例启动时
+# 一致：自定义端口的用户 stop 时要带同样的 CANNBOT_INSIGHT_PORT 环境。
+if [ "$STOP_REQUESTED" = true ]; then
+  kill_all_insight
+  ensure_base_port_free
+  echo "[stop] stopped (port $BASE_PORT free)"
+  exit 0
+fi
+
 kill_all_insight
 ensure_base_port_free
 
@@ -359,13 +403,28 @@ if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
   fi
 fi
 
+# 随会话清理（多人服务器核心诉求：关闭即零残留）：无论哪条退出路径——
+# Ctrl+C(INT)、终止(TERM)、终端/SSH 会话结束(HUP)、正常退出(EXIT)——都把
+# 本次拉起的子进程收干净。HUP 是此前泄漏的主洞：trap 原来只挂
+# EXIT INT TERM，而 bash 默认 huponexit=off + 后台子进程不随控制终端死 →
+# SSH 断开后 next/smart-agent 双双存活（实测 smart-agent 曾从上午活到晚间）。
+# cleanup 幂等（kill -0 守卫），EXIT 与信号 trap 连跑无副作用；kill_all_insight
+# 扫尾兜住「杀掉 npx 壳但 next-server 成孤儿」的边缘（cwd 锚定不伤他人实例）。
+# SIGKILL 等暴力路径 trap 天然无效 → 由下次启动的 kill_all_insight 兜底。
+# 语义组合：tmux 里跑 = 会话存续（kill tmux session 才触发清理）；
+# nohup ./start.sh = 显式脱离会话语义（nohup 拦截 HUP），用户自担。
 cleanup() {
-  if [ -n "$AGENT_PID" ] && kill -0 "$AGENT_PID" 2>/dev/null; then
-    slog INFO start "Stopping smart-agent (PID $AGENT_PID)..."
-    kill "$AGENT_PID" 2>/dev/null || true
-  fi
+  local pid label
+  for label in BACKEND_PID NEXT_PID AGENT_PID; do
+    pid=${!label}
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      slog INFO start "cleanup: stopping $label (PID $pid)..."
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  kill_all_insight
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 # 端口已由上方 ensure_base_port_free 定死为 BASE_PORT（单实例不漂移）；
 # smart-agent 端口由 pick 脚本避让 PORT 自选。
@@ -417,6 +476,9 @@ if [ "$CLI" = true ]; then
   for i in $(seq 1 60); do
     if curl -s "$SERVER_URL/api/observe/data?pageSize=1" > /dev/null 2>&1; then
       slog INFO start "Backend ready (port $PORT)"
+      # 发现契约登记：CLI 模式后端同样是可导入的实例，登记口径一致
+      mkdir -p "$CANNBOT_HOME_DIR"
+      echo "$PORT" > "$INSIGHT_PORT_REGISTRY"
       break
     fi
     sleep 1
@@ -438,6 +500,9 @@ else
   for i in $(seq 1 30); do
     if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
       slog INFO start "Server ready (port $PORT)"
+      # 发现契约登记：写入本次实例端口（持久保留，语义见定义处注释）
+      mkdir -p "$CANNBOT_HOME_DIR"
+      echo "$PORT" > "$INSIGHT_PORT_REGISTRY"
       # WSL: use Windows cmd.exe to open browser
       if grep -qi microsoft /proc/version 2>/dev/null && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
         /mnt/c/Windows/System32/cmd.exe /c start "http://localhost:$PORT" 2>/dev/null || true

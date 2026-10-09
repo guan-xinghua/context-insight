@@ -160,4 +160,95 @@ describe('config', () => {
       expect(fs.existsSync(CONFIG_FILE)).toBe(false);
     });
   });
+
+  // 发现契约（多人服务器）：flag > env > config.json > 端口登记文件 > 默认。
+  // 设计决策：登记文件持久保留、saveConfig 只持久化显式值——否则登记端口
+  // 会被冻结进 config.json，换端口/删登记不再生效（docs/design/multi-user/）。
+  // 注意路径必须调用时求值：describe 体在收集期执行，此时 tmpHome 尚为 ''
+  // （beforeAll 未跑），收集期求值会得到相对路径写进包目录。
+  describe('port registry discovery', () => {
+    function registryFile(): string {
+      return path.join(tmpHome, BRAND_CONFIG_DIR_SUFFIX, 'insight-port');
+    }
+
+    function writeRegistry(content: string): void {
+      const file = registryFile();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    }
+
+    afterEach(() => {
+      fs.rmSync(registryFile(), { force: true });
+      delete process.env.CANNBOT_SERVER;
+      delete process.env.CANNBOT_PROXY_DIR;
+      delete process.env.CANNBOT_INSIGHT_HOME;
+    });
+
+    it('falls back to registry port when no explicit source exists', () => {
+      writeRegistry('21226\n');
+      const config = loadConfig();
+      expect(config.server).toBe('http://localhost:21226');
+    });
+
+    it('explicit config.json server suppresses registry', () => {
+      writeRegistry('21226\n');
+      saveConfig({ server: 'http://saved:7777' });
+      expect(loadConfig().server).toBe('http://saved:7777');
+    });
+
+    it('CANNBOT_SERVER env suppresses registry', () => {
+      writeRegistry('21226\n');
+      process.env.CANNBOT_SERVER = 'http://env-server:9999';
+      expect(loadConfig().server).toBe('http://env-server:9999');
+    });
+
+    it('command line flag suppresses registry', () => {
+      writeRegistry('21226\n');
+      expect(loadConfig({ server: 'http://cli:8080' }).server).toBe('http://cli:8080');
+    });
+
+    it('malformed registry falls back to default port', () => {
+      for (const bad of ['abc\n', '0\n', '65536\n', '']) {
+        writeRegistry(bad);
+        expect(loadConfig().server, `registry=${JSON.stringify(bad)}`).toBe(DEFAULT_SERVER_URL);
+      }
+    });
+
+    it('registry anchor follows CANNBOT_PROXY_DIR parent', () => {
+      const custom = path.join(tmpHome, 'custom-root', 'proxy');
+      fs.mkdirSync(custom, { recursive: true });
+      fs.writeFileSync(path.join(path.dirname(custom), 'insight-port'), '23000\n');
+      process.env.CANNBOT_PROXY_DIR = custom;
+      expect(loadConfig().server).toBe('http://localhost:23000');
+      fs.rmSync(path.dirname(custom), { recursive: true, force: true });
+    });
+
+    it('registry anchor follows CANNBOT_INSIGHT_HOME (no CANNBOT_PROXY_DIR)', () => {
+      const dataDir = path.join(tmpHome, 'relocated-data');
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(path.join(dataDir, 'insight-port'), '24000\n');
+      process.env.CANNBOT_INSIGHT_HOME = dataDir;
+      expect(loadConfig().server).toBe('http://localhost:24000');
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it('legacy default server in config.json does not suppress registry', () => {
+      // 升级迁移：旧 saveConfig 恒把 DEFAULT_CONFIG.server 并进 config.json，
+      // 任何一次 config set 都把默认 21025 冻结成「显式值」——存量默认值
+      // 并非用户有意设置，不应压制端口登记（多人服务器升级用户不被错钉在 21025）
+      writeRegistry('21226\n');
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify({ server: DEFAULT_SERVER_URL }));
+      expect(loadConfig().server).toBe('http://localhost:21226');
+    });
+
+    it('saveConfig does not freeze registry-derived server into config.json', () => {
+      writeRegistry('21226\n');
+      saveConfig({ theme: 'dark' });
+      const persisted = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) as { server?: string };
+      expect(persisted.server).toBeUndefined();
+      expect(loadConfig().server).toBe('http://localhost:21226');
+      expect(loadConfig().theme).toBe('dark');
+    });
+  });
 });

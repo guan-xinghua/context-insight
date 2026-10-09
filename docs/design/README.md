@@ -32,6 +32,7 @@
 | CANNBay v2 | [cannbay-v2](cannbay-v2/) | 数据集仓 + proxy jsonl 上传/partial clone/数据治理 | Feature | 2026-08-19 | ✅ 已实现（`src/lib/cannbay2/`） |
 | 组合声明提取插件 + LLM 泛化 | [workflow-extract-plugin](workflow-extract-plugin/) | 主 agent 组合声明确定性提取插件化（cann-ops 默认）+ llm-root 选择式泛化路径（正文取 DB 原文，与确定性共享装配） | Feature | 2026-08-28 | ✅ 已实现（`src/lib/workflow-extract-config.ts` + `src/lib/llm-workflow-extract.ts`） |
 | Session 轨迹评分 v2（六维评价体系） | [workflow-scoring](workflow-scoring/) | 评分卡从三组指标（deterministic/semantic/efficiency）重组为六维结果导向体系：D1 完成度（否决）、D2 行为可信、D3 质量、D4 效率、D5 冗余度、D6 自主性（加权）+ D7 用户自定义维度（可选）；单会话基线比值、subagent 重派检测、评审 CoT 契约与 judge-log 可观测 | Refactor | 2026-08-29 | ✅ 已实现（持续演进至 v2.20；v1 日落至 src/lib/scoring-sunset/） |
+| 多人服务器部署（每用户单实例） | [multi-user](multi-user/) | 一台服务器多人各自使用：每用户一实例 + 完全隔离（共享视角由数据湖承担）；端口登记发现契约（cpx/cbi 零配置对准自己实例）+ 随会话清理（HUP/`--stop` 关闭即零残留）；单人本机零感知 | Feature | 2026-10-08 | ✅ 已实现（`start.sh` + cpx `src/cli/insight-discovery.ts` + insight `src/cli/config.ts`；部署指南 `docs/multi-user-server.md`） |
 
 ## 字段口径
 

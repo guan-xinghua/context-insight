@@ -10,9 +10,6 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// 全局安装态：bin 启动器设 CANNBOT_INSIGHT_DIST_DIR 指向 ~/.cannbot-insight/.next，
-// 让 build 产物落在用户可写目录（包目录只读）。开发态（start.sh / npm run dev）不设 → 默认 .next。
-const distDir = process.env.CANNBOT_INSIGHT_DIST_DIR;
 // Turbopack 默认从项目目录向上找最近 lockfile 当工作区根（monorepo 启发式）。
 // 客户现场上层目录有误生成的 package-lock.json（且项目内 lockfile 缺失）时根被
 // 推到项目之外 → React Client Manifest 模块 ID 基准错位 → dev 启动报
@@ -20,8 +17,13 @@ const distDir = process.env.CANNBOT_INSIGHT_DIST_DIR;
 // next.config.ts 所在目录，跳过推断；import.meta.url 不受启动 cwd 影响。
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
+// 注意：构建产物固定在包目录 .next（不做 distDir 外置）。Next 16 Turbopack
+// 强制 distDir 不许逃出项目根（实测 "Invalid distDirRoot ... should not
+// navigate out of the projectPath"）；而传绝对路径会被拼进包目录深处形成
+// 垃圾路径且 BUILD_ID 探测永远落空（每次启动重建）。多人隔离靠每人各自的
+// npm 安装（包目录按用户隔离），可写数据（库/登记/PID）仍在 DATA_DIR。
+
 const nextConfig: NextConfig = {
-  ...(distDir ? { distDir } : {}),
   turbopack: { root: projectRoot },
   // 7zip-bin 带平台二进制（linux/x64/7za 等），其 index.js 用 __dirname 定位
   // 二进制——被打包器内联会把 __dirname 编译成构建期常量（如 /ROOT/...），

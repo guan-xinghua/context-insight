@@ -135,7 +135,8 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
   });
 
   it('本会话已在 baseline 位重传 baseline → 覆盖自身（unchanged 语义不破坏）', async () => {
-    const up = await lake.uploadLakeSession(prisma, SID_B, '提交人: 测试者\n内容描述: 重传同内容 baseline', undefined, 'contraction', true);
+    // 描述已随 meta 持久化（D）：unchanged 的「同内容」包含同提交人+同描述
+    const up = await lake.uploadLakeSession(prisma, SID_B, '提交人: 测试者\n内容描述: 更换 baseline', undefined, 'contraction', true);
     expect(up.unchanged).toBe(true);
     expect(tree(`contraction/baseline/${SID_B}/`)).toContain(`${SID_B}.jsonl.7z`);
   });

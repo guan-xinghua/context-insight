@@ -18,6 +18,7 @@ import { isProxyVersion } from '../shared/session-format';
 import { computeSessionActiveSplit } from '../active-time';
 import { defaultLakeRemote } from './remote';
 import { requirePushCredentials } from './auth';
+import { parseSubmitInfo, type SessionSubmitInfo } from './notes';
 import { governText } from './governance';
 import { exportSessionToClaudeJsonl, xLake } from './export';
 import { readEnvelope, envelopeFields } from '../shared/envelope';
@@ -397,15 +398,28 @@ function validateCategory(remote: LakeRemote, category?: string): string | undef
 //   开始/耗时/Token（含算子生成耗时优化图），无需先导入 insight。耗时快照
 //   优先 activeMs（活跃口径，与会话详情 Wall Clock 拆分同源），durationMs
 //   （墙钟）保留供回落。
+//   提交人/内容描述/备注（spec §4.4 可选字段，D 根治层）——列表归属的权威
+//   快照：读方 meta 优先、git log 推导回落（存量数据）。与提交信息格式
+//   约定解耦后，任何后续维护提交（viewer 标记、meta 回填等）都无法污染
+//   列表展示的提交人/描述
 // 三条 staging 路径（cpx 伴生 meta 拷贝 / 合成 insight-upload / DB 导出
 // insight-export）都落同一 meta 文件——此处一个补丁点全覆盖。
-async function annotateSessionMeta(stagingDir: string, sid: string, session: SessionRow, prisma: PrismaLike, opGen?: 'success' | 'failure'): Promise<void> {
+async function annotateSessionMeta(
+  stagingDir: string, sid: string, session: SessionRow, prisma: PrismaLike,
+  opGen?: 'success' | 'failure',
+  submit?: SessionSubmitInfo,
+): Promise<void> {
   const metaPath = path.join(stagingDir, 'sessions', sid, `${sid}.meta.json`);
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
     const xb = readEnvelope(meta);
     if (xb?.schema !== 'cc-session-meta' || !xb.data || typeof xb.data !== 'object') return;
     if (opGen === 'success' || opGen === 'failure') xb.data.opGen = opGen;
+    // 提交信息快照：与 commit message 同源同值（parseSubmitInfo 同一套标签
+    // 解析），空字段不落键。author ↔ meta 字段名 submitter
+    if (submit?.author) xb.data.submitter = submit.author;
+    if (submit?.description) xb.data.description = submit.description;
+    if (submit?.remark) xb.data.remark = submit.remark;
     const start = session.startTime instanceof Date ? session.startTime : null;
     const end = session.endTime instanceof Date ? session.endTime : null;
     if (start) {
@@ -479,7 +493,10 @@ export async function uploadLakeSession(
 
   const { stagingDir, sid } = await stageSessionFiles(session, prisma);
   try {
-    await annotateSessionMeta(stagingDir, sid, session, prisma, opGen);
+    // 提交信息快照与 commit message 同源：一次解析两处消费（meta 权威字段
+    // + git log 人类可读）
+    const submit = parseSubmitInfo(description ?? null);
+    await annotateSessionMeta(stagingDir, sid, session, prisma, opGen, submit);
     governStagedSession(stagingDir, sid);
     // 范式行由服务端从结构化字段注入（git log 人类可读；列表 paradigm 以目录
     // 为准）。必须放在空行后的 body：git %s 会把 subject 折叠成单行，混进

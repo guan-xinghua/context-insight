@@ -162,6 +162,15 @@ startTime` 毫秒数）、活跃时长（`activeMs` 毫秒数，与会话详情 
 无这些字段，读方按缺省处理（时间退化为 commit 时间近似）。加可选字段不升
 schema 版本
 
+`submitter` / `description` / `remark`（可选，上传时刻从提交信息解析快照，
+`annotateSessionMeta` 同一补丁点三条路径全覆盖）：提交人/内容描述/备注的
+**归属权威快照**——与 commit message 同源同值（同一套标签解析），但与提交
+信息格式约定解耦：任何后续维护提交（viewer 标记、meta 改写、baseline 搬移）
+都无法污染列表归属。消费方（cannbay2 导入列表、viewer 运行表、实验记录
+面板）一律 **meta 优先、git log 推导回落**——存量旧 meta 无字段，回落行为
+与快照引入前完全一致。空字段不落键；读方对缺省/非字符串按无字段处理（走
+回落）。加可选字段不升 schema 版本
+
 ### 4.5 `cc-subagent-meta` v1（`subagents/<subId>.meta.json`）
 
 ```json

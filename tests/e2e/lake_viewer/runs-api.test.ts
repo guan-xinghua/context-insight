@@ -144,9 +144,10 @@ describe('GET /lake_viewer/api/paradigms', () => {
     const names = data.items.map(p => p.name);
     expect(names).toContain('elementwise');
     expect(names).toContain('contraction');
-    // spec §2：'sessions' 存量区特判已退役——顶层目录即范式注册表，sessions/
-    // 若存在就是普通范式目录（夹具里 legacy 会话落此，算 1 个 run）
-    expect(names).toContain('sessions');
+    // sessions/ 存量区特判已退役（spec §2：sessions/ 若存在即普通范式目录，
+    // 同布局同待遇）——存量会话以 'sessions' 范式身份入清单（e2e-legacy0）
+    const legacy = data.items.find(p => p.name === 'sessions');
+    expect(legacy?.runCount).toBe(1);
   });
 });
 

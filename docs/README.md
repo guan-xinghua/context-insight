@@ -18,6 +18,7 @@
 | [architecture.md](architecture.md) | 系统架构：数据流 / 三前端共享 API / Prisma 模型 / 关键约束 |
 | [cannbay-schema-spec.md](cannbay-schema-spec.md) | `x_cannbay` 捕获/导出格式标准（信封冻结 + 命名空间），新增/修改扩展字段前必读 |
 | [install-usage-guide.md](install-usage-guide.md) | 使用手册：cpx 捕获代理 + insight 观测平台 + CANNBay 上传/导入 |
+| [multi-user-server.md](multi-user-server.md) | 多人服务器部署（每用户单实例）：端口分配 / SSH 隧道 / 随会话清理 |
 | [setup-windows.md](setup-windows.md) | Windows 原生环境搭建指南 |
 | [setup-wsl.md](setup-wsl.md) | WSL 环境搭建指南 |
 | [cli-commands.md](cli-commands.md) | CLI 命令参考（tui/sessions/session/turn/search/compare/stats/import/delete/config/upload/export） |

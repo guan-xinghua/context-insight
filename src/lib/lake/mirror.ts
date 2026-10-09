@@ -249,8 +249,9 @@ export interface LakeSessionEntry {
   producer: string | null;
   /** 算子生成结果标注（cc-session-meta 可选字段 opGen，上传时人工勾选），无则 null=未标注 */
   opGen: 'success' | 'failure' | null;
-  /** 所在顶层范式目录（全仓顶层目录即注册表）；根级会话（缺省上传位 <sid>/，
-   *  root=rootDir）为 null——导入侧归入「根目录」桶 */
+  /** 所在顶层范式目录（全仓顶层目录即注册表，恒多根：rootDir 位置同普通
+   *  目录名——rootDir 仅作上传缺省目录，不参与扫描分流）；根级会话（repo
+   *  根 <sid>/，root=''）为 null——导入侧归入「根目录」桶 */
   paradigm: string | null;
   /** 是否范式 baseline 会话（位置即身份：<paradigm>/baseline/<sid>/，路径推导非存储标记） */
   isBaseline: boolean;
@@ -398,8 +399,8 @@ function lsTreeTopDirs(dir: string, remote: LakeRemote): string[] {
  * 多根模式 meta 可位于任一顶层目录（<paradigm>/<sid>/<sid>.meta.json），含
  * baseline 位置（<paradigm>/baseline/<sid>/<sid>.meta.json）。
  */
-function readSessionMetas(dir: string, remote: LakeRemote): Map<string, { framework: string | null; ccVersion: string | null; producer: string | null; opGen: 'success' | 'failure' | null }> {
-  const out = new Map<string, { framework: string | null; ccVersion: string | null; producer: string | null; opGen: 'success' | 'failure' | null }>();
+function readSessionMetas(dir: string, remote: LakeRemote): Map<string, { framework: string | null; ccVersion: string | null; producer: string | null; opGen: 'success' | 'failure' | null; submitter: string | null; description: string | null; remark: string | null }> {
+  const out = new Map<string, { framework: string | null; ccVersion: string | null; producer: string | null; opGen: 'success' | 'failure' | null; submitter: string | null; description: string | null; remark: string | null }>();
   try {
     const spec = '';
     const treeOut = runGit(`git ls-tree -r -z origin/${remote.branch}${spec}`, dir).toString('utf8');
@@ -453,6 +454,11 @@ function readSessionMetas(dir: string, remote: LakeRemote): Map<string, { framew
           producer: typeof d?.producer === 'string' ? d.producer : null,
           // opGen（可选字段，spec §4.4）：只认 success/failure，其余值/缺省一律未标注
           opGen: d?.opGen === 'success' || d?.opGen === 'failure' ? d.opGen : null,
+          // 提交信息快照（可选字段，spec §4.4，上传时刻写入）：归属权威源，
+          // 存量旧 meta 缺省为 null（读方回落 git log 推导）
+          submitter: typeof d?.submitter === 'string' && d.submitter ? d.submitter : null,
+          description: typeof d?.description === 'string' && d.description ? d.description : null,
+          remark: typeof d?.remark === 'string' && d.remark ? d.remark : null,
         });
       } catch { /* 截断/畸形 meta → null，不拖垮整个列表 */ }
     }
@@ -488,8 +494,9 @@ function listSessionsIn(dir: string, remote: LakeRemote): LakeSessionEntry[] {
     }
   }
 
-  // 一次 log walk：sid → 最后触碰 commit（log 新→旧，首个命中即最新）。
-  // 单遍分组 O(files)——按 sid 再 filter 一遍是 O(N²)，千级会话时列表超 2s。
+  // 一次 log walk：sid → 最后触碰 commit（log 新→旧，首个命中即最新；
+  // notes(viewer): 维护提交跳过）。单遍分组 O(files)——按 sid 再 filter 一遍
+  // 是 O(N²)，千级会话时列表超 2s。
   // -c core.quotepath=off：log --name-only 的中文路径同样默认转义加引号
   const sidCommit = new Map<string, { author: string; time: string; subject: string }>();
   try {
@@ -502,6 +509,11 @@ function listSessionsIn(dir: string, remote: LakeRemote): LakeSessionEntry[] {
       if (lines.length === 0) continue;
       const [author, time, ...subjectParts] = lines[0].split('\x1f');
       const subject = subjectParts.join('\x1f');
+      // viewer 记录/标注提交不参与归属：提交人/描述存上传 commit 的
+      // message，被 viewer 提交顶掉会显示成 lake-viewer 与维护信息
+      // （readLakeSessions / readSubmitInfo 的前缀契约同源）。跳过后
+      // 归属 = 最后一条上传/维护提交，覆盖重传仍更新描述
+      if (subject.startsWith('notes(viewer):')) continue;
       for (const file of lines.slice(1)) {
         const loc = resolveSessionPath(file);
         if (loc && !sidCommit.has(loc.folder)) sidCommit.set(loc.folder, { author, time, subject });
@@ -515,8 +527,12 @@ function listSessionsIn(dir: string, remote: LakeRemote): LakeSessionEntry[] {
     const { sid, recording } = parseSessionFolder(folder);
     const newest = sidCommit.get(folder);
     const author = newest?.author ?? '';
-    const { submitter, description } = parseCommitSubject(newest?.subject ?? '', author);
+    const parsed = parseCommitSubject(newest?.subject ?? '', author);
     const meta = metas.get(folder);
+    // 归属 meta 优先（提交信息快照，上传时刻写入的权威字段）、log 推导回落
+    // （存量旧 meta 无字段）——与提交信息格式约定解耦，维护提交无法污染
+    const submitter = meta?.submitter ?? parsed.submitter;
+    const description = meta?.description ?? parsed.description;
     const loc = sidLoc.get(folder) ?? { root: remote.rootDir, baseline: false, recording };
     // 恒多根彻底：范式 = 所在顶层目录（sessions/ 与自定义 directory 同为
     // 普通目录名）；根级会话（root=''）无范式 → null（导入侧「根目录」桶）
@@ -1446,6 +1462,11 @@ export interface LakeSession {
   fileCount: number;
   commitTime: string;
   commitSubject: string;
+  /** 提交人快照（spec §4.4 可选字段，上传时刻随 meta 写入）——归属权威源；
+   *  存量旧 meta 为 null，消费方回落 commitSubject 推导（parseSubmitInfo） */
+  submitter: string | null;
+  /** 内容描述快照（同提交人一道写入）；null = 回落 commitSubject 推导 */
+  description: string | null;
   framework: string | null;
   ccVersion: string | null;
   producer: string | null;
@@ -1471,6 +1492,9 @@ interface SessionMeta {
   producer: string | null;
   workflow: string | null;
   opGen: 'success' | 'failure' | null;
+  submitter: string | null;
+  description: string | null;
+  remark: string | null;
   startTime: string | null;
   durationMs: number | null;
   activeMs: number | null;
@@ -1523,6 +1547,11 @@ function parseSessionMetas(buf: Buffer, wanted: Array<{ folder: string; oid: str
         workflow: typeof d?.workflow === 'string' ? d.workflow : null,
         // opGen（可选字段，spec §4.4）：只认 success/failure，其余值/缺省一律未标注
         opGen: d?.opGen === 'success' || d?.opGen === 'failure' ? d.opGen : null,
+        // 提交信息快照（可选字段，spec §4.4，上传时刻写入）：归属权威源，
+        // 存量旧 meta 缺省为 null（消费方回落 commitSubject 推导）
+        submitter: typeof d?.submitter === 'string' && d.submitter ? d.submitter : null,
+        description: typeof d?.description === 'string' && d.description ? d.description : null,
+        remark: typeof d?.remark === 'string' && d.remark ? d.remark : null,
         // 指标快照（可选字段，spec §4.4，上传时刻写入）：存量旧 meta 缺省为 null
         startTime: typeof d?.startTime === 'string' ? d.startTime : null,
         model: typeof d?.model === 'string' && d.model ? d.model : null,
@@ -1608,6 +1637,8 @@ export async function readLakeSessions(dir: string, remote: LakeRemote): Promise
   // - 全局首传：跨位置迁移（cpx 自动上传 others/ → 人工范式上传）会把归属
   //   顶成自动上传的 bot 身份，而不是把会话放进范式的人。
   // notes(viewer): 前缀跳过保留（防御性：正常时序下它不可能是首传）。
+  // D 之后归属展示 meta 优先（提交人/描述快照随 meta 写入）——此处的
+  // subject/time 是存量会话的回落源 + 全会话的 commitTime 权威。
   const sidCommit = new Map<string, { time: string; subject: string }>();
   try {
     const logOut = runGitText(
@@ -1641,6 +1672,8 @@ export async function readLakeSessions(dir: string, remote: LakeRemote): Promise
       fileCount: count,
       commitTime: upload?.time ?? '',
       commitSubject: upload?.subject ?? '',
+      submitter: meta?.submitter ?? null,
+      description: meta?.description ?? null,
       framework: meta?.framework ?? null,
       ccVersion: meta?.ccVersion ?? null,
       producer: meta?.producer ?? null,

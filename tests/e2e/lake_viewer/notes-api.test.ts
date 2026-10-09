@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { NextRequest } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { makeBareLake } from '../../ut/lake_viewer/helpers/makeLake';
 import type { Scorecard } from '../../../src/lib/scoring';
@@ -387,6 +388,134 @@ describe('归属取当前位置首传（跨位置迁移）', () => {
     } finally {
       switchLakeConfig({ address: BARE });
       process.env.LAKE_VIEWER_CACHE_DIR = prevCache;
+      vi.resetModules();
+    }
+  });
+});
+
+describe('导入列表归属（/api/ingest/lake list → listSessionsIn）', () => {
+  const listEntry = async (sid: string) => {
+    const route = await import('../../../src/app/api/ingest/lake/route');
+    const res = await route.POST(new NextRequest('http://localhost/api/ingest/lake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list' }),
+    }));
+    expect(res.status).toBe(200);
+    const { sessions } = await res.json() as { sessions: Array<{ sid: string; submitter: string; description: string; commitTime: string }> };
+    return sessions.find(s => s.sid === sid);
+  };
+
+  it('viewer 记录/保存不顶掉导入列表归属：提交人/描述/时间仍取上传 commit', async () => {
+    // ele-base0009：上传 commit（zhang3 / 2026-09-01）之后只被 viewer 触碰。
+    // 导入侧按最后触碰归属，必须跳过 notes(viewer): 维护提交——否则提交人
+    // 显示 lake-viewer、描述显示 notes(viewer): …、时间平移到保存时刻
+    // （真机 op-fusion/ses_f4c5b0289ffedrT2tJz1GovhyE 污染同源）
+    const { POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
+    const note = await POST(postReq(JSON.stringify({ kind: 'note', text: '导入归属回归锚点' })), ctx('ele-base0009'));
+    expect(note.status).toBe(200);
+
+    const entry = await listEntry('ele-base0009');
+    expect(entry?.submitter).toBe('zhang3');
+    expect(entry?.description).toContain('冒烟会话首跑');
+    expect(entry?.description).not.toContain('notes(viewer)');
+    expect(entry?.commitTime).toBe('2026-09-01T10:00:00+08:00');
+  });
+
+  it('覆盖重传（普通格式提交）仍更新导入列表归属；viewer 页保持首传口径', async () => {
+    // 模拟覆盖重传：普通「提交人: …」格式提交触碰会话目录（重传的真实提交
+    // 形态）。导入侧 = 最后一条非 viewer 提交 → 描述更新为 v2；viewer 页
+    // readSubmitInfo = 首传 → 仍 v1。两边口径的刻意分工由此锁定
+    const work = path.join(TMP, 'reupload-clone');
+    fs.rmSync(work, { recursive: true, force: true });
+    execSync(`git clone --quiet "${BARE}" "${work}"`, { stdio: 'pipe' });
+    const metaPath = path.join(work, 'elementwise', 'baseline', 'ele-base0009', 'ele-base0009.meta.json');
+    fs.writeFileSync(metaPath, `${fs.readFileSync(metaPath, 'utf8')}\n`);
+    execSync('git add elementwise/baseline/ele-base0009', { cwd: work, stdio: 'pipe' });
+    execSync('git -c user.name=reup -c user.email=reup@localhost commit -q -m "提交人: zhang3 内容描述: v2 重传描述"', { cwd: work, stdio: 'pipe' });
+    execSync('git push -q origin main', { cwd: work, stdio: 'pipe' });
+    fs.rmSync(work, { recursive: true, force: true });
+
+    // 重传之后再存 viewer note：归属仍是 v2（最后一条非 viewer 提交）
+    const { POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
+    const note = await POST(postReq(JSON.stringify({ kind: 'note', text: '重传后的备注' })), ctx('ele-base0009'));
+    expect(note.status).toBe(200);
+
+    const entry = await listEntry('ele-base0009');
+    expect(entry?.submitter).toBe('zhang3');
+    expect(entry?.description).toBe('v2 重传描述');
+    expect(entry?.commitTime).not.toBe('2026-09-01T10:00:00+08:00');
+
+    // viewer 页提交信息面板仍取首传（与导入侧口径分工）
+    const { GET: getNotes } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
+    const notes = await (await getNotes(new Request('http://viewer.test/'), ctx('ele-base0009'))).json() as {
+      submit: { author: string | null; description: string | null };
+    };
+    expect(notes.submit.author).toBe('zhang3');
+    expect(notes.submit.description).toBe('冒烟会话首跑');
+  });
+});
+
+// D 根治层（viewer 侧）：meta 带 submitter/description/remark 时，三个归属
+// 消费面（运行表/备注面板/导入列表）一律 meta 优先。夹具刻意让 meta 值
+//（li4）≠ 上传 commit 的 subject（zhang3）≠ 维护提交 subject（维护者）——
+// 任何一个面显示 log 推导值都说明权威源没切到 meta
+describe('归属 meta 快照优先（D 根治层）', () => {
+  it('meta 快照赢过上传与维护两代 commit：运行表/备注面板/导入列表都显示 meta 值', async () => {
+    const BARE3 = path.join(TMP, 'lake-dsnap.git');
+    makeBareLake(BARE3, [
+      {
+        time: '2026-09-15T10:00:00+08:00',
+        message: '提交人: zhang3 内容描述: 上传时刻描述',
+        sessions: [{ sid: 'ele-dsnap01', paradigm: 'elementwise', framework: 'claude-code', submitter: 'li4', description: 'D 快照权威', remark: 'meta 备注' }],
+      },
+      {
+        // 维护提交：普通格式 subject（无 notes(viewer): 前缀——A 的跳过层
+        // 管不到），meta 读改写保留快照字段（真实回填工具行为）；jsonlLines
+        // 变化保证 commit 真实触碰会话目录（同内容重写不进 path log）
+        time: '2026-09-16T10:00:00+08:00',
+        message: '提交人: 维护者 内容描述: meta 指标回填（模拟维护提交）',
+        sessions: [{ sid: 'ele-dsnap01', paradigm: 'elementwise', framework: 'claude-code', jsonlLines: 3, submitter: 'li4', description: 'D 快照权威', remark: 'meta 备注' }],
+      },
+    ]);
+    // 单源：换湖 = 改 lake-config.json（每次调用现读）；runs.ts 模块级 TTL
+    // 缓存必须 resetModules（与迁移 describe 同款）
+    const prev = { cache: process.env.LAKE_VIEWER_CACHE_DIR };
+    process.env.LAKE_VIEWER_CACHE_DIR = path.join(TMP, 'cache-dsnap');
+    switchLakeConfig({ address: BARE3 });
+    try {
+      vi.resetModules();
+      // 运行表（旧代码 = 首传 log 推导 zhang3）
+      const { listRuns } = await import('../../../src/app/lake_viewer/_lib/runs');
+      const r = await listRuns({ paradigm: 'elementwise' });
+      const row = r.items.find(x => x.sid === 'ele-dsnap01');
+      expect(row?.author).toBe('li4');
+      expect(row?.description).toBe('D 快照权威');
+
+      // 备注面板「提交信息（上传时填写）」同口径
+      const { GET: getNotes } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
+      const notes = await (await getNotes(new Request('http://viewer.test/'), { params: Promise.resolve({ sid: 'ele-dsnap01' }) })).json() as {
+        submit: { author: string | null; description: string | null; remark: string | null };
+      };
+      expect(notes.submit.author).toBe('li4');
+      expect(notes.submit.description).toBe('D 快照权威');
+      expect(notes.submit.remark).toBe('meta 备注');
+
+      // 导入列表（同步侧；旧代码 = 最后非 viewer 提交 log 推导 维护者）
+      const route = await import('../../../src/app/api/ingest/lake/route');
+      const res = await route.POST(new NextRequest('http://localhost/api/ingest/lake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list' }),
+      }));
+      expect(res.status).toBe(200);
+      const { sessions } = await res.json() as { sessions: Array<{ sid: string; submitter: string; description: string }> };
+      const entry = sessions.find(s => s.sid === 'ele-dsnap01');
+      expect(entry?.submitter).toBe('li4');
+      expect(entry?.description).toBe('D 快照权威');
+    } finally {
+      switchLakeConfig({ address: BARE });
+      process.env.LAKE_VIEWER_CACHE_DIR = prev.cache;
       vi.resetModules();
     }
   });

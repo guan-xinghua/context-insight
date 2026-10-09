@@ -35,6 +35,11 @@ export interface LakeSeedSession {
   totalTokens?: number;
   /** 会话主模型（同指标快照一道写 meta） */
   model?: string;
+  /** 提交信息快照（spec §4.4 可选字段，D 根治层）：归属权威源。缺省不落键
+   *  ——存量夹具（无字段）走 log 推导回落路径，与线上存量数据同形态 */
+  submitter?: string;
+  description?: string;
+  remark?: string;
 }
 
 export interface LakeSeedCommit {
@@ -104,6 +109,9 @@ export function makeBareLake(bareDir: string, commits: LakeSeedCommit[]): void {
       if (s.activeMs != null) data.activeMs = s.activeMs;
       if (s.totalTokens != null) data.totalTokens = s.totalTokens;
       if (s.model) data.model = s.model;
+      if (s.submitter) data.submitter = s.submitter;
+      if (s.description) data.description = s.description;
+      if (s.remark) data.remark = s.remark;
       fs.writeFileSync(path.join(dir, `${s.sid}.meta.json`), JSON.stringify({
         x_cannbay: { schema: 'cc-session-meta', version: 1, data },
       }, null, 2));
