@@ -7,8 +7,8 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 统一 proxy 分类器测试：覆盖产物代际 Gen1（wire 指纹）→ Gen2（行级 source）
-// → Gen4（meta.json 权威）→ Gen5（codex）→ Gen6（cannbot），以及信号优先级与
-// native 排除。
+// → Gen4（meta.json 权威）→ Gen5（codex）→ Gen6（cannbot）→ Gen7（dsh），以及
+// 信号优先级与 native 排除。
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -71,6 +71,21 @@ describe('classifyProxyCapture 代际信号', () => {
       { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid: 'x' } } }
     );
     expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'cannbot-proxy', framework: 'cannbot', via: 'meta' });
+  });
+
+  it('Gen7 dsh（DeepSeek Harness，anthropic 协议）：meta framework=dsh 权威判定，marker 派生 dsh-proxy', () => {
+    const f = tmpCapture(
+      [{ type: 'user', message: { role: 'user', content: 'go' }, source: 'dsh-proxy', tools: [{ name: 'bash' }] }],
+      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'dsh', protocol: 'anthropic', sid: 'session-x' } } }
+    );
+    expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'dsh-proxy', framework: 'dsh', via: 'meta' });
+  });
+
+  it('Gen7 dsh 行级标记（无 meta）同样归 dsh', () => {
+    const f = tmpCapture([
+      { type: 'user', message: { role: 'user', content: 'go' }, source: 'dsh-proxy', tools: [{ name: 'bash' }] },
+    ]);
+    expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'dsh-proxy', framework: 'dsh', via: 'source-line' });
   });
 
   it('历史污染导出件（裸 source:claude-proxy 无 wire/x_cannbay）不算 proxy 捕获（a25ebdfd 前上传件回归）', () => {

@@ -1195,6 +1195,7 @@ export function LocalFileImport() {
                           if (agentFw === "cannbot") return <Badge variant="green">CANNBot</Badge>
                           if (agentFw === "opencode") return <Badge variant="blue">OpenCode</Badge>
                           if (agentFw === "claude-code") return <Badge variant="orange">Claude</Badge>
+                          if (agentFw === "dsh") return <Badge variant="purple">DSH</Badge>
                           return null
                         })()}
                         {isProxyVersion(s.version ?? null) && <Badge variant="yellow">proxy</Badge>}

@@ -506,13 +506,15 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                         图标按 agent 归属归一呈现，proxy 与否走 version 徽标 */}
                     {(() => {
                       const agent = agentFrameworkOf(item.framework) ?? '';
-                      return agent === 'opencode' || agent === 'claude-code' || agent === 'cannbot' ? (
+                      return agent === 'opencode' || agent === 'claude-code' || agent === 'cannbot' || agent === 'dsh' ? (
                         <span className="inline-flex items-center gap-1">
                           {agent === 'opencode'
                             ? <Badge variant="blue">OpenCode</Badge>
                             : agent === 'cannbot'
                               ? <Badge variant="green">CANNBot</Badge>
-                              : <Badge variant="orange">Claude</Badge>}
+                              : agent === 'dsh'
+                                ? <Badge variant="purple">DSH</Badge>
+                                : <Badge variant="orange">Claude</Badge>}
                           {isProxyVersion(item.version) && (
                             <Badge variant="yellow">proxy</Badge>
                           )}

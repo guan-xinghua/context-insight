@@ -226,7 +226,7 @@ export function ImportHistory() {
               // 方案一：捕获行 framework 带 -proxy 记录后缀（claude-code-proxy
               // 等）——剥后缀归一到 agent 框架后进白名单，proxy 徽标仍走 version
               const agentFw = agentFrameworkOf(fwSource)
-              const knownFramework = agentFw === "opencode" || agentFw === "claude-code" || agentFw === "cannbot" || agentFw === BRAND_SOURCE_TYPE
+              const knownFramework = agentFw === "opencode" || agentFw === "claude-code" || agentFw === "cannbot" || agentFw === "dsh" || agentFw === BRAND_SOURCE_TYPE
                 ? agentFw
                 : null
               const isProxy = isProxyVersion(vSource)
@@ -245,6 +245,7 @@ export function ImportHistory() {
                   ) : knownFramework ? (
                     <span className="inline-flex items-center gap-1">
                       {knownFramework === "cannbot" ? <Badge variant="green">CANNBot</Badge>
+                        : knownFramework === "dsh" ? <Badge variant="purple">DSH</Badge>
                         : showOpencode ? <Badge variant="blue">OpenCode</Badge> : <Badge variant="orange">Claude</Badge>}
                       {showProxy && <Badge variant="yellow">proxy</Badge>}
                     </span>

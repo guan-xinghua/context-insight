@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 【dsh（DeepSeek Harness）会话归类：Gen7】`src/lib/ingest/proxy-classify.ts` 新增 dsh 分支——按 meta `cc-session-meta` 的 `framework: "dsh"` / 行级 `source: "dsh-proxy"` 判定归属，并纳入 `proxyRecordingFrameworkFromVersion()` 的记录类推导（与 `claude-proxy` / `opencode-proxy` / `codex-proxy` / `cannbot-proxy` 并列，同 sid 多记录类共存）。`SessionList` / `ImportHistory` / `LocalFileImport` 三处徽标白名单同步接入，显示为 DSH。采集侧改造（dsh profile + 子代理建链）见 `packages/cpx/CHANGELOG.md`
 - 【多人服务器部署（每用户一实例）】一台服务器多人各自使用，每人一个实例、数据隔离
 - 【npm 形态多人服务器支持（cannbot-insight / cbi）】cbi 获得与源码形态一致的多人能力
 

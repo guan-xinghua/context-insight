@@ -17,6 +17,8 @@
 //   Gen5  + codex（Responses API）：source:"codex-proxy"、meta.framework:"codex"
 //   Gen6  + cannbot（opencode 系 CANN fork，openai 协议）：source:"cannbot-proxy"、
 //          meta.framework:"cannbot"（proxy/CANNBOT-DESIGN.md）
+//   Gen7  + dsh（DeepSeek Harness，anthropic 协议）：source:"dsh-proxy"、
+//          meta.framework:"dsh"（cpx --agent dsh / cpx dsh）
 //
 // 信号优先级（lake-schema-spec §6 双轨：声明式权威 > legacy 行级）：
 //   meta.json cc-session-meta（文件级） > 行级 source 标记 > wire 指纹兜底
@@ -24,14 +26,14 @@ import fs from 'node:fs';
 import { parseJsonlLines, extractSystemText, type ContentBlock } from './adapters/claude-jsonl';
 import { readEnvelope } from '@/lib/shared/envelope';
 
-export type ProxyAgentFramework = 'opencode' | 'claude-code' | 'codex' | 'cannbot' | null;
+export type ProxyAgentFramework = 'opencode' | 'claude-code' | 'codex' | 'cannbot' | 'dsh' | null;
 
 export interface ProxyClassification {
   /** 是否 proxy（cpx）捕获。insight 导出件不算（它复用部分 wire 字段但非代理捕获）。 */
   isProxy: boolean;
-  /** proxy 来源标记原值：claude-proxy / opencode-proxy / codex-proxy / cannbot-proxy（早期无标记件由指纹推断合成）。 */
+  /** proxy 来源标记原值：claude-proxy / opencode-proxy / codex-proxy / cannbot-proxy / dsh-proxy（早期无标记件由指纹推断合成）。 */
   marker: string | null;
-  /** agent 归属（opencode / claude-code / codex / cannbot）；native 文件为 null。 */
+  /** agent 归属（opencode / claude-code / codex / cannbot / dsh）；native 文件为 null。 */
   framework: ProxyAgentFramework;
   /** 命中的判定信号。 */
   via: 'meta' | 'source-line' | 'wire-fingerprint' | null;
@@ -44,6 +46,7 @@ const META_FRAMEWORK_MAP: Record<string, Exclude<ProxyAgentFramework, null>> = {
   'claude': 'claude-code',
   'codex': 'codex',
   'cannbot': 'cannbot',
+  'dsh': 'dsh',
 };
 
 /** 行级 source 标记 → agent 框架。未列举的 *-proxy 一律归 claude-code（默认族）。 */
@@ -51,16 +54,17 @@ const MARKER_FRAMEWORK_MAP: Record<string, Exclude<ProxyAgentFramework, null>> =
   'opencode-proxy': 'opencode',
   'codex-proxy': 'codex',
   'cannbot-proxy': 'cannbot',
+  'dsh-proxy': 'dsh',
 };
 
 /** 方案一（同 sid 双会话共存）：proxy 捕获行的 framework 值 = agent 框架 + '-proxy'
- * 后缀（claude-code-proxy / opencode-proxy / codex-proxy / cannbot-proxy），与同
+ * 后缀（claude-code-proxy / opencode-proxy / codex-proxy / cannbot-proxy / dsh-proxy），与同
  * sid 的原生会话（claude-code / opencode / …）在 (taskId, framework) 唯一索引下
  * 各占一行。本谓词从 Session.version 的 marker 后缀推导该记录类值（映射与
  * MARKER_FRAMEWORK_MAP 同源），供导入匹配与存量行归类。 */
 export function proxyRecordingFrameworkFromVersion(version: string | null | undefined): string | null {
   if (!version) return null;
-  for (const marker of ['claude-proxy', 'opencode-proxy', 'codex-proxy', 'cannbot-proxy']) {
+  for (const marker of ['claude-proxy', 'opencode-proxy', 'codex-proxy', 'cannbot-proxy', 'dsh-proxy']) {
     if (version === marker || version.endsWith(`-${marker}`)) {
       return `${MARKER_FRAMEWORK_MAP[marker] ?? 'claude-code'}-proxy`;
     }
