@@ -139,11 +139,6 @@ interface LaneCtx {
 export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
   const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
   const isError = lane.status === "error"
-  const childLanes: SubagentLane[] = []
-  for (const st of lane.turns) {
-    const lns = ctx.subagentBlocksByTurnId.get(st.turnId)
-    if (lns) childLanes.push(...lns)
-  }
   return (
     <div className={cn(
       "border rounded-lg min-w-0",
@@ -171,36 +166,45 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
       {isExpanded && lane.turns.length > 0 && (
         <div className="px-2 pb-2 space-y-1">
           {lane.turns.map(st => (
-            <button
-              key={st.turnId}
-              ref={ctx.selectedTurnId === st.turnId ? ctx.selectedSubRef : null}
-              className={cn(
-                "w-full text-left flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded border-l-2 text-xs transition-colors cursor-pointer",
-                "border-l-orange-400 bg-orange-50/30 dark:bg-orange-500/10",
-                ctx.selectedTurnId === st.turnId ? "ring-1 ring-primary/50" : "hover:bg-accent/30"
-              )}
-              onClick={() => ctx.onSelectTurn(st.turnId)}
-            >
-              <span className="font-mono text-muted-foreground shrink-0">#{st.turnIndex}</span>
-              <Badge variant={ROLE_BADGE_VARIANTS[st.role] ?? "gray"} className="text-xs shrink-0">
-                {ROLE_ICONS[st.role]} {st.role}
-              </Badge>
-              {st.toolCalls.length > 0 && <Badge variant="outline" className="text-xs shrink-0">{st.toolCalls.length} tools</Badge>}
-              {st.contentSummary && (
-                <span className="text-foreground/80 truncate min-w-[60px] max-w-[200px]">
-                  {st.contentSummary.replace(/^<thinking>/, "").substring(0, 40)}
-                </span>
-              )}
-              {st.totalTokens > 0 && <span className="text-muted-foreground shrink-0">{formatTokenCount(st.totalTokens)}</span>}
-            </button>
-          ))}
-          {childLanes.length > 0 && (
-            <div className="ml-3 pl-3 mt-1 border-l border-orange-200 dark:border-orange-500/30 space-y-1">
-              {childLanes.map(cl => (
-                <SubagentLaneView key={cl.bridgeId} lane={cl} ctx={ctx} />
-              ))}
+            <div key={st.turnId} className="space-y-1">
+              <button
+                ref={ctx.selectedTurnId === st.turnId ? ctx.selectedSubRef : null}
+                className={cn(
+                  "w-full text-left flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded border-l-2 text-xs transition-colors cursor-pointer",
+                  "border-l-orange-400 bg-orange-50/30 dark:bg-orange-500/10",
+                  ctx.selectedTurnId === st.turnId ? "ring-1 ring-primary/50" : "hover:bg-accent/30"
+                )}
+                onClick={() => ctx.onSelectTurn(st.turnId)}
+              >
+                <span className="font-mono text-muted-foreground shrink-0">#{st.turnIndex}</span>
+                <Badge variant={ROLE_BADGE_VARIANTS[st.role] ?? "gray"} className="text-xs shrink-0">
+                  {ROLE_ICONS[st.role]} {st.role}
+                </Badge>
+                {st.toolCalls.length > 0 && <Badge variant="outline" className="text-xs shrink-0">{st.toolCalls.length} tools</Badge>}
+                {st.contentSummary && (
+                  <span className="text-foreground/80 truncate min-w-[60px] max-w-[200px]">
+                    {st.contentSummary.replace(/^<thinking>/, "").substring(0, 40)}
+                  </span>
+                )}
+                {st.totalTokens > 0 && <span className="text-muted-foreground shrink-0">{formatTokenCount(st.totalTokens)}</span>}
+              </button>
+              {(() => {
+                // 嵌套子 lane 就地挂载在派发轮行后（root 层同款：单 lane 直渲、
+                // 多 lane 并行组），不再统一追加在父 lane 末尾——后台子代理真实
+                // 运行在父的中段，末尾挂载会读成「父结束后才启动」（现场：
+                // designer 运行中段派生的两个 Explore 被读成由末轮 #1847 启动）
+                const lns = ctx.subagentBlocksByTurnId.get(st.turnId)
+                if (!lns || lns.length === 0) return null
+                return (
+                  <div className="ml-3 pl-3 border-l border-orange-200 dark:border-orange-500/30 min-w-0">
+                    {lns.length === 1
+                      ? <SubagentLaneView lane={lns[0]} ctx={ctx} />
+                      : <ParallelSubagentGroup lanes={lns} ctx={ctx} />}
+                  </div>
+                )
+              })()}
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>

@@ -211,6 +211,56 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
     expect(html).toContain("1 tools")
   })
 
+  it("嵌套子 lane 就地挂载：渲染在派发轮行后、父 lane 后续轮之前（不再追加在末尾）", () => {
+    // 现场：designer lane 中段某轮派生的 Explore 子 lane 旧版渲染在父 lane
+    // 全部轮次之后，被读成「由父末轮启动」。修复后子 lane 跟在派发轮行后。
+    const childLane = {
+      bridgeId: "br-child",
+      sessionId: "ses_child",
+      name: "explore-child",
+      type: "general",
+      summary: "dispatch explore-child",
+      turns: [subTurn(900, "ses_child")],
+      status: "completed",
+      totalTokens: 500,
+      latencyMs: 8000,
+      turnCount: 1,
+    }
+    const html = renderToStaticMarkup(
+      createElement(SubagentLaneView, {
+        lane: {
+          bridgeId: "br-parent",
+          sessionId: "ses_parent",
+          name: "designer",
+          type: "general",
+          summary: "dispatch designer",
+          turns: [subTurn(635, "ses_parent"), subTurn(636, "ses_parent"), subTurn(637, "ses_parent")],
+          status: "completed",
+          totalTokens: 12345,
+          latencyMs: 45000,
+          turnCount: 3,
+        },
+        ctx: {
+          subagentBlocksByTurnId: new Map([["t-636", [childLane]]]),
+          expandedSubagents: new Set(["br-parent"]),
+          onToggleBridge: () => {},
+          selectedTurnId: null,
+          onSelectTurn: () => {},
+          selectedSubRef: null,
+        },
+      })
+    )
+    const i635 = html.indexOf("#635")
+    const i636 = html.indexOf("#636")
+    const i637 = html.indexOf("#637")
+    const iChild = html.indexOf("explore-child")
+    expect(i635).toBeGreaterThanOrEqual(0)
+    expect(i637).toBeGreaterThan(i636)
+    // 子 lane 在 #636（派发轮）之后、#637（父 lane 后续轮）之前
+    expect(iChild).toBeGreaterThan(i636)
+    expect(iChild).toBeLessThan(i637)
+  })
+
   it("点击第一个 chip：详情紧跟其下（DOM 顺序先于后续 chip），其他 lane 仍折叠", async () => {
     // 现场场景三路并行（empty/group/base）：点第一个 chip，旧布局把展开区
     // 统一渲染在整个 chip 行末尾，详情视觉上挂在最后一个 chip 下面
