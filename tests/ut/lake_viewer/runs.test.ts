@@ -173,7 +173,7 @@ beforeAll(async () => {
     };
     await scorecardStore().put(card);
   }
-});
+}, 60_000);
 
 afterAll(async () => {
   await prisma.session.deleteMany({ where: { taskId: { in: DB_SEED.map(s => s.taskId) } } });

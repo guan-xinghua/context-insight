@@ -57,7 +57,8 @@ function subFile(subSid: string, ts: string): void {
     JSON.stringify({
       type: 'assistant',
       message: { role: 'assistant', id: `msg-${subSid}`, content: [{ type: 'text', text: `子答 ${subSid}` }], model: 'glm-5.2', usage: { input_tokens: 10, output_tokens: 5 } },
-      timestamp: ts.replace('T10:', 'T10:').slice(0, -1) + '5Z',
+      // 原 slice 拼串会产出非法秒位（'10:00:105Z'），解析失败使 turn 时间塌成 epoch 0
+      timestamp: new Date(Date.parse(ts) + 5000).toISOString(),
     }),
   ].join('\n') + '\n');
 }

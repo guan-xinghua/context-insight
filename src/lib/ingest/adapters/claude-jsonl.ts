@@ -552,7 +552,11 @@ export function collectSubagentToolUseMappings(dirPath: string, sessionId: strin
 }
 
 function isValidISO(timestamp: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(timestamp);
+  // 前缀正则快速短路 + 解析校验双保险：正则无尾部锚定，'2026-08-18T10:00:105Z'
+  // （秒位三位）等「格式命中但 new Date() 解析为 NaN」的脏值会穿透；NaN 经下游
+  // falsy 判定会被替换成 epoch 0（PR #112 review 实证），故解析失败一律判非法
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(timestamp)) return false;
+  return Number.isFinite(new Date(timestamp).getTime());
 }
 
 function extractVersionFromLines(lines: ClaudeJsonlLine[]): string | null {
@@ -720,12 +724,11 @@ export function buildAssistantInteraction(
     }
 
     const realTimestamp = al.timestamp || null;
-    const timeCreated = realTimestamp
-      ? (isValidISO(realTimestamp) ? new Date(realTimestamp).getTime() : 0)
-      : fileMtime + alLineIndex * 1000;
-    const timestamp = realTimestamp
-      ? (isValidISO(realTimestamp) ? realTimestamp : new Date(0).toISOString())
-      : new Date(timeCreated).toISOString();
+    // 非法时间戳与缺失同路兜底（fileMtime 估计）：回退 epoch 0 会把 turn 时间打成
+    // 1970，经 subagentTiming 的 min 聚合放大成毫秒级伪时延（CI 实证 1.78e12 溢出 Int 列）
+    const tsValid = realTimestamp != null && isValidISO(realTimestamp);
+    const timeCreated = tsValid ? new Date(realTimestamp).getTime() : fileMtime + alLineIndex * 1000;
+    const timestamp = tsValid ? realTimestamp : new Date(timeCreated).toISOString();
 
     if (firstTimeCreated == null || timeCreated < firstTimeCreated) {
       firstTimeCreated = timeCreated;
@@ -933,10 +936,10 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
 
     // Non-assistant lines
     const realTimestamp = line.timestamp || null;
-    const timestamp = realTimestamp
-      ? (isValidISO(realTimestamp) ? realTimestamp : new Date(0).toISOString())
-      : new Date(fileMtime + i * 1000).toISOString();
-    const timeCreated = realTimestamp ? new Date(realTimestamp).getTime() : fileMtime + i * 1000;
+    // 同上：非法时间戳走 fileMtime 兜底，不再产出 epoch 0 / NaN
+    const tsValid = realTimestamp != null && isValidISO(realTimestamp);
+    const timeCreated = tsValid ? new Date(realTimestamp).getTime() : fileMtime + i * 1000;
+    const timestamp = tsValid ? realTimestamp : new Date(timeCreated).toISOString();
     const timeCompleted = line.duration_ms && timeCreated ? timeCreated + line.duration_ms : undefined;
 
     if (line.type === 'user' && line.message) {
