@@ -12,6 +12,13 @@ import { PrismaClient } from "@prisma/client";
 // fresh clone 兜底（镜像 start.sh 默认值）：.env 由 pretest 的 ensure-test-db 创建，
 // 但 vitest worker 进程不自动读 .env，缺此默认时全部套件死在 $connect
 process.env.DATABASE_URL ||= "file:./dev.db";
+// 测试进程统一加大 socket_timeout（Prisma sqlite URL 参数，单位秒）：全量并行
+// worker 共写同一 dev.db，SQLite 单写者锁下默认 5s 偶发 "Socket timeout" flake
+//（现场：opencode-v2-refresh ① 连锁 5 红）。仅测试侧放大等待——服务端运行时
+// 仍走 .env 默认，不受影响；先设先赢（||=）语义下 CI 想覆盖可直接带参设置。
+if (!process.env.DATABASE_URL.includes("socket_timeout=")) {
+  process.env.DATABASE_URL += process.env.DATABASE_URL.includes("?") ? "&socket_timeout=60" : "?socket_timeout=60";
+}
 
 // 统一日志全局静音：被测模块（data-service/lake 层等）引入 logger 后，全量测试
 // 会把日志写进真实 ~/.cannbot-insight/logs/。||= 语义 = 显式设置优先（CI 想开

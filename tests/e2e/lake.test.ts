@@ -19,6 +19,7 @@ import { PrismaClient } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { importSession } from '../../src/lib/ingest/data-service.ts';
 import { withDbRaceRetry } from '../db-race';
+import { materializeV1Fixture } from '../helpers/materialize-v1-fixture';
 import { seedLakeConfig, switchLakeConfig } from '../helpers/lake-env';
 
 function git(cmd: string, cwd: string): void {
@@ -97,20 +98,12 @@ fs.writeFileSync(path.join(FIXTURES, SID, 'subagents', `${SUB_ID}.meta.json`), J
 // 杂散文件（含明文密钥）：白名单拷贝必须把它挡在 staging 之外，永不进公开仓
 fs.writeFileSync(path.join(FIXTURES, SID, 'subagents', 'stray-notes.txt'), 'DASHSCOPE_API_KEY=sk-strayfile-secret-1234567890abcd\n');
 
-const OPENCODE_DB = path.resolve(__dirname, '../ut/data/e2e/opencode-sample.db');
+// opencode-sample.db 是 gitignored 二进制 fixture（OAT 禁二进制入库）：从入库
+// .sql（source of truth）物化本文件私有副本——无共享路径首建竞态、不依赖其它
+// 文件先跑（原共享路径 existsSync 守卫的并行首建竞态由 review 指出后收敛到
+// materializeV1Fixture），afterAll 清理
+const OPENCODE_DB = materializeV1Fixture('lake-e2e');
 const OPENCODE_SID = 'ses_2051a32a4ffevX0jGBWVDDEqCk';
-
-// opencode-sample.db 是 gitignored 二进制 fixture（OAT 禁二进制入库），由
-// 同目录 .sql（source of truth）重建——e2e-import-observe 也有同款守卫，
-// 但并行/单文件运行时加载顺序不保证，本文件自建消除对它先跑的依赖
-{
-  const sql = path.resolve(__dirname, '../ut/data/e2e/opencode-sample.sql');
-  if (!fs.existsSync(OPENCODE_DB) && fs.existsSync(sql)) {
-    const db = new (await import('better-sqlite3')).default(OPENCODE_DB);
-    db.exec(fs.readFileSync(sql, 'utf8'));
-    db.close();
-  }
-}
 
 const prisma = new PrismaClient();
 
@@ -149,6 +142,7 @@ afterAll(async () => {
     try { await prisma.session.deleteMany({ where: { taskId, framework } }); } catch { /* ignore */ }
   }
   await prisma.$disconnect();
+  fs.rmSync(path.dirname(OPENCODE_DB), { recursive: true, force: true });
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 

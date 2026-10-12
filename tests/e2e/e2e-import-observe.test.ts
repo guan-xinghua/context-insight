@@ -9,24 +9,23 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { importSession } from '../../src/lib/ingest/data-service.ts';
 import { withDbRaceRetry } from '../db-race';
+import { materializeV1Fixture } from '../helpers/materialize-v1-fixture';
 import { PrismaClient } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs';
-import Database from 'better-sqlite3';
 
 const FIXTURE_DIR = path.resolve(__dirname, '../ut/data/e2e');
-const OPENCODE_DB = path.join(FIXTURE_DIR, 'opencode-sample.db');
-const OPENCODE_SQL = path.join(FIXTURE_DIR, 'opencode-sample.sql');
 const CLAUDE_JSONL = path.join(FIXTURE_DIR, 'claude-sample.jsonl');
 const CLAUDE_SKILL_JSONL = path.join(FIXTURE_DIR, 'claude-skill-dispatch.jsonl');
 
 // OAT: no binary files in repo. The opencode-sample.db fixture is gitignored and
-// rebuilt here from the text SQL dump (source of truth) when missing.
-if (!fs.existsSync(OPENCODE_DB) && fs.existsSync(OPENCODE_SQL)) {
-  const db = new Database(OPENCODE_DB);
-  db.exec(fs.readFileSync(OPENCODE_SQL, 'utf8'));
-  db.close();
-}
+// materialized here as a private copy from the text SQL dump (source of truth) —
+// materializeV1Fixture（共享路径首建竞态由 review 指出后收敛）；afterAll 清理
+const OPENCODE_DB = materializeV1Fixture('e2e-import-observe');
+
+afterAll(() => {
+  fs.rmSync(path.dirname(OPENCODE_DB), { recursive: true, force: true });
+});
 
 const OPENCODE_SESSION_IDS = [
   'ses_2051a32a4ffevX0jGBWVDDEqCk',

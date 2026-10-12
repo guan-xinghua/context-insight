@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { materializeV1Fixture } from '../helpers/materialize-v1-fixture';
 import { NextRequest } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import {
@@ -33,6 +34,9 @@ import { POST as listSessionsRoute } from '@/app/api/ingest/import-file/sessions
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-v2-it-'));
 const V2_DB = path.join(TMP, 'opencode.db');
 const ALIEN_DB = path.join(TMP, 'alien.db');
+// v1 夹具物化私有副本（.db 二进制被 gitignore 吞掉从未入库，CI 全新 clone 缺件
+// 会让 v1 回归用例静默拿到 0 会话）；afterAll 清 path.dirname
+const V1_DB = materializeV1Fixture('v2-adapter');
 
 const MAIN_ID = 'ses_v2main001ffeV2SampleAaa';
 const SUB_ID = 'ses_v2sub001ffeV2SampleBbb';
@@ -64,6 +68,7 @@ afterAll(async () => {
     await prisma.session.delete({ where: { id } }).catch(() => {});
   }
   await prisma.$disconnect();
+  fs.rmSync(path.dirname(V1_DB), { recursive: true, force: true });
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -105,7 +110,7 @@ describe('opencode v2 listSessions', () => {
   });
 
   it('v1 行为回归：现存 v1 夹具不受影响', () => {
-    const v1 = listSessions(path.resolve(__dirname, 'data/e2e/opencode-sample.db'));
+    const v1 = listSessions(V1_DB);
     expect(v1.length).toBe(2);
   });
 });

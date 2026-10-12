@@ -23,8 +23,14 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-v2-refresh-'));
 const DB_FILE = path.join(TMP, 'opencode.db');
 
 const DRIFT_ID = 'ses_v2drift001ffeV2SampleEee';
-const PROBE_ID = 'ses_v2probe001ffeV2SampleFff';
-const PROBE_SUB_ID = 'ses_v2probesub1ffeV2SampleGgg';
+// 每个 probe 用例独立 id + 各自建行（对齐 ⑥ IDLE_ID 的自包含模式）——
+// 用例间零共享：任一用例可单独跑、任意顺序跑，锁冲突不再级联放大
+const PROBE_ID_STREAMING = 'ses_v2probe001ffeV2SampleF01';
+const PROBE_ID_ABANDONED = 'ses_v2probe001ffeV2SampleF02';
+const PROBE_ID_PENDING = 'ses_v2probe001ffeV2SampleF03';
+const PROBE_ID_SETTLED = 'ses_v2probe001ffeV2SampleF04';
+const PROBE_ID_SUBPARENT = 'ses_v2probe001ffeV2SampleF05';
+const PROBE_SUB_ID = 'ses_v2probesub1ffeV2SampleG05';
 
 const createdSessionIds: string[] = [];
 
@@ -54,25 +60,37 @@ function v2AssistantMsg(sessionId: string, seq: number, text: string, at: number
 }
 
 function writeDb(sessions: Array<{ id: string; parentId: string | null; title: string | null; created: number }>, msgs: V2Msg[]): void {
-  fs.rmSync(DB_FILE, { force: true });
+  // 逐 session 重写而非删库重建：库是全文件共享夹具，重建会抹掉其它用例的
+  // 数据，制造声明顺序依赖（用例必须可单独跑、任意顺序跑）
   const db = new Database(DB_FILE);
-  db.exec(`CREATE TABLE session_v2 (
-    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT, title TEXT,
-    version TEXT NOT NULL, directory TEXT NOT NULL,
-    time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
-    summary_additions INTEGER, summary_deletions INTEGER, summary_files INTEGER)`);
-  db.exec(`CREATE TABLE session_message (
-    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
-    time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`);
-  for (const s of sessions) {
-    db.prepare('INSERT INTO session_v2 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(s.id, 'global', s.parentId, s.title, '2.0.18', '/tmp', s.created, s.created + 5000, 0, 0, 0);
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS session_v2 (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT, title TEXT,
+      version TEXT NOT NULL, directory TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+      summary_additions INTEGER, summary_deletions INTEGER, summary_files INTEGER)`);
+    db.exec(`CREATE TABLE IF NOT EXISTS session_message (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`);
+    const ids = sessions.map(x => x.id);
+    const delS = db.prepare('DELETE FROM session_v2 WHERE id = ?');
+    const delM = db.prepare('DELETE FROM session_message WHERE session_id = ?');
+    // DELETE+INSERT 同事务：INSERT 半途抛出不留"行已删、数据未写"的中间态；
+    // close 走 finally 即时释放句柄（均 review 完备性建议）
+    db.transaction(() => {
+      for (const id of ids) { delS.run(id); delM.run(id); }
+      for (const s of sessions) {
+        db.prepare('INSERT INTO session_v2 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(s.id, 'global', s.parentId, s.title, '2.0.18', '/tmp', s.created, s.created + 5000, 0, 0, 0);
+      }
+      for (const m of msgs) {
+        db.prepare('INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(m.id, m.sessionId, m.type, m.seq, m.at, m.at + 1000, JSON.stringify(m.data));
+      }
+    })();
+  } finally {
+    db.close();
   }
-  for (const m of msgs) {
-    db.prepare('INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(m.id, m.sessionId, m.type, m.seq, m.at, m.at + 1000, JSON.stringify(m.data));
-  }
-  db.close();
 }
 
 async function createProbeSession(taskId: string): Promise<string> {
@@ -132,74 +150,78 @@ describe('opencode v2 增量刷新（deltaRefreshSession）', () => {
 
 describe('opencode v2 活跃度探针（probeAutoRefresh）', () => {
   it('① 最近更新的未完成 assistant → streaming', async () => {
-    await createProbeSession(PROBE_ID);
+    await createProbeSession(PROBE_ID_STREAMING);
     writeDb(
-      [{ id: PROBE_ID, parentId: null, title: null, created: 1790001000000 }],
+      [{ id: PROBE_ID_STREAMING, parentId: null, title: null, created: 1790001000000 }],
       [
-        v2UserMsg(PROBE_ID, 4, 'q', Date.now() - 2000),
-        v2AssistantMsg(PROBE_ID, 5, 'partial', Date.now() - 10_000, false),
+        v2UserMsg(PROBE_ID_STREAMING, 4, 'q', Date.now() - 2000),
+        v2AssistantMsg(PROBE_ID_STREAMING, 5, 'partial', Date.now() - 10_000, false),
       ],
     );
-    const p = await probe(PROBE_ID);
+    const p = await probe(PROBE_ID_STREAMING);
     expect(p.streaming).toBe(true);
     expect(p.settled).toBe(false);
   });
 
   it('② 遗弃的未完成（10 分钟前）→ 不堵塞 settled', async () => {
+    await createProbeSession(PROBE_ID_ABANDONED);
     writeDb(
-      [{ id: PROBE_ID, parentId: null, title: null, created: 1790001000000 }],
+      [{ id: PROBE_ID_ABANDONED, parentId: null, title: null, created: 1790001000000 }],
       [
-        v2UserMsg(PROBE_ID, 4, 'q', Date.now() - 12 * 60_000),
-        v2AssistantMsg(PROBE_ID, 5, 'abandoned', Date.now() - 10 * 60_000, false),
+        v2UserMsg(PROBE_ID_ABANDONED, 4, 'q', Date.now() - 12 * 60_000),
+        v2AssistantMsg(PROBE_ID_ABANDONED, 5, 'abandoned', Date.now() - 10 * 60_000, false),
       ],
     );
-    const p = await probe(PROBE_ID);
+    const p = await probe(PROBE_ID_ABANDONED);
     expect(p.streaming).toBe(false);
     expect(p.settled).toBe(true);
   });
 
   it('③ 尾部 user → pendingInput', async () => {
+    await createProbeSession(PROBE_ID_PENDING);
     writeDb(
-      [{ id: PROBE_ID, parentId: null, title: null, created: 1790001000000 }],
+      [{ id: PROBE_ID_PENDING, parentId: null, title: null, created: 1790001000000 }],
       [
-        v2UserMsg(PROBE_ID, 4, 'q', 1790001000000),
-        v2AssistantMsg(PROBE_ID, 5, 'a', 1790001000100),
-        v2UserMsg(PROBE_ID, 6, 'follow-up', 1790001002000),
+        v2UserMsg(PROBE_ID_PENDING, 4, 'q', 1790001000000),
+        v2AssistantMsg(PROBE_ID_PENDING, 5, 'a', 1790001000100),
+        v2UserMsg(PROBE_ID_PENDING, 6, 'follow-up', 1790001002000),
       ],
     );
-    const p = await probe(PROBE_ID);
+    const p = await probe(PROBE_ID_PENDING);
     expect(p.pendingInput).toBe(true);
     expect(p.settled).toBe(false);
   });
 
   it('④ 尾部已完成 assistant → settled 且计数变化可感', async () => {
+    await createProbeSession(PROBE_ID_SETTLED);
     writeDb(
-      [{ id: PROBE_ID, parentId: null, title: null, created: 1790001000000 }],
+      [{ id: PROBE_ID_SETTLED, parentId: null, title: null, created: 1790001000000 }],
       [
-        v2UserMsg(PROBE_ID, 4, 'q', 1790001000000),
-        v2AssistantMsg(PROBE_ID, 5, 'a', 1790001000100),
+        v2UserMsg(PROBE_ID_SETTLED, 4, 'q', 1790001000000),
+        v2AssistantMsg(PROBE_ID_SETTLED, 5, 'a', 1790001000100),
       ],
     );
-    const p = await probe(PROBE_ID);
+    const p = await probe(PROBE_ID_SETTLED);
     expect(p.settled).toBe(true);
     expect(p.sourceMessageCount).toBe(2);
     expect(p.countChanged).toBe(true);
   });
 
   it('⑤ 子代理消息经 session_v2.parent_id 计入父会话计数', async () => {
+    await createProbeSession(PROBE_ID_SUBPARENT);
     writeDb(
       [
-        { id: PROBE_ID, parentId: null, title: null, created: 1790001000000 },
-        { id: PROBE_SUB_ID, parentId: PROBE_ID, title: '@(build) subagent', created: 1790001000000 },
+        { id: PROBE_ID_SUBPARENT, parentId: null, title: null, created: 1790001000000 },
+        { id: PROBE_SUB_ID, parentId: PROBE_ID_SUBPARENT, title: '@(build) subagent', created: 1790001000000 },
       ],
       [
-        v2UserMsg(PROBE_ID, 4, 'q', 1790001000000),
-        v2AssistantMsg(PROBE_ID, 5, 'a', 1790001000100),
+        v2UserMsg(PROBE_ID_SUBPARENT, 4, 'q', 1790001000000),
+        v2AssistantMsg(PROBE_ID_SUBPARENT, 5, 'a', 1790001000100),
         v2UserMsg(PROBE_SUB_ID, 4, 'sub q', 1790001000200),
         v2AssistantMsg(PROBE_SUB_ID, 5, 'sub a', 1790001000300),
       ],
     );
-    const p = await probe(PROBE_ID);
+    const p = await probe(PROBE_ID_SUBPARENT);
     expect(p.sourceMessageCount).toBe(4);
   });
 

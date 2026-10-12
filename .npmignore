@@ -17,8 +17,12 @@ build/
 # 运行时数据（用户机器生成）
 dev.db
 dev.db-journal
+dev.db-wal
+dev.db-shm
 prisma/dev.db
 prisma/dev.db-journal
+prisma/dev.db-wal
+prisma/dev.db-shm
 logs/
 logs
 tmp/

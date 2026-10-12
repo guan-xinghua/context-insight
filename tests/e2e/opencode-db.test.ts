@@ -6,11 +6,18 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { listSessions } from '../../src/lib/ingest/adapters/opencode-db.ts';
 import path from 'node:path';
+import fs from 'node:fs';
+import { materializeV1Fixture } from '../helpers/materialize-v1-fixture';
 
-const FIXTURE_DB = path.resolve(__dirname, '../ut/data/e2e/opencode-sample.db');
+// v1 夹具物化私有副本（.db 二进制被 gitignore 吞掉从未入库）；afterAll 清理
+const FIXTURE_DB = materializeV1Fixture('opencode-db-e2e');
+
+afterAll(() => {
+  fs.rmSync(path.dirname(FIXTURE_DB), { recursive: true, force: true });
+});
 
 describe('opencode-db adapter listSessions', () => {
   it('returns sessions with start/end time and totalTokens from the source db', () => {
