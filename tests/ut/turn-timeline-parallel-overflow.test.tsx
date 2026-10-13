@@ -105,6 +105,57 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
     makeBridge("br-b", "t-634", "ses_sub_b", "agent-two"),
   ]
 
+  it("codex spawn_agent 派发轮也显示 🔗 徽标（与 claude task 同款）", () => {
+    const codexDispatch = makeTurn(700, {
+      toolCalls: [
+        { toolCallId: "tc-cx", toolName: "spawn_agent", state: "completed", durationMs: 5 },
+      ],
+    })
+    const html = renderToStaticMarkup(
+      createElement(TurnTimeline, {
+        turns: [codexDispatch, subTurn(701, "ses_cx"), subTurn(702, "ses_cx")],
+        bridges: [makeBridge("br-cx", "t-700", "ses_cx", "Avicenna")],
+        selectedTurnId: null,
+        onSelectTurn: () => {},
+      })
+    )
+    expect(html).toContain("🔗 1 subagent")
+    expect(html).toContain("Avicenna")
+  })
+
+  it("失败派发不建桥 → 无泳道无徽标（与实际渲染泳道同口径，toolCalls 计数不再虚标）", () => {
+    // 真机 0.162 现场：6 次失败 spawn（双参被拒×3、reasoning_effort 被拒×3）
+    // ——bridge-builder 对失败派发不建桥，徽标按 lanes 计数后此类轮不再显示
+    // 「🔗 N subagent」（旧口径按 toolCalls 计数会虚标 6）
+    const failedDispatch = makeTurn(800, {
+      toolCalls: [
+        { toolCallId: "tc-f1", toolName: "spawn_agent", state: "completed", durationMs: 5 },
+        { toolCallId: "tc-f2", toolName: "spawn_agent", state: "completed", durationMs: 5 },
+      ],
+    })
+    const html = renderToStaticMarkup(
+      createElement(TurnTimeline, {
+        turns: [failedDispatch],
+        bridges: [],
+        selectedTurnId: null,
+        onSelectTurn: () => {},
+      })
+    )
+    expect(html).not.toContain("🔗")
+  })
+
+  it("claude task 派发轮徽标计数不回归（🔗 N subagent）", () => {
+    const html = renderToStaticMarkup(
+      createElement(TurnTimeline, {
+        turns,
+        bridges,
+        selectedTurnId: null,
+        onSelectTurn: () => {},
+      })
+    )
+    expect(html).toContain("🔗 2 subagent")
+  })
+
   it("并行组渲染：⇄ 标识 + 汇总 + 双 chip；不再多列 grid 并排", () => {
     const html = renderToStaticMarkup(
       createElement(TurnTimeline, {

@@ -15,9 +15,9 @@ import { prisma } from '../setup';
 import { readSession } from '../../src/lib/ingest/adapters/claude-jsonl.ts';
 import { splitIntoTurns, resetIdCounter } from '../../src/lib/ingest/turn-split.ts';
 import { readAvailableSkills, proxySourceOf } from '../../src/lib/ingest/adapters/claude-jsonl-full-context.ts';
+import { parseClaudeAvailableSkills } from '../../src/lib/ingest/adapters/system-structure/claude-code.ts';
+import { parseOpencodeAvailableSkills } from '../../src/lib/ingest/adapters/system-structure/opencode.ts';
 import {
-  parseClaudeAvailableSkills,
-  parseOpencodeAvailableSkills,
   buildCoverage,
   aggregateUsedSkills,
 } from '../../src/lib/skill-coverage.ts';

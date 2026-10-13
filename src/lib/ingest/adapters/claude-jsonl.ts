@@ -10,6 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readCaptureBuffer, readCaptureText as readArchivedText } from '@/lib/compression';
 import { readEnvelope } from '@/lib/shared/envelope';
+import { classifyUserInjection } from './injections/index';
+import { isSkillInjectionText } from './injections/claude-code';
+import type { SubagentRef } from './contract';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
 
 // Shared scan helpers (claude-format concepts, also reused by the proxy
@@ -22,20 +25,6 @@ export function extractSystemText(system: string | ContentBlock[] | undefined): 
     if (block.type === 'text' && block.text) parts.push(block.text);
   }
   return parts.length > 0 ? parts.join('\n\n') : null;
-}
-export function findMemorySection(text: string): string {
-  const mIdx = text.indexOf('# claudeMd');
-  if (mIdx < 0) return '';
-  const after = mIdx + '# claudeMd'.length;
-  let end = text.indexOf('# currentDate', after);
-  if (end < 0) end = text.indexOf('</system-reminder>', after);
-  if (end < 0) end = text.length;
-  return text.substring(after, end).trim();
-}
-export function findSkillsSection(text: string): string {
-  const sIdx = text.indexOf('The following skills are available');
-  if (sIdx < 0) return '';
-  return text.substring(sIdx).trim();
 }
 
 export interface ClaudeJsonlLine {
@@ -98,6 +87,7 @@ export interface XLake {
     name?: string | null;
     agentType?: string | null;
     subagentSessionId?: string;
+    agentId?: string | null;
   };
 }
 
@@ -160,82 +150,9 @@ function extractTextContent(content: string | ContentBlock[] | undefined): strin
   return parts.length > 0 ? parts.join('\n') : null;
 }
 
-// Parse a <task-notification> XML (Task-tool completion notification injected
-// as a user line by claude-code) into a readable summary. Same output shape as
-// the proxy's normalize layer (proxy/src/normalize/line-transforms.ts) so
-// native and proxy imports render identically.
-export function parseTaskNotificationSummary(content: string): string {
-  const status = content.match(/<status>([^<]*)<\/status>/)?.[1]?.trim();
-  const summary = content.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim();
-  const agent = summary?.match(/Agent "([^"]*)"/)?.[1];
-  const label = agent ? `Task: ${agent}` : 'Task 完成';
-  const statusLabel = status ? ` [${status}]` : '';
-  const detail = summary ? `\n${summary.slice(0, 200)}` : '';
-  return `✅ ${label}${statusLabel}${detail}`;
-}
-
-// ── Agent 注入分类（claude-code 框架注入，非人类输入）──
-// 逐条指纹识别，不按版本分支（协议灰度/混合会话天然兼容；版本号仅作展示
-// 徽标）。新协议（claude-code ≥2.1 handback）：子代理完成 → <transcript>
-// 全量回放给主代理做 block rules 安全审查 → 主代理 <block> 决策 →
-// <system-reminder> 背景事件（内嵌旧版 task-notification XML，带
-// "NOT USER INPUT" 自声明）。这些注入在 wire 上是 user 消息，但一不含
-// 人类输入、二复制子代理已有内容（回放/背景事件内嵌 result 均为子代理
-// 捕获的复制品）——重分类为 system turn 并摘要化，原文留在捕获文件
-// （wire-rounds API 按需可查）。
-// 指纹精确性护栏：背景事件必须同时满足"NOT USER INPUT 自声明"与"整条
-// 消息剥掉 system-reminder 块后为空"——真实用户提示内嵌的 reminder
-// （无自声明）不误判，user turn 原样保留。
-export type AgentInjectionKind =
-  | 'handback-replay'
-  | 'background-event'
-  | 'label-request'
-  | 'state-query';
-
-export interface AgentInjection {
-  kind: AgentInjectionKind;
-  summary: string;
-}
-
-export function classifyAgentInjection(raw: string): AgentInjection | null {
-  if (raw.startsWith('<transcript>')) {
-    const end = raw.indexOf('</transcript>');
-    const inner = end > 0 ? raw.slice('<transcript>'.length, end) : raw.slice('<transcript>'.length);
-    // 自声明护栏：协议注入在 </transcript> 之后必带 block rules 审查指令
-    // （"Err on the side of blocking" / <block> 决策说明）。真实用户粘协议
-    // 样本提问（以 <transcript> 开头但无指令尾）不判注入，user turn 原样
-    // 保留；逐字含指令尾的完整粘贴仍会命中——该残留误判面极小且代价可
-    // 接受（DB 只存计数摘要，原文在捕获文件 / wire-rounds 可查）
-    const tail = end > 0 ? raw.slice(end) : '';
-    if (!/Err on the side of blocking|<block>/.test(tail)) return null;
-    const jsonLines = inner.split('\n').filter(l => l.trim().startsWith('{'));
-    return {
-      kind: 'handback-replay',
-      summary: `[transcript 回放] ${jsonLines.length} 行子代理记录——安全审查用副本，原文见子代理捕获`,
-    };
-  }
-  if (raw.includes('NOT USER INPUT') && raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim() === '') {
-    const notif = raw.match(/<task-notification>([\s\S]*?)<\/task-notification>/)?.[1];
-    const parsed = notif ? parseTaskNotificationSummary(notif) : null;
-    return {
-      kind: 'background-event',
-      summary: `[背景事件] ${parsed ?? raw.slice(0, 160)}`,
-    };
-  }
-  if (raw.startsWith('2-4 word lowercase label')) {
-    return {
-      kind: 'label-request',
-      summary: `[label 请求] ${raw.slice(0, 120)}`,
-    };
-  }
-  if (raw.startsWith('Current state: ')) {
-    return {
-      kind: 'state-query',
-      summary: `[状态查询] ${raw.split('\n')[0]}`,
-    };
-  }
-  return null;
-}
+// claude-code 系注入指纹（task-notification 解析 / ≥2.1 协议注入 / skill
+// 注入谓词）已抽到 injections/claude-code.ts——框架自持，与 codex/
+// opencode 家族分类器同层，由 injections/index.ts 按行级 source 分发。
 
 // Remove <system-reminder>...</system-reminder> blocks from a user message,
 // returning the real user prompt. Claude Code injects CLAUDE.md / gitStatus /
@@ -477,7 +394,41 @@ function findSessionFile(dirPath: string, sessionId: string): string | null {
   return null;
 }
 
-export function listSubagentSessions(dirPath: string, sessionId: string): { id: string, filePath: string }[] {
+// 发现产出的子代理引用：contract.SubagentRef（id = 规范连接键）+ claude
+// meta 契约的 toolUseId 锚定键。meta.json 由发现层单次读取
+// （readSubagentMeta），打标/技能归因等下游不再各自开文件。
+interface ClaudeSubagentRef extends SubagentRef {
+  /** Task tool_use 锚定键（claude meta.json 契约，技能归因用） */
+  toolUseId: string | null;
+}
+
+// 子代理 meta.json 单读（双名信封优先，顶层旧字段 fallback；兼容压缩形态
+// x.jsonl.7z/.gz → x.meta.json）。发现层是子代理 meta 的唯一读者。
+function readSubagentMeta(filePath: string): {
+  agentId: string | null;
+  toolUseId: string | null;
+  name: string | null;
+  agentType: string | null;
+} | null {
+  try {
+    const metaPath = filePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
+    if (!fs.existsSync(metaPath)) return null;
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    const xb = readEnvelope(meta) as XLake | undefined;
+    const data = xb && isMetaPayload(xb, 'cc-subagent-meta') ? xb.data : null;
+    const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+    return {
+      agentId: str(data?.agentId ?? meta.agentId),
+      toolUseId: str(data?.toolUseId ?? meta.toolUseId),
+      name: str(data?.name ?? meta.name) ?? str(data?.agentType ?? meta.agentType) ?? str(meta.description),
+      agentType: str(data?.agentType ?? meta.agentType),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function listSubagentSessions(dirPath: string, sessionId: string): ClaudeSubagentRef[] {
   // dirPath can be a file (e.g., /path/to/session.jsonl) or a directory.
   // Subagents live at <parentDir>/sessionId/subagents/
   // proxy 捕获文件带 cpx- 文件名前缀（cpx-<sid>.jsonl），但其子代理目录用
@@ -512,16 +463,28 @@ export function listSubagentSessions(dirPath: string, sessionId: string): { id: 
   }
   if (!fs.existsSync(subagentsDir) || !fs.statSync(subagentsDir).isDirectory()) return [];
 
-  const results: { id: string, filePath: string }[] = [];
+  const results: ClaudeSubagentRef[] = [];
   try {
     const entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
     for (const entry of entries) {
-      // .jsonl.7z/.jsonl.gz（压缩态）与 .jsonl（legacy 明文）三形态；id 一律取去
-      // 后缀 stem，filePath 保持真实盘上路径（readCaptureText/parseJsonlLines
-      // 透明解压）
+      // .jsonl.7z/.jsonl.gz（压缩态）与 .jsonl（legacy 明文）三形态；filePath
+      // 保持真实盘上路径（readCaptureText/parseJsonlLines 透明解压）
       const m = entry.name.match(/^(.+)\.jsonl(\.7z|\.gz)?$/);
       if (entry.isFile() && m) {
-        results.push({ id: m[1], filePath: path.join(subagentsDir, entry.name) });
+        const filePath = path.join(subagentsDir, entry.name);
+        const meta = readSubagentMeta(filePath);
+        // codex-proxy 身份对齐：文件名 id（sub-<hash>）是 cpx 在 spawn 输出
+        // 到达前铸的占位，真身 agentId 由 meta backfill——bridge-builder 按
+        // spawn 输出的 agent_id 锚定，规范 id 必须用 agentId 才能和 Bridge/
+        // Execution 对上（否则泳道/性能视图全部 0 turns）。claude 捕获无
+        // agentId，回退文件名 id（= 真身会话 id，行为不变）。
+        results.push({
+          id: meta?.agentId ?? m[1],
+          filePath,
+          name: meta?.name ?? null,
+          type: meta?.agentType ?? null,
+          toolUseId: meta?.toolUseId ?? null,
+        });
       }
     }
   } catch {}
@@ -530,25 +493,34 @@ export function listSubagentSessions(dirPath: string, sessionId: string): { id: 
 }
 
 export function collectSubagentToolUseMappings(dirPath: string, sessionId: string): Map<string, string> {
-  // Maps toolUseId (from meta.json) → subagent session ID (from .jsonl filename)
+  // Maps toolUseId (from meta.json) → canonical subagent session ID
+  // （subagent_session_id 同键，与打标口径一致）
   const mapping = new Map<string, string>();
-  const subagentFiles = listSubagentSessions(dirPath, sessionId);
-  for (const sub of subagentFiles) {
-    const metaPath = sub.filePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
-    try {
-      if (fs.existsSync(metaPath)) {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-        // 双名信封优先（cc-subagent-meta，version 门禁守过），顶层旧字段 fallback（legacy 文件）
-        const xb = readEnvelope(meta) as XLake | undefined;
-        const data = xb && isMetaPayload(xb, 'cc-subagent-meta') ? xb.data : null;
-        const toolUseId = data?.toolUseId ?? meta.toolUseId;
-        if (toolUseId) {
-          mapping.set(toolUseId, sub.id);
-        }
-      }
-    } catch {}
+  for (const sub of listSubagentSessions(dirPath, sessionId)) {
+    if (sub.toolUseId) mapping.set(sub.toolUseId, sub.id);
   }
   return mapping;
+}
+
+// 子代理会话读取（SourceDescriptor.readSubagents 能力实现）：目录布局发现
+// （<parentDir>/<sid>/subagents/）→ readSession → 打标（subagent_session_id/
+// name/type）。data-service 的通用并入循环消费本产出，不再持有 claude 特有
+// 逻辑。
+export function readSubagentInteractions(dirPath: string, sessionId: string): RawInteraction[] {
+  const subagentFiles = listSubagentSessions(dirPath, sessionId);
+  const result: RawInteraction[] = [];
+  for (const sub of subagentFiles) {
+    const subInteractions = readSession(sub.filePath, sub.id);
+    // 打标：sub.id 即规范连接键（codex-proxy 的 meta agentId / claude 的
+    // 文件名 id），Bridge/Execution 锚定与 Turns 泳道 join 都用它
+    for (const interaction of subInteractions) {
+      interaction.subagent_session_id = sub.id;
+      if (sub.name) interaction.subagent_name = sub.name;
+      if (sub.type) interaction.subagent_type = sub.type;
+    }
+    result.push(...subInteractions);
+  }
+  return result;
 }
 
 function isValidISO(timestamp: string): boolean {
@@ -947,62 +919,20 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       // Skip user messages that only contain tool_result (no real text prompt)
       if (!raw) continue;
 
-      // claude-code 的 Task 完成通知：独立 user 行，内容是
-      // <task-notification> XML。这是框架注入的事件通知而非人类输入 ——
-      // 重分类为 system（与 skill 注入同款先例），并解析成可读摘要，
-      // 时间线/LLM Input 不再显示原始 XML。proxy 捕获由 normalize 层做
-      // 同样的变换（capture ≠ interpret），两条路径形状一致。
-      if (raw.startsWith('<task-notification>')) {
-        const summary = parseTaskNotificationSummary(raw);
-        result.push({
-          role: 'system',
-          content: summary,
-          timestamp,
-          timeInfo: { created: timeCreated },
-          agent: null, subagent_name: null, subagent_session_id: null, subagent_type: null,
-          tool_calls: null, usage: null, model: null, modelID: null, providerID: null,
-          latency: null, finish_reason: null,
-        });
-        continue;
-      }
-
-      // 新协议框架注入（handback 回放 / 背景事件 / label 请求 / 状态查询）：
-      // wire 上是 user 消息但非人类输入——重分类 system + 摘要化（见
-      // classifyAgentInjection 注释）。旧版 task-notification 已在上面处理。
-      const injection = classifyAgentInjection(raw);
+      // 框架注入分类（contract 原则 1：指纹规则框架自持）：native 会话与
+      // insight-export 走 claude-code 指纹（task-notification / ≥2.1 协议
+      // 注入 / skill 注入），异框架 proxy 捕获按行级 source 标记分发到原
+      // 框架分类器（injections/index.ts）——本适配器是 claude 布局的通用
+      // 格式入口，不内联异框架指纹。静态注入 drop 不进时间线（wire 原文
+      // 永远在捕获文件，wire-rounds 可查），事件注入重分类 system + 可读
+      // 摘要（skill 注入 verbatim，skill-merge 后处理折进前一个 Skill
+      // tool_call）。
+      const injection = classifyUserInjection(line.source, raw, { isFirstTurn: result.length === 0 });
       if (injection) {
+        if (injection.action === 'drop') continue;
         result.push({
           role: 'system',
-          content: injection.summary,
-          timestamp,
-          timeInfo: { created: timeCreated },
-          agent: null, subagent_name: null, subagent_session_id: null, subagent_type: null,
-          tool_calls: null, usage: null, model: null, modelID: null, providerID: null,
-          latency: null, finish_reason: null,
-        });
-        continue;
-      }
-
-      // Claude Code injects skill context as user messages — reclassify as system
-      // and keep verbatim: the skill-merge post-process folds it into the
-      // preceding Skill tool_call. Markers: <skill-format> / 'Base directory for
-      // this skill' / 'Launching skill' distinguish skill injections from /compact.
-      // 会话首条消息（此前无任何记录）不重分类、保持 user：opencode ≥1.17 把 skill
-      // 自动注入为首条消息（规程 + Base directory 尾部 + 用户请求同条），与 ≤1.4.7
-      // 老形态（无标记、保持 user）显示一致——重分类成 system 会让同内容会话的
-      // turn0 角色随 opencode 版本漂移。user prompt 之后的注入（claude-code 展开
-      // 形态，如 consecutive-skill-injection）仍走 system + 合并。
-      const isSessionStart = result.length === 0;
-      const isSkillInjection = !isSessionStart && (
-        raw.includes('Base directory for this skill') ||
-        raw.includes('<skill-format>') ||
-        raw.startsWith('Launching skill:') ||
-        raw.startsWith('Launching skill ')
-      );
-      if (isSkillInjection) {
-        result.push({
-          role: 'system',
-          content: raw,
+          content: injection.content ?? raw,
           timestamp,
           timeInfo: { created: timeCreated },
           agent: null, subagent_name: null, subagent_session_id: null, subagent_type: null,
@@ -1087,11 +1017,7 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
     const r = result[i];
     if (r.role !== 'system') continue;
     const content = r.content ?? '';
-    const isSkillInjection = content.includes('Base directory for this skill') ||
-      content.includes('<skill-format>') ||
-      content.startsWith('Launching skill:') ||
-      content.startsWith('Launching skill ');
-    if (!isSkillInjection) continue;
+    if (!isSkillInjectionText(content)) continue;
 
     // Find the preceding assistant turn
     const prev = i > 0 ? result[i - 1] : null;
@@ -1120,11 +1046,7 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
     const r = result[i];
     if (!r || r.role !== 'system') continue;
     const content = r.content ?? '';
-    const isSkillInjection = content.includes('Base directory for this skill') ||
-      content.includes('<skill-format>') ||
-      content.startsWith('Launching skill:') ||
-      content.startsWith('Launching skill ');
-    if (!isSkillInjection) continue;
+    if (!isSkillInjectionText(content)) continue;
 
     // Look backward for consecutive system/skill-injection turns to merge
     const mergeGroup: number[] = [i];

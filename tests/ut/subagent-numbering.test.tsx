@@ -90,7 +90,7 @@ describe('buildSubagentNumbers：时间序统一编号', () => {
     expect(nums.has('root')).toBe(false)
   })
 
-  it('不同 agentName 各自独立计数', () => {
+  it('不同 agentName 各自独立计数；唯一名不编号（codex 场景）', () => {
     const turns = [
       makeTurn({ turnId: 'g1', turnIndex: 1, createdAt: '2026-09-15T10:00:00Z', agentName: 'general', isSubagent: true, subagentSessionId: 's-g1' }),
       makeTurn({ turnId: 'e1', turnIndex: 2, createdAt: '2026-09-15T10:01:00Z', agentName: 'Explore', isSubagent: true, subagentSessionId: 's-e1' }),
@@ -99,7 +99,18 @@ describe('buildSubagentNumbers：时间序统一编号', () => {
     const nums = buildSubagentNumbers(turns)
     expect(nums.get('s-g1')).toBe(1)
     expect(nums.get('s-g2')).toBe(2)
-    expect(nums.get('s-e1')).toBe(1)
+    expect(nums.has('s-e1')).toBe(false)
+  })
+
+  it('三个唯一名（codex 多子代理实测场景）均无编号', () => {
+    const turns = [
+      makeTurn({ turnId: 'r0', turnIndex: 0, createdAt: '2026-10-09T16:24:00Z', role: 'user' }),
+      makeTurn({ turnId: 'v1', turnIndex: 1, createdAt: '2026-10-09T16:25:01Z', agentName: 'Volta', isSubagent: true, subagentSessionId: 's-volta' }),
+      makeTurn({ turnId: 'f1', turnIndex: 2, createdAt: '2026-10-09T16:25:03Z', agentName: 'Franklin', isSubagent: true, subagentSessionId: 's-franklin' }),
+      makeTurn({ turnId: 'a1', turnIndex: 3, createdAt: '2026-10-09T16:25:07Z', agentName: 'Avicenna', isSubagent: true, subagentSessionId: 's-avicenna' }),
+    ]
+    const nums = buildSubagentNumbers(turns)
+    expect(nums.size).toBe(0)
   })
 
   it('全 0 token 组也占号（Turn 页有身份，Context 页可跳过不画）', () => {
@@ -112,13 +123,16 @@ describe('buildSubagentNumbers：时间序统一编号', () => {
     expect(nums.get('s-live')).toBe(2)
   })
 
-  it('无 subagentSessionId 的匿名组可用 anon-<turnIndex> 寻址', () => {
+  it('匿名组可用 anon-<turnIndex> 寻址；匿名互为同名 → 编号消歧', () => {
     const turns = [
       makeTurn({ turnId: 'n1', turnIndex: 7, createdAt: '2026-09-15T10:00:00Z', agentName: 'general', isSubagent: true, subagentSessionId: null }),
+      makeTurn({ turnId: 'n2', turnIndex: 9, createdAt: '2026-09-15T10:05:00Z', agentName: 'general', isSubagent: true, subagentSessionId: null }),
     ]
     const nums = buildSubagentNumbers(turns)
     expect(subagentGroupKey(turns[0])).toBe('anon-7')
+    expect(subagentGroupKey(turns[1])).toBe('anon-9')
     expect(nums.get('anon-7')).toBe(1)
+    expect(nums.get('anon-9')).toBe(2)
   })
 })
 
@@ -171,5 +185,62 @@ describe('TurnTimeline ↔ ContextTracker 编号一致', () => {
     expect(ctxHtml).toContain('general #1')
     expect(ctxHtml).toContain('general #2')
     expect(ctxHtml).toContain('general #3')
+  })
+})
+
+// ③ 唯一名不编号（codex 多子代理实测报障：Volta#1/Franklin#1/Avicenna#1
+// 的 #1 是纯噪音——编号只服务同名消歧，唯一名显示裸名）
+describe('唯一名 subagent 渲染无 #N 后缀', () => {
+  const codexTurns: TurnFixture[] = [
+    makeTurn({ turnId: 'r0', turnIndex: 0, createdAt: '2026-10-09T16:24:00Z', role: 'user', agentName: 'codex' }),
+    makeTurn({ turnId: 'v1', turnIndex: 1, createdAt: '2026-10-09T16:25:01Z', agentName: 'Volta', isSubagent: true, subagentName: 'Volta', subagentSessionId: 's-volta' }),
+    makeTurn({ turnId: 'f1', turnIndex: 2, createdAt: '2026-10-09T16:25:03Z', agentName: 'Franklin', isSubagent: true, subagentName: 'Franklin', subagentSessionId: 's-franklin' }),
+    makeTurn({ turnId: 'a1', turnIndex: 3, createdAt: '2026-10-09T16:25:07Z', agentName: 'Avicenna', isSubagent: true, subagentName: 'Avicenna', subagentSessionId: 's-avicenna' }),
+    makeTurn({ turnId: 'r1', turnIndex: 1, createdAt: '2026-10-09T16:24:30Z', role: 'assistant', agentName: 'codex', toolCalls: [
+      { toolCallId: 'tc-v', toolName: 'spawn_agent', state: 'completed', durationMs: 5 },
+      { toolCallId: 'tc-f', toolName: 'spawn_agent', state: 'completed', durationMs: 5 },
+      { toolCallId: 'tc-a', toolName: 'spawn_agent', state: 'completed', durationMs: 5 },
+    ] }),
+  ]
+  const codexBridges = ([
+    ['s-volta', 'Volta'],
+    ['s-franklin', 'Franklin'],
+    ['s-avicenna', 'Avicenna'],
+  ] as const).map(([sid, name], i) => ({
+    bridgeId: `br-${i}`,
+    dispatchTurnId: 'r1',
+    dispatchContent: `dispatch ${name}`,
+    subagentSessionId: sid,
+    subagentType: null,
+    subagentName: name,
+    agentName: name,
+    status: 'completed',
+    subagentTokens: 1000,
+    subagentLatencyMs: 10000,
+  }))
+
+  it('TurnTimeline 泳道 chip 显示裸名（Volta 而非 Volta #1）', () => {
+    const html = renderToStaticMarkup(createElement(TurnTimeline, {
+      turns: codexTurns,
+      bridges: codexBridges,
+      selectedTurnId: null,
+      onSelectTurn: () => {},
+    }))
+    expect(html).toContain('Volta')
+    expect(html).toContain('Franklin')
+    expect(html).toContain('Avicenna')
+    expect(html).not.toContain('Volta #')
+    expect(html).not.toContain('Franklin #')
+    expect(html).not.toContain('Avicenna #')
+  })
+
+  it('ContextTracker 图例同样显示裸名', () => {
+    const html = renderToStaticMarkup(createElement(ContextTracker, {
+      turns: codexTurns,
+      sessionModel: null,
+    }))
+    expect(html).not.toContain('Volta #')
+    expect(html).not.toContain('Franklin #')
+    expect(html).not.toContain('Avicenna #')
   })
 })

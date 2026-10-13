@@ -50,70 +50,9 @@ export interface SkillCoverage {
   stats: CoverageStats
 }
 
-const CLAUDE_SKILLS_MARKER = 'The following skills are available'
-const OPENCODE_SKILLS_OPEN = '<available_skills>'
-
-export function parseClaudeAvailableSkills(text: string): AvailableSkill[] {
-  const markerIdx = text.indexOf(CLAUDE_SKILLS_MARKER)
-  if (markerIdx < 0) return []
-  const after = text.slice(markerIdx)
-  const lines = after.split('\n')
-  const out: AvailableSkill[] = []
-  const seen = new Set<string>()
-  for (const raw of lines.slice(1)) {
-    const line = raw.trim()
-    if (line === '') {
-      if (out.length > 0) break
-      continue
-    }
-    if (!line.startsWith('- ')) {
-      if (out.length > 0) break
-      continue
-    }
-    const entry = line.slice(2)
-    const colonIdx = entry.indexOf(': ')
-    if (colonIdx <= 0) continue
-    const name = entry.slice(0, colonIdx).trim()
-    let description = entry.slice(colonIdx + 2).trim()
-    let origin: string | null = null
-    const fromMatch = description.match(/\s\(from (.+?)\)\.?$/)
-    if (fromMatch) {
-      origin = fromMatch[1]
-      description = description.slice(0, fromMatch.index ?? 0).trim()
-    }
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    out.push({ name, description, origin })
-  }
-  return out
-}
-
-export function parseOpencodeAvailableSkills(text: string): AvailableSkill[] {
-  const openIdx = text.indexOf(OPENCODE_SKILLS_OPEN)
-  if (openIdx < 0) return []
-  const closeIdx = text.indexOf('</available_skills>', openIdx)
-  const block = closeIdx >= 0 ? text.slice(openIdx, closeIdx) : text.slice(openIdx)
-  const out: AvailableSkill[] = []
-  const seen = new Set<string>()
-  const re = /<skill>([\s\S]*?)<\/skill>/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(block)) !== null) {
-    const body = m[1]
-    const name = body.match(/<name>([\s\S]*?)<\/name>/)?.[1]?.trim() ?? ''
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    const description = body.match(/<description>([\s\S]*?)<\/description>/)?.[1]?.trim() ?? ''
-    const origin = body.match(/<location>([\s\S]*?)<\/location>/)?.[1]?.trim() ?? null
-    out.push({ name, description, origin })
-  }
-  return out
-}
-
-export function parseAvailableSkills(text: string): AvailableSkill[] {
-  const xml = parseOpencodeAvailableSkills(text)
-  if (xml.length > 0) return xml
-  return parseClaudeAvailableSkills(text)
-}
+// 结构化解析（parseClaude/parseOpencode/parseCodex AvailableSkills）已迁至
+// adapters/system-structure/（框架自持，按捕获框架分发——本模块只保留
+// 覆盖度域逻辑与 AvailableSkill 域词汇，不持有框架格式知识）。
 
 export function aggregateUsedSkills(
   events: Array<{ skillName: string; eventType: string; success: boolean }>

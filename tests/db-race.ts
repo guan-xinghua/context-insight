@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 共享 dev.db 的并行测试文件（e2e-import-observe / lake 等）用同一 opencode
+// 共享 test.db 的并行测试文件（e2e-import-observe / lake 等）用同一 opencode
 // fixture 会话，一方的 deleteMany 会与另一方的 merge update 赛跑（dedup 查到行、
 // update 时行已被删 → P2025）。对这类瞬时消失重试一次即可通过。
 export async function withDbRaceRetry<T>(fn: () => Promise<T>): Promise<T> {

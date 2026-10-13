@@ -586,7 +586,6 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
           {filteredRootTurns.map(turn => {
             const borderColor = ROLE_COLORS[turn.displayRole] ?? "border-l-gray-300 bg-gray-50/50"
             const lanes = subagentBlocksByTurnId.get(turn.turnId) ?? []
-            const hasTaskCalls = turn.toolCalls.some(tc => tc.toolName === "task")
 
             return (
               <div key={turn.turnId} ref={selectedTurnId === turn.turnId || turn.turnId === dispatchTurnIdForSelected ? selectedRef : null}>
@@ -607,8 +606,10 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
                     {turn.toolCalls.length > 0 && (
                       <Badge variant="outline">{turn.toolCalls.length} tools</Badge>
                     )}
-                    {hasTaskCalls && (
-                      <Badge variant="orange" className="text-xs">🔗 {turn.toolCalls.filter(tc => tc.toolName === "task").length} subagent</Badge>
+                    {/* 子代理徽标与实际渲染的泳道同口径（bridge-builder：失败派发
+                        不建桥、无泳道——错误 tool call 在主时间线 verbatim 可见） */}
+                    {lanes.length > 0 && (
+                      <Badge variant="orange" className="text-xs">🔗 {lanes.length} subagent</Badge>
                     )}
                     {turn.skillEvents.length > 0 && (
                       <Badge variant="yellow" className="text-xs">

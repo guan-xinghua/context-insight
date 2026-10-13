@@ -45,7 +45,7 @@ export function importCommand(): Command {
   const cmd = new Command('import');
   cmd
     .description('Import sessions from external sources')
-    .option('--source <type>', 'Source type (opencode-db, claude-jsonl)', 'opencode-db')
+    .option('--source <type>', 'Source type (opencode-db, claude-jsonl, codex-jsonl)', 'opencode-db')
     .option('--file <path>', 'File path to import')
     .option('--dir <path>', 'Directory to scan (recursive)')
     .option('--list', 'List importable sessions only')

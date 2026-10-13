@@ -120,7 +120,10 @@ function proxyCapture(name: string, sid: string, stopReason: string): string {
 }
 
 afterAll(async () => {
-  await prisma.session.deleteMany({ where: { taskId: { in: [SID, SID_TRUNCATED, SID_PROXY_TRUNC, SID_PROXY_NORMAL] } } }).catch(() => {});
+  await prisma.session.deleteMany({ where: { taskId: { in: [SID, SID_TRUNCATED, SID_PROXY_TRUNC, SID_PROXY_NORMAL,
+    // 用例内局部 SID 一并收口：此前漏删导致「改代码」等三条夹具每次运行泄漏
+    // 进数据库（隔离根治前直连真实 dev.db，用户可见）
+    'scoring-v2-noverify', 'scoring-v2-docstail', 'scoring-v2-docslast'] } } }).catch(() => {});
   await prisma.$disconnect();
   fs.rmSync(TMP, { recursive: true, force: true });
 });

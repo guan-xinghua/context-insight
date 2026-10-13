@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { requireSource } from './adapters/registry';
 import type { RawInteraction, TokenUsage } from '../shared/types';
 
 export interface NormalizedInteraction {
@@ -49,95 +49,47 @@ function isValidISO(timestamp: string): boolean {
   return Number.isFinite(new Date(timestamp).getTime());
 }
 
-function normalizeClaudeJsonl(interactions: RawInteraction[]): NormalizedInteraction[] {
-  return interactions.map((raw) => {
-    const role = raw.role || 'unknown';
-    const timestamp = raw.timestamp && isValidISO(raw.timestamp) ? raw.timestamp : new Date(0).toISOString();
-    const timeInfo = raw.timeInfo && raw.timeInfo.created ? raw.timeInfo : { created: 0 };
-
-    let usage: TokenUsage | null = null;
-    if (raw.usage) {
-      usage = {
-        total: raw.usage.total ?? DEFAULT_USAGE.total,
-        input: raw.usage.input ?? DEFAULT_USAGE.input,
-        output: raw.usage.output ?? DEFAULT_USAGE.output,
-        reasoning: raw.usage.reasoning ?? DEFAULT_USAGE.reasoning,
-        cacheRead: raw.usage.cacheRead ?? DEFAULT_USAGE.cacheRead,
-        cacheWrite: raw.usage.cacheWrite ?? DEFAULT_USAGE.cacheWrite,
-        cost: raw.usage.cost ?? DEFAULT_USAGE.cost,
-        inputMessagesTokens: raw.usage.inputMessagesTokens ?? DEFAULT_USAGE.inputMessagesTokens,
-      };
-    }
-
-    return {
-      role,
-      content: raw.content ?? null,
-      timestamp,
-      timeInfo,
-      agent: raw.agent ?? null,
-      subagent_name: raw.subagent_name ?? null,
-      subagent_session_id: raw.subagent_session_id ?? null,
-      subagent_type: raw.subagent_type ?? null,
-      tool_calls: raw.tool_calls ?? null,
-      usage,
-      model: raw.model ?? null,
-      modelID: raw.modelID ?? null,
-      providerID: raw.providerID ?? null,
-      latency: raw.latency ?? null,
-      finish_reason: raw.finish_reason ?? null,
-    };
-  });
-}
-
-function normalizeOpencodeDb(interactions: RawInteraction[]): NormalizedInteraction[] {
-  return interactions.map((raw) => {
-    const role = raw.role || 'unknown';
-    const timestamp = raw.timestamp && isValidISO(raw.timestamp) ? raw.timestamp : new Date(0).toISOString();
-    const timeInfo = raw.timeInfo && raw.timeInfo.created ? raw.timeInfo : { created: 0 };
-
-    let usage: TokenUsage | null = null;
-    if (raw.usage) {
-      usage = {
-        total: raw.usage.total ?? DEFAULT_USAGE.total,
-        input: raw.usage.input ?? DEFAULT_USAGE.input,
-        output: raw.usage.output ?? DEFAULT_USAGE.output,
-        reasoning: raw.usage.reasoning ?? DEFAULT_USAGE.reasoning,
-        cacheRead: raw.usage.cacheRead ?? DEFAULT_USAGE.cacheRead,
-        cacheWrite: raw.usage.cacheWrite ?? DEFAULT_USAGE.cacheWrite,
-        cost: raw.usage.cost ?? DEFAULT_USAGE.cost,
-        inputMessagesTokens: raw.usage.inputMessagesTokens ?? DEFAULT_USAGE.inputMessagesTokens,
-      };
-    }
-
-    return {
-      role,
-      content: raw.content ?? null,
-      timestamp,
-      timeInfo,
-      agent: raw.agent ?? null,
-      subagent_name: raw.subagent_name ?? null,
-      subagent_session_id: raw.subagent_session_id ?? null,
-      subagent_type: raw.subagent_type ?? null,
-      tool_calls: raw.tool_calls ?? null,
-      usage,
-      model: raw.model ?? null,
-      modelID: raw.modelID ?? null,
-      providerID: raw.providerID ?? null,
-      latency: raw.latency ?? null,
-      finish_reason: raw.finish_reason ?? null,
-    };
-  });
-}
-
+// 历史上 normalizeOpencodeDb / normalizeClaudeJsonl 两个分支实现逐字段相同
+// （各源的差异在 adapter 层已归一到 RawInteraction 语义），分发是假需求——
+// 合并为单一兜底映射。sourceType 参数保留做已知源校验（注册表单点报错）。
 export function normalize(interactions: RawInteraction[], sourceType: string): NormalizedInteraction[] {
-  switch (sourceType) {
-    case 'opencode-db':
-      return normalizeOpencodeDb(interactions);
-    case 'claude-jsonl':
-      return normalizeClaudeJsonl(interactions);
-    case BRAND_SOURCE_TYPE:
-      return normalizeOpencodeDb(interactions);
-    default:
-      throw new Error(`Unknown source type: "${sourceType}". Supported types: opencode-db, claude-jsonl, ${BRAND_SOURCE_TYPE}`);
-  }
+  requireSource(sourceType);
+
+  return interactions.map((raw) => {
+    const role = raw.role || 'unknown';
+    const timestamp = raw.timestamp && isValidISO(raw.timestamp) ? raw.timestamp : new Date(0).toISOString();
+    const timeInfo = raw.timeInfo && raw.timeInfo.created ? raw.timeInfo : { created: 0 };
+
+    let usage: TokenUsage | null = null;
+    if (raw.usage) {
+      usage = {
+        total: raw.usage.total ?? DEFAULT_USAGE.total,
+        input: raw.usage.input ?? DEFAULT_USAGE.input,
+        output: raw.usage.output ?? DEFAULT_USAGE.output,
+        reasoning: raw.usage.reasoning ?? DEFAULT_USAGE.reasoning,
+        cacheRead: raw.usage.cacheRead ?? DEFAULT_USAGE.cacheRead,
+        cacheWrite: raw.usage.cacheWrite ?? DEFAULT_USAGE.cacheWrite,
+        cost: raw.usage.cost ?? DEFAULT_USAGE.cost,
+        inputMessagesTokens: raw.usage.inputMessagesTokens ?? DEFAULT_USAGE.inputMessagesTokens,
+      };
+    }
+
+    return {
+      role,
+      content: raw.content ?? null,
+      timestamp,
+      timeInfo,
+      agent: raw.agent ?? null,
+      subagent_name: raw.subagent_name ?? null,
+      subagent_session_id: raw.subagent_session_id ?? null,
+      subagent_type: raw.subagent_type ?? null,
+      tool_calls: raw.tool_calls ?? null,
+      usage,
+      model: raw.model ?? null,
+      modelID: raw.modelID ?? null,
+      providerID: raw.providerID ?? null,
+      latency: raw.latency ?? null,
+      finish_reason: raw.finish_reason ?? null,
+    };
+  });
 }

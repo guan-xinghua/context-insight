@@ -1098,7 +1098,7 @@ export default function SessionDetailPage({
               <div className="flex items-center gap-1.5">
                 <span className="text-muted-foreground">Tool:</span>
                 <span className="font-medium inline-flex items-center gap-1.5">
-                  {s.framework === "opencode" ? "OpenCode" : s.framework === "claude-code" ? "Claude Code" : s.framework ?? "N/A"}
+                  {s.framework === "opencode" ? "OpenCode" : s.framework === "claude-code" ? "Claude Code" : s.framework === "codex" ? "Codex" : s.framework ?? "N/A"}
                   {(() => {
                     // proxy 捕获的 version = '<agent版本>-<marker>'：版本号与 proxy 徽标都显示
                     const ver = s.frameworkVersion?.replace(/-(claude|opencode)-proxy$/, "")

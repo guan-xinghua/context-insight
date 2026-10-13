@@ -8,7 +8,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InsightClient } from '@/cli/client';
-import { uploadCommand } from '@/cli/commands/upload';
+import { uploadCommand, detectSourceType } from '@/cli/commands/upload';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { ApiImportableSession, ApiImportableSessionsResponse, ApiImportResponse, ApiUploadResponse, ApiSessionDetailResponse } from '@/cli/types';
 
 const mockListSessions = vi.fn();
@@ -106,36 +109,45 @@ describe('uploadCommand', () => {
     });
   });
 
-  describe('detectSourceType', () => {
-    it('detects .db files as opencode-db', async () => {
-      const cmd = uploadCommand();
-      // Access detectSourceType via the module — it's not exported, so test via behavior
-      // When --file is a .db and no --source is given, the command should use opencode-db
-      mockListSessions.mockResolvedValueOnce({ items: [], total: 0, page: 1 });
-      mockListImportableSessions.mockResolvedValueOnce(sampleImportableResponse);
-      mockImportSession.mockResolvedValueOnce(sampleImportResult);
-      mockUploadSession.mockResolvedValueOnce(sampleUploadResult);
-
-      const client = new InsightClient('http://localhost:21025', { retries: 0 });
-      await client.listImportableSessions('opencode-db', '/path/to/sessions.db');
-      expect(mockListImportableSessions).toHaveBeenCalledWith('opencode-db', '/path/to/sessions.db');
+  describe('detectSourceType：文件/目录源识别（真实 fs，非 mock 直返）', () => {
+    it('裸文件名嗅探：.db → opencode-db、rollout-*.jsonl → codex-jsonl、普通 .jsonl → claude-jsonl', () => {
+      expect(detectSourceType('/x/y.db')).toBe('opencode-db');
+      expect(detectSourceType('/x/rollout-2026-10-12T10-00-00-abc123.jsonl')).toBe('codex-jsonl');
+      expect(detectSourceType('/x/plain-session.jsonl')).toBe('claude-jsonl');
     });
 
-    it('detects .jsonl files as claude-jsonl', async () => {
-      mockListSessions.mockResolvedValueOnce({ items: [], total: 0, page: 1 });
-      mockListImportableSessions.mockResolvedValueOnce({
-        sessions: [{
-          id: 'd1ef6b6f',
-          createdAt: '2026-06-29T10:00:00Z',
-          firstQuery: 'Hello',
-          turnCount: 5,
-          model: 'claude-sonnet',
-        }],
-      });
+    it('压缩三形态剥后缀再嗅探：rollout-*.jsonl.gz / .jsonl.7z → codex-jsonl', () => {
+      expect(detectSourceType('/x/rollout-2026-10-12T10-00-00-abc123.jsonl.gz')).toBe('codex-jsonl');
+      expect(detectSourceType('/x/rollout-2026-10-12T10-00-00-abc123.jsonl.7z')).toBe('codex-jsonl');
+    });
 
-      const client = new InsightClient('http://localhost:21025', { retries: 0 });
-      await client.listImportableSessions('claude-jsonl', '/path/to/session.jsonl');
-      expect(mockListImportableSessions).toHaveBeenCalledWith('claude-jsonl', '/path/to/session.jsonl');
+    it('目录递归采样（回归：codex 会话在 sessions/YYYY/MM/DD/ 嵌套布局，目录顶层只有日期目录）→ codex-jsonl', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-upload-sniff-'));
+      const nested = path.join(dir, '2026', '10', '12');
+      fs.mkdirSync(nested, { recursive: true });
+      fs.writeFileSync(path.join(nested, 'rollout-2026-10-12T10-00-00-abc123.jsonl'), '{}');
+      try {
+        expect(detectSourceType(dir)).toBe('codex-jsonl');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('含普通 .jsonl 的目录 → claude-jsonl；空目录回落 claude-jsonl（历史语义）', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-upload-sniff-'));
+      fs.writeFileSync(path.join(dir, 'plain-session.jsonl'), '{}');
+      const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-upload-sniff-'));
+      try {
+        expect(detectSourceType(dir)).toBe('claude-jsonl');
+        expect(detectSourceType(empty)).toBe('claude-jsonl');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(empty, { recursive: true, force: true });
+      }
+    });
+
+    it('不存在的路径 → claude-jsonl 兜底（不抛）', () => {
+      expect(detectSourceType('/nonexistent/path/anything')).toBe('claude-jsonl');
     });
   });
 

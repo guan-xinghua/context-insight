@@ -38,7 +38,7 @@ opencode opencode.db (external)
   → Prisma write (8 models, SQLite)
 ```
 
-Adapter registry in `src/lib/ingest/adapters/index.ts` — currently `opencode-db` and `claude-jsonl`.
+Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework，设计见 `docs/design/agent-source-framework/design.md`）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探）；目前注册 `cannbot-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源。新框架接入 = 适配器模块 + registry 一行 + import-ui 一条，data-service/API 路由/normalize 零改动。
 
 ### Frontend Modes (shared backend)
 
@@ -118,7 +118,9 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 | `src/lib/ingest/normalize.ts` | ❌ 不透传 proxy 数据 |
 | `src/lib/ingest/turn-split.ts` | ❌ 不读 proxy 扩展字段 |
 | `src/lib/ingest/data-service.ts` | ⚠️ 只允许 proxy 专用的 guard（如 reshape 检测），不透传数据 |
-| `src/lib/ingest/adapters/claude-jsonl.ts` | ✅ 入口分流（`classifyProxyCapture` 统一分类），行级只读标准语义字段（`source`/`stopReason`/`duration_ms`/`x_cannbay` core），不内联 proxy 逻辑 |
+| `src/lib/ingest/adapters/claude-jsonl.ts` | ✅ 入口分流（`classifyProxyCapture` 统一分类），行级只读标准语义字段（`source`/`stopReason`/`duration_ms`/`x_cannbay` core），不内联 proxy 逻辑；注入分类单点调 `injections/` 分发（cpx 把异框架捕获归一成 claude 布局，本适配器是通用格式入口，不持有异框架指纹） |
+| `src/lib/ingest/adapters/injections/` | ✅ 框架注入分类层（纯函数，无 fs）：指纹规则框架自持（`claude-code.ts`/`codex.ts`/`opencode.ts` 家族），`index.ts` 按行级 `source` 标记 → `agentFrameworkOf` 分发；新框架 = 新指纹模块 + 分发表一行（设计见 agent-source-framework §2.5b） |
+| `src/lib/ingest/adapters/system-structure/` | ✅ 系统提示结构层（读侧对偶 injections/，纯函数无 fs）：memory/skills 结构段与结构化解析框架自持（`claude-code.ts`/`codex.ts`/`opencode.ts` 家族），`index.ts` 按行级 `source` 标记分发；消费侧 `readFullContext`/`readAvailableSkills` 零框架分支，禁止格式试探序嗅探（设计见 agent-source-framework §2.5c） |
 | `src/lib/ingest/proxy-classify.ts` | ✅ proxy 统一分类器（meta > 行级 `source` 标记 > wire 指纹），只产出 Session.framework/version 元数据 |
 | `src/lib/ingest/adapters/claude-jsonl-full-context.ts` | ✅ proxy 扩展层（system/tools/memory/skills + requestParams + 可用 skills 全集） |
 | `src/app/api/observe/session/wire-rounds/route.ts` | ✅ wire 轮次 API 直接解析捕获 jsonl（roundIndex 以 `x_cannbay.data.roundIndex` 为权威） |
@@ -172,6 +174,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 
 ## Testing
 
+- **Test DB isolation**: 测试一律写独立 `prisma/test.db`（`tests/setup.ts` 默认 + pretest 每次重建）——禁止任何测试直连真实 `prisma/dev.db`（常驻 server 的生产库）；回归锁 `tests/ut/test-db-isolation.test.ts`
 - **Integration over unit**: 写测试用例时，不要简单的函数级别用例，需要从页面或 API 层面进行验证
 - **Data-driven**: 通过 JSON 或 DB 原始数据驱动测试，数据准备在 `tests/data/` 目录下
 - **Pipeline coverage**: 测试应覆盖完整数据流（如 JSONL → adapter → turn-split → SkillEvent → aggregates）
@@ -206,7 +209,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
 - **Version bumps**: PR-granularity — bump once per merged PR (+0.0.1), **only the packages this PR actually touched** — insight only when `packages/insight` changed (`src/lib/version.ts` + `package.json` together, single-track), cpx only when `packages/cpx` changed (`src/version.ts` + `package.json`); untouched packages stay; individual commits don't bump
 - **CHANGELOG 简洁**: 条目一两句说清「什么变了、用户可感知什么」——不写实现细节（函数名/内部机制/IT 清单，那些放 PR 描述或 docs/design）；只有功能性变化才写，小加固/杂项不单开条目
-- **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow
+- **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow, slate
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4
 - **Charts**: Pure SVG, no chart libraries — match TraceView DAG style
 - **Dialogs**: Use `src/components/ui/dialog.tsx` (built on @base-ui/react), never browser `confirm()`

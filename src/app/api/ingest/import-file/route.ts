@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import { importSession } from '@/lib/ingest/data-service';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { isKnownSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
 import { prisma } from '@/lib/db';
@@ -23,9 +24,11 @@ export async function POST(request: NextRequest) {
     const { sessionId, filePath } = body;
     let { source } = body;
 
-    if (source !== 'opencode-db' && source !== 'claude-jsonl' && source !== BRAND_SOURCE_TYPE) {
+    // 源白名单单点（agent-source-framework 注册表）：新源在 registry 注册
+    // 后此处自动放行，不再枚举字符串
+    if (typeof source !== 'string' || !isKnownSource(source)) {
       return NextResponse.json(
-        { error: `Unsupported source: "${source}". Supported: opencode-db, claude-jsonl, ${BRAND_SOURCE_TYPE}` },
+        { error: `Unsupported source: "${source}". Supported: ${KNOWN_SOURCE_TYPES.join(', ')}` },
         { status: 400 }
       );
     }

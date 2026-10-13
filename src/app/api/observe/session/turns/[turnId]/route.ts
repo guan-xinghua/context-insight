@@ -86,6 +86,8 @@ async function readSessionFullContext(
       // their <sid>/subagents/ dir uses the unprefixed id. For native imports
       // taskId === filename stem, so behavior is unchanged there.
       const fileSid = session.taskId || path.basename(session.sourcePath, '.jsonl');
+      // listSubagentSessions 的 id 即规范连接键（claude：文件名 id；codex-proxy：
+      // meta backfill 的 agentId）——与 turn.subagentSessionId（打标口径）同键
       const sub = listSubagentSessions(session.sourcePath, fileSid)
         .find(s => s.id === subagentSessionId);
       if (sub) return { fc: readFullContext(sub.filePath), session };

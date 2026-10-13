@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
-import { getAdapter } from '@/lib/ingest/adapters/index';
+import { isKnownSource, getSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
 import { logDebug, logError, logInfo } from '@/lib/logger';
@@ -21,9 +21,11 @@ export async function POST(request: NextRequest) {
     const { filePath } = body;
     let { source } = body;
 
-    if (source !== 'opencode-db' && source !== 'claude-jsonl' && source !== BRAND_SOURCE_TYPE) {
+    // 源白名单单点（agent-source-framework 注册表）：新源在 registry 注册
+    // 后此处自动放行，不再枚举字符串
+    if (typeof source !== 'string' || !isKnownSource(source)) {
       return NextResponse.json(
-        { error: `Unsupported source: "${source}". Supported: opencode-db, claude-jsonl, ${BRAND_SOURCE_TYPE}` },
+        { error: `Unsupported source: "${source}". Supported: ${KNOWN_SOURCE_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
@@ -36,14 +38,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 单一 SQLite 入口：opencode 与 CANNBot-Insight 导出库按 schema 自动
-    // 区分（用户选错类型时按内容纠正，文件名不再是唯一判据）
+    // 区分（用户选错类型时按内容纠正，文件名不再是唯一判据）——两种 sqlite
+    // 源的 schema 互纠，与其他源无关
     if (source === 'opencode-db' || source === BRAND_SOURCE_TYPE) {
       const detected = detectSqliteSource(filePath);
       if (detected && detected !== source) source = detected;
     }
 
-    const adapter = getAdapter(source);
-    if (!adapter) {
+    const descriptor = getSource(source);
+    if (!descriptor) {
       return NextResponse.json(
         { error: `Adapter not available for source: "${source}"` },
         { status: 400 }
@@ -51,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const t0 = Date.now();
-    const sessions = adapter.listSessions(filePath);
+    const sessions = descriptor.listSessions(filePath);
     logInfo('ingest', 'listSessions', { source, path: filePath, count: sessions.length, ms: Date.now() - t0 });
 
     return NextResponse.json({

@@ -23,11 +23,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { saveImportHistory, type ImportHistoryEntry } from "@/components/ImportHistory"
+import { rolloutSessionIdOf } from "@/lib/ingest/adapters/codex-naming"
 import { Button } from "@/components/ui/button"
 import { DownloadIcon, LoaderIcon, FolderIcon, FileIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon, ArrowUpIcon, GlobeIcon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { isProxyVersion, agentFrameworkOf } from "@/lib/shared/session-format"
+import { IMPORT_SOURCES_UI } from "@/lib/ingest/adapters/import-ui"
 
 // imported:false has three distinct causes — label them accurately instead of
 // blanket "Already exists" (which hid file-missing behind an exists message)
@@ -164,7 +166,7 @@ export function LocalFileImport() {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>("input")
   const [filePath, setFilePath] = useState("/")
-  const [sourceType, setSourceType] = useState<"opencode-db" | "claude-jsonl" | "lake" | typeof BRAND_SOURCE_TYPE>("claude-jsonl")
+  const [sourceType, setSourceType] = useState<"opencode-db" | "claude-jsonl" | "codex-jsonl" | "lake" | typeof BRAND_SOURCE_TYPE>("claude-jsonl")
   const [sessions, setSessions] = useState<SessionPreview[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // 会话选择步的 keyword/sessionID 过滤（firstQuery 或 id 子串，大小写不敏感）
@@ -172,6 +174,7 @@ export function LocalFileImport() {
   const [importStatuses, setImportStatuses] = useState<ImportStatus[]>([])
   const [error, setError] = useState<string | null>(null)
   const [dirEntries, setDirEntries] = useState<DirEntry[]>([])
+  const [dirFilter, setDirFilter] = useState("")
   // 目录浏览时间排序方向：默认降序（最新在前），点表头箭头切换
   const [dirSortAsc, setDirSortAsc] = useState(false)
   const [currentDir, setCurrentDir] = useState<string | null>(null)
@@ -205,6 +208,7 @@ export function LocalFileImport() {
     setImportStatuses([])
     setError(null)
     setDirEntries([])
+    setDirFilter("")
     setCurrentDir(null)
     setParentDir(null)
     setBrowseLoading(false)
@@ -238,6 +242,7 @@ export function LocalFileImport() {
         return
       }
       setDirEntries(data.entries ?? [])
+      setDirFilter("") // 进入新目录重置过滤（旧词对新目录无意义）
       setCurrentDir(data.currentPath)
       setParentDir(data.parentPath)
       setStep("browse")
@@ -248,19 +253,28 @@ export function LocalFileImport() {
     }
   }
 
-  async function handleDirectImportJsonl(entry: DirEntry) {
-    // .jsonl.7z / .jsonl.gz（cpx 压缩捕获）三形态 + 剥 cpx- 前缀：与退出自动导入（真实
-    // sid）落同一 taskId，避免同会话双身份入库
-    const sessionId = entry.name.replace(/\.jsonl(\.7z|\.gz)?$/, "").replace(/^cpx-/, "")
+  // jsonl 类单文件直导：sessionId 按源推导（claude 剥 cpx- 前缀与压缩后缀、
+  // codex 取 rollout-<ts>-<uuid> 的 uuid 段，正则与适配器同一事实源）——
+  // 与列表导入落同一 taskId，避免同会话双身份入库
+  function deriveSessionIdForSource(source: string, filename: string): string {
+    if (source === "codex-jsonl") {
+      return rolloutSessionIdOf(filename) ?? filename.replace(/\.jsonl$/, "")
+    }
+    // .jsonl.7z / .jsonl.gz（cpx 压缩捕获）三形态 + 剥 cpx- 前缀
+    return filename.replace(/\.jsonl(\.7z|\.gz)?$/, "").replace(/^cpx-/, "")
+  }
+
+  async function handleDirectImportJsonl(entry: DirEntry, source: "claude-jsonl" | "codex-jsonl") {
+    const sessionId = deriveSessionIdForSource(source, entry.name)
     setFilePath(entry.fullPath)
-    setSourceType("claude-jsonl")
+    setSourceType(source)
     setStep("importing")
     setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
     try {
       const res = await fetch("/api/ingest/import-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "claude-jsonl", sessionId, filePath: entry.fullPath }),
+        body: JSON.stringify({ source, sessionId, filePath: entry.fullPath }),
       })
       const data = await res.json()
       if (res.ok && data.query) {
@@ -283,11 +297,13 @@ export function LocalFileImport() {
       browseDirectory(entry.fullPath)
     } else if (entry.isImportableFile) {
       if (entry.importableType === "claude-jsonl") {
-        handleDirectImportJsonl(entry)
+        handleDirectImportJsonl(entry, "claude-jsonl")
+      } else if (entry.importableType === "codex-jsonl") {
+        handleDirectImportJsonl(entry, "codex-jsonl")
       } else {
         setFilePath(entry.fullPath)
         if (entry.importableType) {
-          setSourceType(entry.importableType as "opencode-db" | "claude-jsonl" | typeof BRAND_SOURCE_TYPE)
+          setSourceType(entry.importableType as "opencode-db" | "claude-jsonl" | "codex-jsonl" | typeof BRAND_SOURCE_TYPE)
         }
         setStep("input")
       }
@@ -307,12 +323,13 @@ export function LocalFileImport() {
     }
     setError(null)
 
-    // Claude Code JSONL single file: one session per file, skip selection step
-    // （.jsonl.7z/.jsonl.gz 压缩捕获同走直导；cpx- 前缀剥掉与自动导入 taskId 对齐）
-    if (sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z"))) {
+    // jsonl 单文件直导（源声明驱动，agent-source-framework）：claude 压缩三形态
+    // / codex rollout 文件跳过选择步骤直接导入
+    const directImport = sourceType !== "lake" && IMPORT_SOURCES_UI[sourceType]?.directFileImport
+    if (directImport && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z"))) {
       // Derive sessionId from filename
       const filename = filePath.trim().split("/").pop() ?? ""
-      const sessionId = filename.replace(/\.jsonl(\.7z|\.gz)?$/, "").replace(/^cpx-/, "")
+      const sessionId = deriveSessionIdForSource(sourceType, filename)
       setStep("importing")
       setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
       try {
@@ -368,17 +385,9 @@ export function LocalFileImport() {
     browseDirectory(filePath.trim() || "/")
   }
 
-  // 常用默认路径快捷入口（服务端 ~ 展开）：一键直达，免逐级 Browse
-  const QUICK_DIRS: Record<"claude-jsonl" | "sqlite", Array<{ label: string; path: string }>> = {
-    "claude-jsonl": [
-      { label: "cpx proxy 捕获", path: "~/.cannbot-insight/proxy" },
-      { label: "Claude 原生", path: "~/.claude/projects" },
-    ],
-    sqlite: [
-      { label: "opencode 数据", path: "~/.local/share/opencode" },
-    ],
-  }
-  const quickDirs = sourceType === "claude-jsonl" ? QUICK_DIRS["claude-jsonl"] : sourceType === "opencode-db" || sourceType === BRAND_SOURCE_TYPE ? QUICK_DIRS.sqlite : []
+  // 常用默认路径快捷入口（服务端 ~ 展开）：一键直达，免逐级 Browse——
+  // 数据来自 IMPORT_SOURCES_UI（agent-source-framework），新源零 UI 改动
+  const quickDirs = sourceType !== "lake" ? (IMPORT_SOURCES_UI[sourceType]?.quickDirs ?? []) : []
 
   function handleQuickJump(dirPath: string) {
     setFilePath(dirPath)
@@ -556,6 +565,13 @@ export function LocalFileImport() {
         || s.id.toLowerCase().includes(sessionQuery))
     : sessions
 
+  // browse 步的过滤结果：名字子串（rollout/会话文件名内嵌 session id，
+  // 粘贴 id 片段即可定位文件），大小写不敏感
+  const dirQuery = dirFilter.trim().toLowerCase()
+  const filteredDirEntries = dirQuery
+    ? dirEntries.filter(e => e.name.toLowerCase().includes(dirQuery))
+    : dirEntries
+
   function toggleAll() {
     // 全选作用于当前过滤视图（与数据仓列表同款语义）
     if (filteredSessions.length > 0 && filteredSessions.every(s => selectedIds.has(s.id))) {
@@ -704,13 +720,20 @@ export function LocalFileImport() {
           <div className="space-y-3">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Source Type</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <Button
                   variant={sourceType === "claude-jsonl" ? "default" : "outline"}
                   size="sm"
                   onClick={() => { setSourceType("claude-jsonl"); setError(null) }}
                 >
                   JSONL (Claude / Proxy)
+                </Button>
+                <Button
+                  variant={sourceType === "codex-jsonl" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => { setSourceType("codex-jsonl"); setError(null) }}
+                >
+                  Codex
                 </Button>
                 <Button
                   variant={sourceType === "opencode-db" || sourceType === BRAND_SOURCE_TYPE ? "default" : "outline"}
@@ -734,7 +757,7 @@ export function LocalFileImport() {
               <label className="text-sm font-medium mb-1.5 block">File Path</label>
               <div className="flex gap-2">
                 <Input
-                  placeholder={sourceType === "claude-jsonl" ? "/path/to/session.jsonl(.7z/.gz) or /path/to/sessions-dir" : "/path/to/sessions.db"}
+                  placeholder={IMPORT_SOURCES_UI[sourceType]?.placeholder ?? "/path/to/file"}
                   value={filePath}
                   onChange={(e) => setFilePath(e.target.value)}
                   className="flex-1"
@@ -792,6 +815,12 @@ export function LocalFileImport() {
                     <p>Or point to a directory to scan all .jsonl / .jsonl.7z / .jsonl.gz files</p>
                   </>
                 )}
+                {sourceType === "codex-jsonl" && (
+                  <>
+                    <p>Codex 原生: ~/.codex/sessions/&lt;年&gt;/&lt;月&gt;/&lt;日&gt;/rollout-&lt;时间戳&gt;-&lt;会话id&gt;.jsonl</p>
+                    <p>单文件直导或指向 sessions 目录扫描；子代理（spawn）会话自动并入主会话</p>
+                  </>
+                )}
                 <p className="text-blue-500 dark:text-blue-400">Click Browse to explore directories and select files interactively</p>
               </div>
             </div>
@@ -837,38 +866,52 @@ export function LocalFileImport() {
                 <span className="text-sm text-muted-foreground">Loading directory...</span>
               </div>
             ) : (
-              <div className="max-h-[320px] overflow-y-auto overflow-x-hidden border rounded-lg">
-                <Table className="table-fixed">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[40px]"></TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead className="w-[150px]">
-                        <span
-                          role="button"
-                          className="inline-flex items-center gap-0.5 cursor-pointer select-none hover:text-foreground"
-                          title={dirSortAsc ? "按修改时间升序（点击改为降序）" : "按修改时间降序（点击改为升序）"}
-                          onClick={() => setDirSortAsc(v => !v)}
-                        >
-                          Modified
-                          {dirSortAsc
-                            ? <ChevronUpIcon className="size-3.5" />
-                            : <ChevronDownIcon className="size-3.5" />}
-                        </span>
-                      </TableHead>
-                      <TableHead className="w-[80px]">Size</TableHead>
-                      <TableHead className="w-[100px]">Type</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {dirEntries.length === 0 && (
+              <>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Filter by file name or session ID..."
+                    value={dirFilter}
+                    onChange={(e) => setDirFilter(e.target.value)}
+                    className="flex-1"
+                  />
+                  {dirQuery && (
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {filteredDirEntries.length} of {dirEntries.length} shown
+                    </span>
+                  )}
+                </div>
+                <div className="max-h-[320px] overflow-y-auto overflow-x-hidden border rounded-lg">
+                  <Table className="table-fixed">
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
-                          Empty directory
-                        </TableCell>
+                        <TableHead className="w-[40px]"></TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead className="w-[150px]">
+                          <span
+                            role="button"
+                            className="inline-flex items-center gap-0.5 cursor-pointer select-none hover:text-foreground"
+                            title={dirSortAsc ? "按修改时间升序（点击改为降序）" : "按修改时间降序（点击改为升序）"}
+                            onClick={() => setDirSortAsc(v => !v)}
+                          >
+                            Modified
+                            {dirSortAsc
+                              ? <ChevronUpIcon className="size-3.5" />
+                              : <ChevronDownIcon className="size-3.5" />}
+                          </span>
+                        </TableHead>
+                        <TableHead className="w-[80px]">Size</TableHead>
+                        <TableHead className="w-[100px]">Type</TableHead>
                       </TableRow>
-                    )}
-                    {sortDirEntries(dirEntries, dirSortAsc).map(entry => (
+                    </TableHeader>
+                    <TableBody>
+                      {filteredDirEntries.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
+                            {dirQuery ? "No entries match your filter" : "Empty directory"}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {sortDirEntries(filteredDirEntries, dirSortAsc).map(entry => (
                       <TableRow
                         key={entry.fullPath}
                         className="cursor-pointer hover:bg-primary/5"
@@ -901,7 +944,7 @@ export function LocalFileImport() {
                             <span className="text-blue-500 dark:text-blue-400">Directory</span>
                           ) : entry.isImportableFile ? (
                             <span className="text-emerald-500 dark:text-emerald-400">
-                              {entry.importableType === BRAND_SOURCE_TYPE ? BRAND_NAME : entry.importableType === "opencode-db" ? "SQLite DB" : "JSONL"}
+                              {entry.importableType === BRAND_SOURCE_TYPE ? BRAND_NAME : entry.importableType === "opencode-db" ? "SQLite DB" : entry.importableType === "codex-jsonl" ? "Codex" : "JSONL"}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">{entry.name.includes('.') ? entry.name.split('.').pop()! : "File"}</span>
@@ -911,14 +954,17 @@ export function LocalFileImport() {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+                </div>
+              </>
             )}
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => { setStep("input"); setError(null) }}>
                 Back
               </Button>
               <span className="text-xs text-muted-foreground">
-                {dirEntries.filter(e => e.isImportableFile).length} importable files found
+                {dirQuery
+                  ? `${filteredDirEntries.filter(e => e.isImportableFile).length} of ${dirEntries.filter(e => e.isImportableFile).length} importable files shown`
+                  : `${dirEntries.filter(e => e.isImportableFile).length} importable files found`}
               </span>
             </div>
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -950,9 +996,10 @@ export function LocalFileImport() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[40px]"></TableHead>
+                    <TableHead className="w-[120px]">Session ID</TableHead>
                     <TableHead>Start Time</TableHead>
                     <TableHead>End Time</TableHead>
-                    <TableHead className="max-w-[200px]">First Query</TableHead>
+                    <TableHead className="max-w-[160px]">First Query</TableHead>
                     <TableHead>Turns</TableHead>
                     <TableHead>Tokens</TableHead>
                   </TableRow>
@@ -960,7 +1007,7 @@ export function LocalFileImport() {
                 <TableBody>
                   {filteredSessions.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-4">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-4">
                         {sessionQuery ? "No sessions match your search" : "No sessions found"}
                       </TableCell>
                     </TableRow>
@@ -970,9 +1017,24 @@ export function LocalFileImport() {
                       <TableCell>
                         <Checkbox checked={selectedIds.has(s.id)} onCheckedChange={() => toggleSelection(s.id)} />
                       </TableCell>
+                      <TableCell className="w-[120px] max-w-[120px]">
+                        {/* 会话 ID 可见可搜（搜索框匹配 id 子串）：codex 等 jsonl 源
+                            firstQuery 常为空，ID 是唯一可靠辨识位 */}
+                        <span
+                          className="block font-mono text-xs text-muted-foreground truncate cursor-pointer hover:text-foreground"
+                          title={`${s.id}（点击复制）`}
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void navigator.clipboard?.writeText(s.id).catch(() => { /* 无剪贴板权限时静默 */ })
+                          }}
+                        >
+                          {s.id}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-xs whitespace-nowrap">{formatTime(s.createdAt)}</TableCell>
                       <TableCell className="text-xs whitespace-nowrap">{s.endedAt ? formatTime(s.endedAt) : "—"}</TableCell>
-                      <TableCell className="max-w-[200px] text-xs">
+                      <TableCell className="max-w-[160px] text-xs">
                         <span className="block truncate" title={s.firstQuery ?? ""}>
                           {s.firstQuery ?? "(empty)"}
                         </span>
@@ -1196,6 +1258,7 @@ export function LocalFileImport() {
                           if (agentFw === "opencode") return <Badge variant="blue">OpenCode</Badge>
                           if (agentFw === "claude-code") return <Badge variant="orange">Claude</Badge>
                           if (agentFw === "dsh") return <Badge variant="purple">DSH</Badge>
+                          if (agentFw === "codex") return <Badge variant="slate">Codex</Badge>
                           return null
                         })()}
                         {isProxyVersion(s.version ?? null) && <Badge variant="yellow">proxy</Badge>}
@@ -1222,7 +1285,7 @@ export function LocalFileImport() {
                   Loading...
                 </span>
               ) : (
-                sourceType === "claude-jsonl" && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z")) ? "Import" : "Load Sessions"
+                IMPORT_SOURCES_UI[sourceType]?.directFileImport && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z")) ? "Import" : "Load Sessions"
               )}
             </Button>
           )}

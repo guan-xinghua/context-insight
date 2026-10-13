@@ -12,10 +12,12 @@ import { renderTable, TableColumn } from '../utils/table';
 import { formatDate } from '../utils/format';
 import { formatHeader, formatDivider, formatSuccess, formatWarning, theme } from '../utils/colors';
 import { BAY_NAME } from '@/lib/branding';
+import { sniffImportableFile, frameworkOfSource } from '@/lib/ingest/adapters/registry';
 import type { ApiImportableSession, ApiImportableSessionsResponse } from '../types';
 import readline from 'node:readline';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const IMPORT_COLUMNS: TableColumn[] = [
   { key: 'id', label: 'Session ID', width: 20 },
@@ -110,14 +112,37 @@ async function collectDescription(sessionInfo: { query?: string; user?: string; 
 备注: ${notes}`;
 }
 
-function detectSourceType(filePath: string): 'opencode-db' | 'claude-jsonl' | string {
+// 文件级源识别走注册表单点（sniffImportableFile，与 browse-directory 同一
+// 判定）：rollout-*.jsonl → codex-jsonl 不再误判 claude-jsonl。压缩形态
+// （.jsonl.7z/.gz）必须先剥后缀再嗅探——claude 的扩展名兜底本身认
+// .jsonl.gz/.jsonl.7z，不先剥的话压缩 rollout 会被兜底抢走
+export function detectSourceType(filePath: string): string {
   const basename = filePath.split('/').pop() ?? '';
-  if (basename.endsWith('.db') && basename.startsWith('cannbot_session_')) return 'cannbot-insight';
-  if (basename.endsWith('.db')) return 'opencode-db';
-  if (basename.endsWith('.jsonl') || basename.endsWith('.json')) return 'claude-jsonl';
+  const sniffed = sniffImportableFile(basename.replace(/\.(7z|gz)$/, ''));
+  if (sniffed) return sniffed;
   try {
     const stat = fs.statSync(filePath);
-    if (stat.isDirectory()) return 'claude-jsonl';
+    if (stat.isDirectory()) {
+      // 目录递归采样嗅探（有界）：codex rollout 落在 sessions/YYYY/MM/DD/
+      // 嵌套目录，非递归的顶层采样永远扑空。取首个可嗅探文件名过注册表
+      // 单点判定（rollout- 前缀 → codex-jsonl）；全无命中回落 claude-jsonl
+      // （历史语义，claude 目录扫描兼容）
+      const queue: string[] = [filePath];
+      for (let visited = 0; queue.length > 0 && visited < 500; visited++) {
+        const dir = queue.shift()!;
+        let names: string[] = [];
+        try { names = fs.readdirSync(dir).sort(); } catch { continue; }
+        for (const name of names) {
+          const full = path.join(dir, name);
+          let st: fs.Stats;
+          try { st = fs.statSync(full); } catch { continue; }
+          if (st.isDirectory()) { queue.push(full); continue; }
+          const sniff = sniffImportableFile(name.replace(/\.(7z|gz)$/, ''));
+          if (sniff) return sniff;
+        }
+      }
+      return 'claude-jsonl';
+    }
   } catch {}
   return 'claude-jsonl';
 }
@@ -317,7 +342,9 @@ export function uploadCommand(): Command {
             }
           }
 
-          const resolvedFramework = source === 'opencode-db' ? 'opencode' : source === 'claude-jsonl' ? 'claude-code' : source;
+          // sourceType → framework 走注册表单点（frameworkOfSource），与
+          // data-service 落库口径一致
+          const resolvedFramework = frameworkOfSource(source) ?? source;
 
           if (needInteractive) {
             description = await collectDescription({

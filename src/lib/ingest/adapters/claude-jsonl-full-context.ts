@@ -16,17 +16,16 @@ import fs from 'node:fs';
 import {
   parseJsonlLines,
   extractSystemText,
-  findMemorySection,
-  findSkillsSection,
   type ClaudeJsonlLine,
   type ContentBlock,
 } from './claude-jsonl';
 import { readEnvelope } from '@/lib/shared/envelope';
 import { classifyProxyCapture } from '../proxy-classify';
 import {
-  parseClaudeAvailableSkills,
-  parseOpencodeAvailableSkills,
-} from '@/lib/skill-coverage';
+  frameworkFromLines,
+  systemStructureOf,
+  type SkillsListFormat,
+} from './system-structure';
 import { LruCache } from '@/lib/lru-cache';
 
 export interface FullContextTool {
@@ -74,21 +73,26 @@ export function __clearFullContextCaches(): void {
   turnParamsCache.clear();
 }
 
-// 扫 message content 取 memory(CLAUDE.md) / skills（claude-format 通用逻辑，
-// 原始 claude jsonl 与 proxy 扩展都有）。
-function scanMessageContext(lines: ClaudeJsonlLine[]): { memoryFiles: string; skills: string } {
+// 扫 message content 取 memory/skills 段——native claude jsonl 的系统文本在
+// message 行里（claude-format 布局），proxy 捕获的扩展 system 字段由
+// readFullContextUncached 先行提取。提取器按捕获框架分发（system-structure
+// 层）：异框架标记不越界（codex 会话里粘贴的 claude skills 文本不误配）。
+function scanMessageContext(
+  lines: ClaudeJsonlLine[],
+  extractor: ReturnType<typeof systemStructureOf>,
+): { memoryFiles: string; skills: string } {
   let memoryFiles = '';
   let skills = '';
   for (const line of lines) {
     const c = line.message?.content;
     if (typeof c === 'string') {
-      if (!memoryFiles) memoryFiles = findMemorySection(c);
-      if (!skills) skills = findSkillsSection(c);
+      if (!memoryFiles) memoryFiles = extractor.findMemorySection(c);
+      if (!skills) skills = extractor.findSkillsSection(c);
     } else if (Array.isArray(c)) {
       for (const b of c) {
         if (b.type !== 'text' || !b.text) continue;
-        if (!memoryFiles) memoryFiles = findMemorySection(b.text);
-        if (!skills) skills = findSkillsSection(b.text);
+        if (!memoryFiles) memoryFiles = extractor.findMemorySection(b.text);
+        if (!skills) skills = extractor.findSkillsSection(b.text);
       }
     }
   }
@@ -136,7 +140,22 @@ function readFullContextUncached(filePath: string): FullContext | null {
     }
   }
 
-  const { memoryFiles, skills } = scanMessageContext(lines);
+  // 结构段（memory/skills）：框架自持提取器（system-structure 层）。
+  // proxy 捕获的系统提示在扩展 system 字段（wire verbatim），native claude
+  // 的在 message 行——先 ext 后 message，首个非空段胜出。旧实现只扫
+  // message 且只认 claude 标记：proxy 捕获恒空、codex/opencode 格式失明。
+  const extractor = systemStructureOf(frameworkFromLines(lines));
+  let memoryFiles = '';
+  let skills = '';
+  if (systemPrompt) {
+    memoryFiles = extractor.findMemorySection(systemPrompt);
+    skills = extractor.findSkillsSection(systemPrompt);
+  }
+  if (!memoryFiles || !skills) {
+    const scanned = scanMessageContext(lines, extractor);
+    if (!memoryFiles) memoryFiles = scanned.memoryFiles;
+    if (!skills) skills = scanned.skills;
+  }
   if (!foundExt && !memoryFiles && !skills) return null;
   return { systemPrompt, tools, memoryFiles, skills };
 }
@@ -205,7 +224,7 @@ function readTurnRequestParamsUncached(filePath: string, turnIndex: number): Tur
 //   - opencode-proxy：system 字段里的 <available_skills> XML 块
 export function readAvailableSkills(
   filePath: string
-): { skills: Array<{ name: string; description: string; origin: string | null }>; format: 'claude-list' | 'opencode-xml' } | null {
+): { skills: Array<{ name: string; description: string; origin: string | null }>; format: SkillsListFormat } | null {
   let lines: ClaudeJsonlLine[];
   try {
     lines = parseJsonlLines(filePath);
@@ -227,11 +246,14 @@ export function readAvailableSkills(
       }
     }
   }
+  // 解析器按捕获框架分发（system-structure 层）：异框架格式不互相试探
+  // （codex 的 <skills_instructions> 不会被 xml/claude-list 嗅探漏掉，
+  // claude 文本也不会被 xml 误配）。候选顺序 ext system 优先——proxy 捕获
+  // 的系统提示只在此；message 候选兜底 native claude（系统文本在 message 行）。
+  const extractor = systemStructureOf(frameworkFromLines(lines));
   for (const text of candidates) {
-    const xml = parseOpencodeAvailableSkills(text);
-    if (xml.length > 0) return { skills: xml, format: 'opencode-xml' };
-    const list = parseClaudeAvailableSkills(text);
-    if (list.length > 0) return { skills: list, format: 'claude-list' };
+    const parsed = extractor.parseAvailableSkills(text);
+    if (parsed.length > 0) return { skills: parsed, format: extractor.listFormat };
   }
   return null;
 }

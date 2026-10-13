@@ -6,7 +6,7 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 ## 功能介绍
 
-导入 SQLite（opencode.db）或 JSONL（Claude 原生 / cpx proxy 捕获，明文与 `.jsonl.7z`、存量 `.jsonl.gz` 均可，`cpx-` 前缀自动处理），进入 session 详情页的多个分析 Tab：
+导入 SQLite（opencode.db）或 JSONL（Claude 原生 / Codex 原生 `rollout-*.jsonl` / cpx proxy 捕获，明文与 `.jsonl.7z`、存量 `.jsonl.gz` 均可，`cpx-` 前缀自动处理），进入 session 详情页的多个分析 Tab：
 
 - **Token 与费用** — 每轮 token 五项拆解，按模型上下文窗口显示占比，估算费用
 - **上下文增长** — 逐 subagent 的上下文增长曲线与动画回放，`/compact` 压缩点标注
@@ -66,6 +66,7 @@ cannbot-insight            # 首次：自动 build + migrate（约 30s-2min）�
 日志文件位置：
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/`（目录自动扫描）
+- Codex: `~/.codex/sessions/`（rollout 文件；子代理会话自动并入主会话）
 
 Web UI 还支持：导出 session 为独立 SQLite 或 Markdown。LLM 接入面板内置常见提供商 Base URL 速查。
 
@@ -81,6 +82,10 @@ npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --ses
 # Claude Code：目录扫描 / 单文件
 npx tsx src/cli/index.ts upload --file ~/.claude/projects/ --list
 npx tsx src/cli/index.ts upload --file ~/.claude/projects/<hash>/<uuid>.jsonl --session-id <uuid> --yes --json
+
+# Codex：原生 rollout 文件（子代理会话自动并入主会话）
+npx tsx src/cli/index.ts upload --file ~/.codex/sessions/ --source codex-jsonl --list
+npx tsx src/cli/index.ts import --source codex-jsonl --dir ~/.codex/sessions/ --all --yes --json
 ```
 
 | 参数 | 说明 |

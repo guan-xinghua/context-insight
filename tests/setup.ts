@@ -1,19 +1,39 @@
 // Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
 // This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
-// Please refer to the License for details. You may not use this file except in compliance with the License.
+// Please refer to the License for details. You should not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import fs from "node:fs";
+import path from "node:path";
 
-// fresh clone 兜底（镜像 start.sh 默认值）：.env 由 pretest 的 ensure-test-db 创建，
-// 但 vitest worker 进程不自动读 .env，缺此默认时全部套件死在 $connect
-process.env.DATABASE_URL ||= "file:./dev.db";
+// 测试库隔离默认值：测试一律写独立 prisma/test.db（pretest 每次重建）。真实
+// prisma/dev.db 由常驻 server 独占——夹具会话从物理上不可能再泄进用户数据
+// （历史缺陷：测试直连 dev.db，漏清理夹具删了下次跑测试又回来）。显式
+// DATABASE_URL（CI/本地指向特定库）优先于本默认。vitest worker 不自动读
+// .env，PrismaClient 构造时读 process.env——本行必须先于任何 PrismaClient
+// （含被测模块经 @/lib/db 的单例）
+process.env.DATABASE_URL ||= "file:./test.db";
+
+// 兜底守卫：绕过 pretest 的直接 vitest（`npx vitest run <file>`）在 test.db
+// 尚不存在（fresh clone 首跑）时，SQLite 会建出无表空库、用例期才炸出难懂
+// 的 "no such table"——在这里给一条可行动的错误
+if (
+  process.env.DATABASE_URL === "file:./test.db" &&
+  !fs.existsSync(path.resolve(__dirname, "../prisma/test.db"))
+) {
+  throw new Error(
+    "prisma/test.db 不存在：先跑一次 `npm run test`（pretest 自动重建测试库），" +
+      "或手动 `node scripts/ensure-test-db.mjs`。测试不得直连真实 prisma/dev.db。",
+  );
+}
+
 // 测试进程统一加大 socket_timeout（Prisma sqlite URL 参数，单位秒）：全量并行
-// worker 共写同一 dev.db，SQLite 单写者锁下默认 5s 偶发 "Socket timeout" flake
+// worker 共写同一 test.db，SQLite 单写者锁下默认 5s 偶发 "Socket timeout" flake
 //（现场：opencode-v2-refresh ① 连锁 5 红）。仅测试侧放大等待——服务端运行时
 // 仍走 .env 默认，不受影响；先设先赢（||=）语义下 CI 想覆盖可直接带参设置。
 if (!process.env.DATABASE_URL.includes("socket_timeout=")) {

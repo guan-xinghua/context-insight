@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { readAvailableSkills } from '@/lib/ingest/adapters/claude-jsonl-full-context';
+import type { SkillsListFormat } from '@/lib/ingest/adapters/system-structure';
 import { aggregateUsedSkills, buildCoverage } from '@/lib/skill-coverage';
 import { isProxyVersion, isClaudeFormatSession } from '@/lib/shared/session-format';
 import { withRouteLog } from '@/lib/api-route';
@@ -44,7 +45,7 @@ export const GET = withRouteLog('observe/session/skill-coverage', async (request
   const used = aggregateUsedSkills(events);
 
   let available: Array<{ name: string; description: string; origin: string | null }> | null = null;
-  let listFormat: 'claude-list' | 'opencode-xml' | null = null;
+  let listFormat: SkillsListFormat | null = null;
   let degradedReason: string | null = null;
 
   // 覆盖度门禁（按全集确定性）：
@@ -57,7 +58,7 @@ export const GET = withRouteLog('observe/session/skill-coverage', async (request
   const isClaudeSource = isClaudeFormatSession(session.framework, session.version);
 
   if (!isClaudeSource) {
-    degradedReason = '仅 claude 格式来源（proxy 捕获 / native claude-code）展示 Skill 覆盖度；opencode 原生会话的系统提示不落盘，全集不可恢复';
+    degradedReason = '仅 claude 格式来源（proxy 捕获 / native claude-code）展示 Skill 覆盖度；opencode 原生会话的系统提示不落盘，codex 原生会话的 rollout 布局读取暂未接入（系统提示在 developer 消息内），全集均不可恢复';
   } else if (!session.sourcePath) {
     degradedReason = '源文件不可用（sourcePath 缺失或文件已移走）';
   } else {

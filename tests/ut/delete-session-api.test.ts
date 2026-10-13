@@ -14,8 +14,8 @@ import { DELETE } from '@/app/api/ingest/delete-session/route';
 const createdSessionIds: string[] = [];
 
 // 本文件全部 seed 前缀：beforeAll/afterAll 按前缀自愈——vitest 中途被杀
-// （Ctrl+C/超时强杀）时 afterEach 不执行，seed 会泄漏进共享 dev.db 并出现在
-// 用户 UI（batch-del-* 空会话事故）；前缀清理保证下次跑测试自动清掉残留
+// （Ctrl+C/超时强杀）时 afterEach 不执行，seed 会泄漏进共享 test.db 并出现在
+// 下次跑测试的用例视野（batch-del-* 空会话事故）；前缀清理保证下次跑测试自动清掉残留
 const SEED_PREFIXES = ['batch-del-', 'collide-', 'partial-', 'dual-del-', 'cascade-single-', 'cascade-batch-'];
 
 async function healSeededLeaks() {

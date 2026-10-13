@@ -10,9 +10,9 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
-import { getAdapter } from './adapters/index';
+import { getSource, sourceOfFramework } from './adapters/registry';
 import { listSubagentSessionsWithDb, readSessionWithDb, readSessionMeta } from './adapters/opencode-db';
-import { listSubagentSessions as listClaudeSubagentSessions, collectSubagentToolUseMappings as collectClaudeToolUseMappings, extractVersion as extractClaudeVersion } from './adapters/claude-jsonl';
+import { extractVersion as extractClaudeVersion } from './adapters/claude-jsonl';
 import { classifyProxyCapture, readCcSessionMeta, proxyRecordingFrameworkFromVersion } from './proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { normalize } from './normalize';
@@ -435,14 +435,16 @@ async function importSessionInner(
 
   try {
     const t1 = Date.now();
-    const adapter = getAdapter(srcType);
-    if (!adapter) {
+    // 源描述符（agent-source-framework）：身份/子代理/版本/嗅探单点声明，
+    // 旧 getAdapter + 内联三元映射收编于此
+    const descriptor = getSource(srcType);
+    if (!descriptor) {
       throw new Error(`No adapter available for source type: "${srcType}"`);
     }
 
     const rawInteractions = srcType === 'opencode-db' && sharedDb
       ? readSessionWithDb(sharedDb, sessionId)
-      : adapter.readSession(dbPath, sessionId);
+      : descriptor.readSession(dbPath, sessionId);
     impLog.info('readSession', { sid: sessionId, ms: Date.now() - t1, interactions: rawInteractions.length });
 
     let sessionMeta: { parentId: string | null; title: string | null; version: string | null; directory: string | null; summaryAdditions: number; summaryDeletions: number; summaryFiles: number } = { parentId: null, title: null, version: null, directory: null, summaryAdditions: 0, summaryDeletions: 0, summaryFiles: 0 };
@@ -475,22 +477,21 @@ async function importSessionInner(
           ? (agentVersion.endsWith(`-${proxyVersionMarker}`) ? agentVersion : `${agentVersion}-${proxyVersionMarker}`)
           : proxyVersionMarker)
         : agentVersion;
+    } else if (descriptor.extractVersion) {
+      // 注册表能力路径（codex 等新源）：version 从源文件提取（cli_version），
+      // claude/opencode 分支已各自填充不进此路径。sessionId 一并传入——
+      // dbPath 可能是 sessions 根目录（UI 列表导入流程），适配器按 id 解析文件
+      sessionMeta.version = descriptor.extractVersion(dbPath, sessionId);
     }
-    // framework 是 agent 归属：分类器判定（meta/行级/指纹三级信号）优先；
-    // 非 proxy 的 claude-jsonl 是 native claude-code。
-    // 方案一（同 sid 双会话共存）：proxy 捕获的 framework 带 -proxy 记录后缀
-    // （claude-code-proxy / opencode-proxy / codex-proxy / cannbot-proxy）——
-    // (taskId, framework) 唯一索引下与同 sid 的原生会话各占一行，互不合并。
+    // framework 是 agent 归属：proxy 捕获装饰（-proxy 记录后缀，方案一同 sid
+    // 原生/捕获双行）优先于导出件声明，原生落库值走注册表 descriptor.framework
+    // 单点（此前 sourceType→framework 映射内联于此，与刷新侧反向映射人肉同步）。
+    // incomingRecordingClass（空文件占位与正常导入共用的匹配身份）与
+    // frameworkForCapture 语义相同，统一为一个值。
     const frameworkForCapture = proxyClass?.isProxy && proxyClass.framework
       ? `${proxyClass.framework}-proxy`
-      : (exportDeclaredFramework ?? (srcType === 'claude-jsonl' ? 'claude-code' : srcType));
-    // 记录类（方案一：同 sid 原生/proxy 捕获各一行）——空文件占位路径与
-    // 正常导入路径共用的匹配身份
-    const incomingRecordingClass = srcType === 'claude-jsonl'
-      ? (proxyClass?.isProxy && proxyClass.framework
-        ? `${proxyClass.framework}-proxy`
-        : (exportDeclaredFramework ?? 'claude-code'))
-      : (srcType === 'opencode-db' ? 'opencode' : srcType);
+      : (exportDeclaredFramework ?? descriptor.framework);
+    const incomingRecordingClass = frameworkForCapture;
 
     if (rawInteractions.length === 0) {
       if (sharedDb) sharedDb.close();
@@ -525,36 +526,18 @@ async function importSessionInner(
     const allRawInteractions = [...rawInteractions];
     let toolUseIdMapping: Map<string, string> | undefined = undefined;
 
+    // 子代理并入：opencode-db 走 sharedDb 连接复用（连接池优化，与框架注册
+    // 正交保留）；其余源走注册表通用路径——发现/读取/打标全部在 descriptor
+    // readSubagents 内实现，data-service 不再持有框架分支（新源接入零改动）。
     if (srcType === 'opencode-db' && sharedDb) {
       const subagentSessionIds = listSubagentSessionsWithDb(sharedDb, sessionId);
       for (const subId of subagentSessionIds) {
         const subInteractions = readSessionWithDb(sharedDb, subId);
         allRawInteractions.push(...subInteractions);
       }
-    } else if (srcType === 'claude-jsonl') {
-      const subagentFiles = listClaudeSubagentSessions(dbPath, sessionId);
-      toolUseIdMapping = collectClaudeToolUseMappings(dbPath, sessionId);
-      for (const sub of subagentFiles) {
-        // 兼容压缩形态（7z at rest）：x.jsonl.7z/.jsonl.gz → x.meta.json
-        const metaPath = sub.filePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
-        let subName: string | null = null;
-        let subType: string | null = null;
-        try {
-          if (fs.existsSync(metaPath)) {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-            subName = meta.name || meta.agentType || meta.description || null;
-            subType = meta.agentType || null;
-          }
-        } catch {}
-
-        const subInteractions = adapter.readSession(sub.filePath, sub.id);
-        for (const interaction of subInteractions) {
-          interaction.subagent_session_id = sub.id;
-          if (subName) interaction.subagent_name = subName;
-          if (subType) interaction.subagent_type = subType;
-        }
-        allRawInteractions.push(...subInteractions);
-      }
+    } else if (descriptor.readSubagents) {
+      toolUseIdMapping = descriptor.collectSubagentToolUseMap?.(dbPath, sessionId);
+      allRawInteractions.push(...descriptor.readSubagents(dbPath, sessionId));
     }
     impLog.info('subagents', { sid: sessionId, ms: Date.now() - t2, interactions: allRawInteractions.length });
 
@@ -771,7 +754,7 @@ async function importSessionInner(
           label: firstHumanQueryText(rawInteractions)?.substring(0, 100)
             ?? rawInteractions[0]?.content?.substring(0, 100) ?? null,
           query: sessionQuery,
-          framework: srcType === 'claude-jsonl' ? frameworkForCapture : srcType === BRAND_SOURCE_TYPE ? srcType : 'opencode',
+          framework: frameworkForCapture,
           model: aggregates.model,
           startTime: aggregates.startTime,
           endTime: aggregates.endTime,
@@ -931,20 +914,16 @@ export async function deltaRefreshSession(
     throw new Error(`Session not found or no sourcePath: "${sessionId}"`);
   }
 
-  // sourceType 推断走统一分类器（proxy-classify.ts）：凡 proxy 捕获
-  // （claude / opencode / codex，version 带 -proxy 后缀）都是 claude 格式
-  // jsonl 变体 → claude-jsonl adapter。native opencode 走 opencode-db。
-  const sourceType = isProxyVersion(session.version)
+  // sourceType 推断：proxy 捕获（claude / opencode / codex，version 带 -proxy
+  // 后缀）都是 claude 格式 jsonl 变体 → claude-jsonl adapter；原生 framework →
+  // sourceType 反向映射走注册表单点（sourceOfFramework），不再内联三元链
+  const sourceType = isProxyVersion(session.version) || session.framework?.endsWith('-proxy')
     ? 'claude-jsonl'
-    : session.framework?.endsWith('-proxy')
-    ? 'claude-jsonl'
-    : session.framework === 'opencode' ? 'opencode-db'
-    : session.framework === 'claude-code' ? 'claude-jsonl'
-    : session.framework;
-
-  const srcType = sourceType === 'opencode-db' ? 'opencode-db'
-    : sourceType === 'claude-jsonl' ? 'claude-jsonl'
-    : sourceType;
+    : (session.framework != null ? (sourceOfFramework(session.framework) ?? session.framework) : null);
+  if (!sourceType) {
+    throw new Error(`No adapter for: "${session.framework}"`);
+  }
+  const srcType: string = sourceType;
 
   let sharedDb: Database.Database | null = null;
   if (srcType === 'opencode-db') {
@@ -959,12 +938,13 @@ export async function deltaRefreshSession(
   }
 
   try {
-    const adapter = getAdapter(srcType);
-    if (!adapter) throw new Error(`No adapter for: "${srcType}"`);
+    // 源描述符（agent-source-framework）：与 importSessionInner 同一注册表
+    const descriptor = srcType != null ? getSource(srcType) : null;
+    if (!descriptor) throw new Error(`No adapter for: "${srcType}"`);
 
     const rawInteractions = srcType === 'opencode-db' && sharedDb
       ? readSessionWithDb(sharedDb, sessionId)
-      : adapter.readSession(session.sourcePath, sessionId);
+      : descriptor.readSession(session.sourcePath, sessionId);
 
     const allRawInteractions = [...rawInteractions];
     let toolUseIdMapping: Map<string, string> | undefined = undefined;
@@ -974,16 +954,12 @@ export async function deltaRefreshSession(
       for (const subId of subIds) {
         allRawInteractions.push(...readSessionWithDb(sharedDb, subId));
       }
-    } else if (srcType === 'claude-jsonl') {
-      const subagentFiles = listClaudeSubagentSessions(session.sourcePath, sessionId);
-      toolUseIdMapping = collectClaudeToolUseMappings(session.sourcePath, sessionId);
-      for (const sub of subagentFiles) {
-        const subInteractions = adapter.readSession(sub.filePath, sub.id);
-        for (const interaction of subInteractions) {
-          interaction.subagent_session_id = sub.id;
-        }
-        allRawInteractions.push(...subInteractions);
-      }
+    } else if (descriptor.readSubagents) {
+      // 注册表通用子代理路径（与导入路径同源：readSubagents 已打标含
+      // name/type——此前刷新分支只打 session_id，刷新后子代理轮缺名，导入
+      // 与刷新两口径就此统一）
+      toolUseIdMapping = descriptor.collectSubagentToolUseMap?.(session.sourcePath, sessionId);
+      allRawInteractions.push(...descriptor.readSubagents(session.sourcePath, sessionId));
     }
 
     if (allRawInteractions.length === 0) {

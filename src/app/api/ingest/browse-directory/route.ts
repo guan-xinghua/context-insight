@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { sniffImportableFile } from '@/lib/ingest/adapters/registry';
 import { expandHome } from '@/lib/ingest/import-paths';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,24 +59,20 @@ export async function POST(request: NextRequest) {
       const full = path.join(resolved, name);
       try {
         const s = fs.statSync(full);
-        const ext = path.extname(name).toLowerCase();
-        const isDb = ext === '.db' || ext === '.sqlite' || ext === '.sqlite3';
-        // .jsonl.7z（7z at rest，cpx 压缩捕获形态）/ .jsonl.gz（存量）/ .jsonl
-        // 三形态都算 claude-jsonl 可导入——extname 对 'x.jsonl.7z' 返回 '.7z'，必须用
-        // endsWith 判定
-        const lower = name.toLowerCase();
-        const isJsonl = lower.endsWith('.jsonl') || lower.endsWith('.jsonl.gz') || lower.endsWith('.jsonl.7z');
-        const isCannbot = isDb && name.startsWith('cannbot_session_');
         const isDir = s.isDirectory();
-        const isImportableFile = !isDir && (isDb || isJsonl);
+        // importableType 单点判定（agent-source-framework 注册表嗅探）：
+        // 声明序即优先级——前缀精确嗅探（cannbot_session_ / rollout-）先于
+        // 扩展名兜底（.db / .jsonl），codex 的 rollout-*.jsonl 不再误判成
+        // claude 捕获件；压缩三形态（.jsonl.7z/.gz）由 claude 兜底覆盖
+        const importableType = isDir ? null : sniffImportableFile(name);
         return {
           name,
           fullPath: full,
           isDir,
           size: isDir ? 0 : s.size,
           mtime: s.mtimeMs,
-          isImportableFile,
-          importableType: isCannbot ? BRAND_SOURCE_TYPE : isDb ? 'opencode-db' : isJsonl ? 'claude-jsonl' : null,
+          isImportableFile: importableType != null,
+          importableType,
         };
       } catch (e) {
         logWarn('route:ingest/browse-directory', '目录项读取失败', { name, error: e instanceof Error ? e.message : String(e) });

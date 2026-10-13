@@ -6,7 +6,7 @@ Session-level observability for LLM coding agents: import agent session logs and
 
 ## Features
 
-Import SQLite (opencode.db) or JSONL (native Claude Code / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
+Import SQLite (opencode.db) or JSONL (native Claude Code / Codex `rollout-*.jsonl` / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
 
 - **Tokens & Cost** — 5-item per-turn token breakdown vs the model's context window, plus cost estimation
 - **Active / Wall time** — session detail Wall Clock split (active + inactive = wall) and Active / Wall columns on the homepage: event-clustering semantics (gaps >5min count as inactive, in-flight API calls count as active)
@@ -66,6 +66,7 @@ cannbot-insight            # first run: auto-build + migrate (~30s-2min), then s
 Log file locations:
 - opencode: `~/.local/share/opencode/opencode.db`
 - Claude Code: `~/.claude/projects/` (directory auto-scan)
+- Codex: `~/.codex/sessions/` (rollout files; subagent sessions merge into their parent)
 
 The Web UI also supports exporting sessions to standalone SQLite or Markdown. The LLM provider panel embeds a known-provider Base URL quick reference.
 
@@ -81,6 +82,10 @@ npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --ses
 # Claude Code: directory scan / single file
 npx tsx src/cli/index.ts upload --file ~/.claude/projects/ --list
 npx tsx src/cli/index.ts upload --file ~/.claude/projects/<hash>/<uuid>.jsonl --session-id <uuid> --yes --json
+
+# Codex: native rollout files (subagent sessions merge into their parent)
+npx tsx src/cli/index.ts upload --file ~/.codex/sessions/ --source codex-jsonl --list
+npx tsx src/cli/index.ts import --source codex-jsonl --dir ~/.codex/sessions/ --all --yes --json
 ```
 
 | Option | Description |

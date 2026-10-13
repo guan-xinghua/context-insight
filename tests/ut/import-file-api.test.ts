@@ -49,7 +49,7 @@ describe('POST /api/ingest/import-file — failure reasons', () => {
   });
 
   it('existing file that parses to 0 interactions → placeholder session (imported-empty) + cleanup', async () => {
-    // 共享 dev.db 自愈预清理：历史运行中断泄漏的同名会话会让本用例走 merge
+    // 共享 test.db 自愈预清理：历史运行中断泄漏的同名会话会让本用例走 merge
     // 路径（imported:false）而永久失败
     await prisma.session.deleteMany({ where: { taskId: 'empty-session-it' } });
     const emptyFile = path.join(__dirname, './data/claude-sessions/empty-session.jsonl');

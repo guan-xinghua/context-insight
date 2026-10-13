@@ -6,41 +6,34 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
-import type { SessionListItem, RawInteraction } from '../../shared/types';
-import { listSessions as opencodeDbListSessions, readSession as opencodeDbReadSession } from './opencode-db';
-import { listSessions as claudeJsonlListSessions, readSession as claudeJsonlReadSession } from './claude-jsonl';
-import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession } from './cannbot-insight';
+// 门面：注册表迁往 registry.ts（agent-source-framework），本文件保持既有
+// import 路径与 getAdapter/Adapter 兼容导出。新代码直接 import registry。
 
+import type { SessionListItem, RawInteraction } from '../../shared/types';
+import { requireSource } from './registry';
+
+export type { SourceDescriptor, SubagentRef } from './contract';
+export {
+  SOURCES,
+  KNOWN_SOURCE_TYPES,
+  getSource,
+  requireSource,
+  isKnownSource,
+  frameworkOfSource,
+  sourceOfFramework,
+  sniffImportableFile,
+} from './registry';
+
+/** @deprecated 旧 Adapter 形状（仅 listSessions/readSession）。新代码用
+ * SourceDescriptor（contract.ts）——身份/子代理/嗅探等能力声明都在那边。 */
 export interface Adapter {
   listSessions(dbPath: string): SessionListItem[];
   readSession(dbPath: string, sessionId: string): RawInteraction[];
 }
 
-const opencodeDbAdapter: Adapter = {
-  listSessions: opencodeDbListSessions,
-  readSession: opencodeDbReadSession,
-};
-
-const claudeJsonlAdapter: Adapter = {
-  listSessions: claudeJsonlListSessions,
-  readSession: claudeJsonlReadSession,
-};
-
-const cannbotInsightAdapter: Adapter = {
-  listSessions: cannbotInsightListSessions,
-  readSession: cannbotInsightReadSession,
-};
-
-export function getAdapter(sourceType: string): Adapter | null {
-  switch (sourceType) {
-    case 'opencode-db':
-      return opencodeDbAdapter;
-    case 'claude-jsonl':
-      return claudeJsonlAdapter;
-    case BRAND_SOURCE_TYPE:
-      return cannbotInsightAdapter;
-    default:
-      throw new Error(`Unknown source type: "${sourceType}". Supported types: opencode-db, claude-jsonl, ${BRAND_SOURCE_TYPE}`);
-  }
+/** @deprecated 用 registry.getSource / requireSource。 */
+export function getAdapter(sourceType: string): Adapter {
+  // 旧契约：未知源抛错（requireSource 单点产出支持清单），不返回 null
+  const found = requireSource(sourceType);
+  return { listSessions: found.listSessions, readSession: found.readSession };
 }

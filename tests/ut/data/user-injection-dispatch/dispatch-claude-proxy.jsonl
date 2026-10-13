@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n  <status>completed</status>\n  <summary>Agent \"proxy-agent\" completed</summary>\n</task-notification>"}]},"source":"claude-proxy","timestamp":"2026-10-10T08:30:01.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"请继续。"}]},"source":"claude-proxy","timestamp":"2026-10-10T08:30:02.000Z"}

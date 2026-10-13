@@ -11,7 +11,8 @@
 // handback-injections.jsonl，指纹取自 9fd46cc3 真实捕获）。
 
 import { describe, it, expect } from 'vitest';
-import { readSession, classifyAgentInjection } from '../../../src/lib/ingest/adapters/claude-jsonl.ts';
+import { readSession } from '../../../src/lib/ingest/adapters/claude-jsonl.ts';
+import { classifyAgentInjection } from '../../../src/lib/ingest/adapters/injections/claude-code.ts';
 import { firstHumanQueryText, resolveSessionQuery } from '../../../src/lib/ingest/data-service.ts';
 import path from 'node:path';
 

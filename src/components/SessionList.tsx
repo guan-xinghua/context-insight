@@ -506,7 +506,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                         图标按 agent 归属归一呈现，proxy 与否走 version 徽标 */}
                     {(() => {
                       const agent = agentFrameworkOf(item.framework) ?? '';
-                      return agent === 'opencode' || agent === 'claude-code' || agent === 'cannbot' || agent === 'dsh' ? (
+                      return agent === 'opencode' || agent === 'claude-code' || agent === 'cannbot' || agent === 'dsh' || agent === 'codex' ? (
                         <span className="inline-flex items-center gap-1">
                           {agent === 'opencode'
                             ? <Badge variant="blue">OpenCode</Badge>
@@ -514,6 +514,8 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                               ? <Badge variant="green">CANNBot</Badge>
                               : agent === 'dsh'
                                 ? <Badge variant="purple">DSH</Badge>
+                              : agent === 'codex'
+                                ? <Badge variant="slate">Codex</Badge>
                                 : <Badge variant="orange">Claude</Badge>}
                           {isProxyVersion(item.version) && (
                             <Badge variant="yellow">proxy</Badge>

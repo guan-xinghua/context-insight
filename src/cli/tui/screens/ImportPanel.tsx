@@ -35,7 +35,7 @@ const IMPORT_COLUMNS: DataTableColumn<ApiImportableSession>[] = [
 
 type ImportFocus = 'filePath' | 'source' | 'browser' | 'list';
 
-const SOURCE_TYPES = ['opencode-db', 'claude-jsonl'];
+const SOURCE_TYPES = ['opencode-db', 'claude-jsonl', 'codex-jsonl'];
 
 function isDirectory(p: string): boolean {
   try { return fs.existsSync(p) && fs.statSync(p).isDirectory(); } catch { return false; }
