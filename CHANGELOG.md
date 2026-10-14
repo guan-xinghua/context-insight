@@ -7,6 +7,10 @@
 ### Added
 - 【dsh（DeepSeek Harness）会话归类】cpx 捕获的 dsh 会话按框架归类显示 DSH 徽标（与 claude / opencode / codex 并列，同 sid 多记录类共存）
 
+### Security
+- 【浏览器跨源请求防护】API 增加浏览器来源校验（单点入口 proxy）：非本机页面发起的跨源请求一律拒绝；本地 CLI / TUI / cpx 自动导入等非浏览器调用不受影响
+- 【监听面与导入路径可选白名单】`npm start` 显式绑定 127.0.0.1（与 start.sh / cbi 启动器一致，消除局域网暴露面）；新增环境变量 `CANNBOT_INSIGHT_IMPORT_ROOTS`（逗号分隔，支持 ~）——设置后导入/浏览接口只接受白名单根内的路径，数据主目录（cpx 捕获落点）恒放行；默认不设置则行为不变（任意位置可导入）
+
 ## [v0.2.38] - 2026-10-10
 
 ### Added

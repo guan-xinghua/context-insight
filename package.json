@@ -12,10 +12,10 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "build:export-view": "node scripts/build-export-view.mjs",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "postinstall": "node scripts/postinstall.mjs",
     "prepack": "node scripts/build-cli.mjs",
     "lint": "eslint",

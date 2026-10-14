@@ -11,8 +11,8 @@
 // （历史缺陷：测试直连共享 dev.db，漏清理的夹具会出现在会话列表里、删了下次
 // 跑测试又回来）。每次运行**重建** test.db：上一轮夹具残留随建随清，run-to-run
 // 确定性；schema 沿用 tracked migrations（migrate deploy）。`.env` 引导保留
-// （server 侧 fresh clone 兜底，与 start.sh 默认一致；测试在 setup.ts 里先于
-// PrismaClient 构造把 DATABASE_URL 指向 test.db，不读 .env）。Run via the
+// （server 侧 fresh clone 兜底，与 start.sh 默认一致；vitest 会把 .env 合入
+// process.env，setup.ts 先剥除该泄漏再把 DATABASE_URL 指向 test.db）。Run via the
 // `pretest` hook（npm 只对 `test` 名挂钩，test:e2e / test:cov 已显式串联）。
 
 import { spawnSync } from 'node:child_process';

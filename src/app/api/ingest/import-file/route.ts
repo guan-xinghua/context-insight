@@ -13,6 +13,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { isKnownSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
+import { checkImportablePath } from '@/lib/ingest/import-paths';
 import { prisma } from '@/lib/db';
 import { logDebug, logError } from '@/lib/logger';
 
@@ -37,6 +38,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Missing required fields: sessionId, filePath' },
         { status: 400 }
+      );
+    }
+
+    // 白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS 设置时）先于一切文件读取——
+    // detectSqliteSource/fileExists 都不得触碰白名单外的路径
+    const pathDecision = checkImportablePath(filePath);
+    if (!pathDecision.ok) {
+      return NextResponse.json(
+        { error: `Path "${filePath}" is outside the allowed import roots: ${pathDecision.roots.join(', ')}`, reason: 'path-outside-import-roots' },
+        { status: 403 }
       );
     }
 

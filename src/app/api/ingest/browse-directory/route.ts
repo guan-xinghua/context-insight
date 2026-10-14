@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sniffImportableFile } from '@/lib/ingest/adapters/registry';
-import { expandHome } from '@/lib/ingest/import-paths';
+import { expandHome, checkImportablePath } from '@/lib/ingest/import-paths';
 import fs from 'node:fs';
 import path from 'node:path';
 import { logError, logWarn } from '@/lib/logger';
@@ -22,6 +22,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Missing required field: dirPath' },
         { status: 400 },
+      );
+    }
+
+    // 白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS 设置时）先于一切目录读取
+    const pathDecision = checkImportablePath(dirPath);
+    if (!pathDecision.ok) {
+      return NextResponse.json(
+        { error: `Path "${dirPath}" is outside the allowed import roots: ${pathDecision.roots.join(', ')}`, reason: 'path-outside-import-roots' },
+        { status: 403 },
       );
     }
 

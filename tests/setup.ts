@@ -10,13 +10,21 @@ import { beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import fs from "node:fs";
 import path from "node:path";
+import { isEnvFileLeakedUrl } from "./db-env-guard";
 
 // 测试库隔离默认值：测试一律写独立 prisma/test.db（pretest 每次重建）。真实
 // prisma/dev.db 由常驻 server 独占——夹具会话从物理上不可能再泄进用户数据
 // （历史缺陷：测试直连 dev.db，漏清理夹具删了下次跑测试又回来）。显式
-// DATABASE_URL（CI/本地指向特定库）优先于本默认。vitest worker 不自动读
-// .env，PrismaClient 构造时读 process.env——本行必须先于任何 PrismaClient
-// （含被测模块经 @/lib/db 的单例）
+// DATABASE_URL（CI/本地指向特定库）优先于本默认。PrismaClient 构造时读
+// process.env——本段必须先于任何 PrismaClient（含被测模块经 @/lib/db 的单例）。
+// vitest 3 会经 Vite loadEnv 把包根 .env*（server 运行时引导，ensure-test-db
+// 在 fresh clone 创建）合入 process.env 且不覆盖已有值——与 .env 同值的
+// DATABASE_URL 是泄漏而非显式选择，先剥除再走默认（shell 显式值不受影响），
+// 否则全套件击穿隔离写生产库（回归锁：tests/ut/test-db-isolation.test.ts +
+// tests/ut/db-env-guard.test.ts）
+if (isEnvFileLeakedUrl(process.env.DATABASE_URL, path.resolve(__dirname, ".."))) {
+  delete process.env.DATABASE_URL;
+}
 process.env.DATABASE_URL ||= "file:./test.db";
 
 // 兜底守卫：绕过 pretest 的直接 vitest（`npx vitest run <file>`）在 test.db
