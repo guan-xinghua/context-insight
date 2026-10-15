@@ -35,6 +35,7 @@ export const IMPORT_SOURCES_UI: Record<string, ImportSourceUi> = {
     quickDirs: [
       { label: 'cpx proxy 捕获', path: '~/.cannbot-insight/proxy' },
       { label: 'Claude 原生', path: '~/.claude/projects' },
+      { label: 'DSH 原生', path: '~/.dsh/sessions' },
     ],
     directFileImport: true,
     badgeLabel: 'JSONL',

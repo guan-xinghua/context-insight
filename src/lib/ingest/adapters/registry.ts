@@ -24,19 +24,29 @@ import {
 } from './codex-jsonl';
 import { isRolloutFileName } from './codex-naming';
 import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession } from './cannbot-insight';
+import {
+  listSessions as dshNativeListSessions,
+  readSession as dshNativeReadSession,
+  readSubagentInteractions as dshNativeReadSubagents,
+  extractVersion as dshNativeExtractVersion,
+  isDshSessionLogName,
+} from '../dsh-bridge/native';
 
-// ── 源注册表（agent-source-framework 单点）───────────────────────────
-// 声明序即嗅探优先级：前缀精确嗅探（cannbot_session_ / rollout-）必须排在
-// 扩展名兜底（opencode-db 的 .db / claude-jsonl 的 .jsonl）之前，否则
-// codex 的 rollout-*.jsonl 会被误判成 claude 捕获件。
-// 新框架接入清单见 docs/design/agent-source-framework/design.md §2.6：
-// 实现一个 SourceDescriptor + 在此加一行，其余触点全部注册表驱动。
+// ── 源注册表 ─────────────────────────────────────────────────────────
+// 每个源在这里声明一次（字段见 contract.ts 的 SourceDescriptor）。导入接口、
+// 文件识别、UI 都从这里读，不用在别处再抄一份；新增一个源 = 写一个
+// SourceDescriptor + 在下面 SOURCES 里加一行（清单见
+// docs/design/agent-source-framework/design.md §2.6）。
+//
+// SOURCES 的先后顺序 = 文件识别的优先级：按具体名字匹配的（cannbot_session_、
+// rollout- 前缀）必须排在只按扩展名匹配的（.db、.jsonl）前面，否则 codex 的
+// rollout-*.jsonl 会被当成 claude 的 .jsonl 文件。
 
 const SQLITE_EXTS = ['.db', '.sqlite', '.sqlite3'];
 const isSqliteName = (fileName: string): boolean => SQLITE_EXTS.some(e => fileName.toLowerCase().endsWith(e));
 const isJsonlName = (fileName: string): boolean => {
   const lower = fileName.toLowerCase();
-  // extname 对 'x.jsonl.7z' 返回 '.7z'，压缩三形态必须用 endsWith 判定
+  // 不能用 extname：'x.jsonl.7z' 的 extname 是 '.7z'，所以这里只看结尾是不是这三种
   return lower.endsWith('.jsonl') || lower.endsWith('.jsonl.gz') || lower.endsWith('.jsonl.7z');
 };
 
@@ -55,9 +65,21 @@ const codexJsonlSource: SourceDescriptor = {
   readSession: codexJsonlReadSession,
   readSubagents: codexJsonlReadSubagents,
   extractVersion: extractCodexVersion,
-  // rollout- 前缀精确嗅探：必须先于 claude-jsonl 的扩展名兜底，否则
-  // codex 原生会话被误判成 claude 捕获件
+  // 按 rollout- 前缀认 codex 文件：必须排在 claude-jsonl（按 .jsonl 认）前面，
+  // 否则 codex 的 rollout-*.jsonl 会被当成 claude 文件
   sniffFile: (fileName) => isRolloutFileName(fileName),
+};
+
+const dshNativeSource: SourceDescriptor = {
+  sourceType: 'dsh-native',
+  framework: 'dsh',
+  listSessions: dshNativeListSessions,
+  readSession: dshNativeReadSession,
+  readSubagents: dshNativeReadSubagents,
+  extractVersion: dshNativeExtractVersion,
+  // 按固定文件名认 DSH 文件（session.v4.jsonl / session.v4.jsonl.zstd）：必须排在
+  // claude-jsonl（按 .jsonl 认）前面，否则 .jsonl 那种会被当成 claude 文件
+  sniffFile: (fileName) => isDshSessionLogName(fileName),
 };
 
 const claudeJsonlSource: SourceDescriptor = {
@@ -68,8 +90,8 @@ const claudeJsonlSource: SourceDescriptor = {
   readSubagents: claudeJsonlReadSubagents,
   collectSubagentToolUseMap: collectSubagentToolUseMappings,
   extractVersion: extractClaudeVersion,
-  // 扩展名兜底：任何 jsonl（含压缩三形态）都可按 claude 格式尝试解析，
-  // 注册在最后，前缀精确嗅探（rollout- 等）先于本兜底命中
+  // 按 .jsonl 结尾认文件：任何 jsonl 都先按 claude 格式试着解析。放最后，
+  // 前面按名字匹配的源（rollout- 等）会先命中
   sniffFile: (fileName) => isJsonlName(fileName),
 };
 
@@ -81,12 +103,13 @@ const cannbotInsightSource: SourceDescriptor = {
   sniffFile: (fileName) => isSqliteName(fileName) && fileName.startsWith('cannbot_session_'),
 };
 
-// 嗅探优先级：cannbot（前缀+db）> opencode-db（db 兜底）> codex（rollout-
-// 前缀）> claude-jsonl（jsonl 兜底）
+// 顺序 = 文件识别优先级（从上到先命中先用）：
+//   cannbot_session_*.db > 其它 .db > rollout-*.jsonl > session.v4.jsonl[.zstd] > 其它 .jsonl
 export const SOURCES: SourceDescriptor[] = [
   cannbotInsightSource,
   opencodeDbSource,
   codexJsonlSource,
+  dshNativeSource,
   claudeJsonlSource,
 ];
 
@@ -98,7 +121,7 @@ export function getSource(sourceType: string): SourceDescriptor | null {
   return SOURCES.find(s => s.sourceType === sourceType) ?? null;
 }
 
-// 未知源报错带支持清单——此前该文案散在 getAdapter/normalize/路由三处，口径靠人肉同步
+// 报错时把支持的类型一起列出来（以前这段文案散在三处，容易写得不一致）
 export function requireSource(sourceType: string): SourceDescriptor {
   const found = getSource(sourceType);
   if (!found) {
@@ -111,20 +134,20 @@ export function isKnownSource(sourceType: string): boolean {
   return getSource(sourceType) != null;
 }
 
-/** sourceType → 原生 framework（agent 归属落库值）。-proxy 装饰不在此处
- * （那是捕获记录类，data-service 施加）。 */
+/** sourceType → framework（写进 Session.framework 的值）。
+ *  带 -proxy 后缀的不在这里处理（那是 cpx 捕获，由 data-service 加上后缀）。 */
 export function frameworkOfSource(sourceType: string): string | null {
   return getSource(sourceType)?.framework ?? null;
 }
 
-/** framework → sourceType 反向映射（deltaRefresh 用）。只解析原生 framework；
- * proxy 变体（-proxy 后缀）由调用方先行归一到 claude-jsonl（捕获件恒 claude 格式）。 */
+/** framework → sourceType 的反查（deltaRefresh 用）。只认不带后缀的原生值；
+ *  带 -proxy 后缀的要调用方先去掉后缀（cpx 抓下来的文件固定是 claude 格式）。 */
 export function sourceOfFramework(framework: string): string | null {
   return SOURCES.find(s => s.framework === framework)?.sourceType ?? null;
 }
 
-/** 文件级源识别（browse-directory 的 importableType 单点判定）。
- * 返回 sourceType 或 null（不可导入）。目录项判定调用方自查 isDirectory。 */
+/** 按文件名判断属于哪个源（browse-directory 用它填 importableType）。
+ *  返回 sourceType，认不出返回 null；是不是目录由调用方自己判断。 */
 export function sniffImportableFile(fileName: string): string | null {
   for (const source of SOURCES) {
     if (source.sniffFile?.(fileName)) return source.sourceType;

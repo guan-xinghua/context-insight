@@ -11,6 +11,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { isKnownSource, getSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
+import { isDshSessionPath } from '@/lib/ingest/dsh-detect';
 import { checkImportablePath } from '@/lib/ingest/import-paths';
 import { logDebug, logError, logInfo } from '@/lib/logger';
 
@@ -55,6 +56,10 @@ export async function POST(request: NextRequest) {
       const detected = detectSqliteSource(filePath);
       if (detected && detected !== source) source = detected;
     }
+
+    // 通用 JSONL 入口：路径其实是 DSH 原生会话时自动按 dsh-native 读
+    // （DSH 并入 JSONL tab，与上面 SQLite auto 同一思路）
+    if (source === 'claude-jsonl' && isDshSessionPath(filePath)) source = 'dsh-native';
 
     const descriptor = getSource(source);
     if (!descriptor) {

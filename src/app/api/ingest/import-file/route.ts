@@ -13,6 +13,7 @@ import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { isKnownSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
 import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
+import { isDshSessionPath } from '@/lib/ingest/dsh-detect';
 import { checkImportablePath } from '@/lib/ingest/import-paths';
 import { prisma } from '@/lib/db';
 import { logDebug, logError } from '@/lib/logger';
@@ -57,6 +58,11 @@ export async function POST(request: NextRequest) {
       const detected = detectSqliteSource(filePath);
       if (detected && detected !== source) source = detected;
     }
+
+    // 通用 JSONL 入口：路径其实是 DSH 原生会话时自动按 dsh-native 读。
+    // DSH 不再有独立 tab、并入了 JSONL，与上面 SQLite auto 是同一思路；
+    // 不这样做的话，DSH 的 session.v4.jsonl 会被当成 claude 文件解析。
+    if (source === 'claude-jsonl' && isDshSessionPath(filePath)) source = 'dsh-native';
 
     // Distinguish "file missing" from "session already exists" up front:
     // both surface as imported:false downstream, and the UI used to label

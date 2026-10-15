@@ -6,6 +6,7 @@
 
 ### Added
 - 【dsh（DeepSeek Harness）会话归类】cpx 捕获的 dsh 会话按框架归类显示 DSH 徽标（与 claude / opencode / codex 并列，同 sid 多记录类共存）
+- 【DSH 原生会话导入】`~/.dsh/sessions/**/session.v4.jsonl(.zstd)` 与 dsh-export 导出根可直接导入：多帧 zstd 解压 → 事件转义为会话轮次 → 子代理按 `header.parentSession` 并入主会话时间线（DSH 徽标）
 
 ### Security
 - 【浏览器跨源请求防护】API 增加浏览器来源校验（单点入口 proxy）：非本机页面发起的跨源请求一律拒绝；本地 CLI / TUI / cpx 自动导入等非浏览器调用不受影响

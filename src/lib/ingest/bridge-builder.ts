@@ -105,8 +105,16 @@ function parseTaskArgs(argsJson: string | null, toolName?: string): TaskArgs {
 
 function extractSubagentSessionIdFromResult(resultJson: string | null): string | null {
   if (!resultJson) return null;
-  const match = resultJson.match(/task_id:\s*(\S+)/);
-  return match ? match[1] : null;
+  // claude 原生 Task：结果文本里的 `task_id: <id>`
+  const claudeTask = resultJson.match(/task_id:\s*(\S+)/);
+  if (claudeTask) return claudeTask[1];
+  // dsh(DeepSeek Harness)：派发成功的工具结果是 `started subagent <uuid>`
+  // （原生适配器与 cpx/dsh-gateway 捕获同形）。缺了这条，DSH 原生会话派发
+  // 取不到子会话 id——既不是 claude 的 task_id、也不是 codex 的 JSON
+  // agent_id——会撞上下方「结果非空即不建桥」的失败派发守卫，子代理连不上、
+  // 退化成普通 tool call（与 7dcdae9 同源修复）。
+  const dshSub = resultJson.match(/started subagent\s+([0-9a-fA-F-]{36})/);
+  return dshSub ? dshSub[1] : null;
 }
 
 // codex spawn_agent 的输出是干净 JSON：{"agent_id":"<子会话 id>","nickname":"..."}
