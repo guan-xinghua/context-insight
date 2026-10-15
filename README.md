@@ -6,7 +6,7 @@ Session-level observability for LLM coding agents: import agent session logs and
 
 ## Features
 
-Import SQLite (opencode.db) or JSONL (native Claude Code / Codex `rollout-*.jsonl` / DSH `session.v4.jsonl(.zstd)` / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs:
+Import SQLite (opencode.db) or JSONL (native Claude Code / Codex `rollout-*.jsonl` / DSH `session.v4.jsonl(.zstd)` / cpx proxy captures; plaintext, `.jsonl.7z` and legacy `.jsonl.gz`, `cpx-` prefix handled) and explore the session detail tabs. A single "JSONL (auto)" entry detects Claude vs Codex vs DSH per file content — no per-framework picker:
 
 - **Tokens & Cost** — 5-item per-turn token breakdown vs the model's context window, plus cost estimation
 - **Active / Wall time** — session detail Wall Clock split (active + inactive = wall) and Active / Wall columns on the homepage: event-clustering semantics (gaps >5min count as inactive, in-flight API calls count as active)

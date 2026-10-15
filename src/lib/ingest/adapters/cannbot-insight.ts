@@ -7,7 +7,16 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import Database from 'better-sqlite3';
+import { peekSqliteTables } from '../sqlite-detect';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
+
+// 内容级识别（SourceDescriptor.detectContent 能力）：Prisma 大写表 "Session"
+// 存在即认领（导出库 schema）；其余可读库明确不认领（false）；读不出 → null。
+export function detectContent(filePath: string): boolean | null {
+  const tables = peekSqliteTables(filePath);
+  if (tables == null) return null;
+  return tables.has('Session');
+}
 
 export function listSessions(dbPath: string): SessionListItem[] {
   let db: Database.Database | null = null;

@@ -9,6 +9,7 @@
 import { subagentTiming } from '@/lib/subagent-timing';
 import type { RawInteraction } from '../shared/types';
 import type { ToolCallRow, TurnRow } from './turn-split';
+import { resolveDispatchToolCall, type DispatchRecord } from './dispatch-tools';
 
 export interface InteractionBridgeRow {
   id: string;
@@ -46,88 +47,10 @@ export function resetIdCounter(): void {
 
 const TIMEOUT_THRESHOLD_MS = 30 * 60 * 1000;
 
-interface TaskArgs {
-  subagent_session_id?: string;
-  subagent_name?: string;
-  subagent_type?: string;
-  summary?: string;
-  description?: string;
-  prompt?: string;
-}
-
-// spawn_agent items 参数内首个任务文本（0.162 形态）：items 是纯文本项
-// 数组 [{type:'text', text}]（真机 dumpC 四个子代理一致）；防御性兼容
-// message 项形态 {type:'message', content:[…]}。与 cpx codex-emitter 的
-// spawnTaskOf 同源结论（两包不互相 import，双形态语义对齐）。
-function firstTextOfSpawnItems(items: unknown): string | null {
-  if (!Array.isArray(items)) return null;
-  for (const item of items as Array<Record<string, unknown>>) {
-    let text = '';
-    if (typeof item.text === 'string') {
-      text = item.text;
-    } else if (Array.isArray(item.content)) {
-      text = (item.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('');
-    }
-    if (text) return text;
-  }
-  return null;
-}
-
-function parseTaskArgs(argsJson: string | null, toolName?: string): TaskArgs {
-  if (!argsJson) return {};
-  try {
-    const args = JSON.parse(argsJson);
-    if (toolName === 'Agent') {
-      return {
-        subagent_session_id: args.subagent_session_id ?? null,
-        subagent_name: args.name ?? args.subagent_name ?? null,
-        subagent_type: args.subagent_type ?? args.mode ?? null,
-        summary: args.description ?? null,
-        description: args.description ?? null,
-        prompt: args.prompt ?? null,
-      };
-    }
-    if (toolName === 'spawn_agent') {
-      // codex 任务文本 wire 双形态（真机 0.161/0.162 核实）：0.161 message
-      // 直传；0.162 模型从工具错误中学习后只传 fork_context+items（items 内
-      // 纯文本项）。只认 message 会让 0.162 成功派发的桥 dispatchContent
-      // 恒空——内容锚定失效，退化为时间邻近匹配（真机曾把失败重试误锚到
-      // 无关子代理）。
-      return {
-        prompt: args.message ?? firstTextOfSpawnItems(args.items) ?? args.prompt ?? args.task ?? null,
-      };
-    }
-    return args;
-  } catch {
-    return {};
-  }
-}
-
-function extractSubagentSessionIdFromResult(resultJson: string | null): string | null {
-  if (!resultJson) return null;
-  // claude 原生 Task：结果文本里的 `task_id: <id>`
-  const claudeTask = resultJson.match(/task_id:\s*(\S+)/);
-  if (claudeTask) return claudeTask[1];
-  // dsh(DeepSeek Harness)：派发成功的工具结果是 `started subagent <uuid>`
-  // （原生适配器与 cpx/dsh-gateway 捕获同形）。缺了这条，DSH 原生会话派发
-  // 取不到子会话 id——既不是 claude 的 task_id、也不是 codex 的 JSON
-  // agent_id——会撞上下方「结果非空即不建桥」的失败派发守卫，子代理连不上、
-  // 退化成普通 tool call（与 7dcdae9 同源修复）。
-  const dshSub = resultJson.match(/started subagent\s+([0-9a-fA-F-]{36})/);
-  return dshSub ? dshSub[1] : null;
-}
-
-// codex spawn_agent 的输出是干净 JSON：{"agent_id":"<子会话 id>","nickname":"..."}
-// （与 claude Task 的 task_id: 文本协议不同，JSON 直解比 regex 精确）
-function extractSpawnAgentResult(resultJson: string | null): { sessionId: string | null; nickname: string | null } {
-  if (!resultJson) return { sessionId: null, nickname: null };
-  try {
-    const parsed = JSON.parse(resultJson) as { agent_id?: string; nickname?: string };
-    return { sessionId: parsed.agent_id ?? null, nickname: parsed.nickname ?? null };
-  } catch {
-    return { sessionId: null, nickname: null };
-  }
-}
+// 派发工具的识别与参数解析在 dispatch-tools.ts 的声明式注册表（spec 列表）：
+// claude Task（jsonl 原生 task / proxy Agent）+ codex spawn_agent + 自定义派发
+// 工具族（reuseDispatch 的 subagent 插件…）。本文件只保留「匹配 → 建桥」逻辑，
+// 新增派发形态不再改这里。
 
 function isSubagentError(turn: TurnRow): boolean {
   if (turn.finishReason === 'error' || turn.finishReason === 'failed') return true;
@@ -144,8 +67,13 @@ export function buildBridges(
 ): InteractionBridgeRow[] {
   const bridges: InteractionBridgeRow[] = [];
 
-  // 派发工具：claude Task（jsonl 原生 task / proxy Agent）+ codex spawn_agent
-  const dispatchToolCalls = toolCalls.filter(tc => tc.toolName === 'task' || tc.toolName === 'Agent' || tc.toolName === 'spawn_agent');
+  // 派发工具识别走声明式注册表（dispatch-tools.ts）：claude Task（jsonl 原生
+  // task / proxy Agent）+ codex spawn_agent + 自定义派发工具族（subagent 插件…）
+  const dispatchEntries: Array<{ tc: ToolCallRow; rec: DispatchRecord }> = [];
+  for (const tc of toolCalls) {
+    const rec = resolveDispatchToolCall(tc);
+    if (rec) dispatchEntries.push({ tc, rec });
+  }
 
   const subagentInteractionMap = new Map<string, RawInteraction[]>();
   for (const interaction of interactions) {
@@ -169,25 +97,18 @@ export function buildBridges(
 
   const usedSessionIds = new Set<string>();
 
-  for (const dispatchTc of dispatchToolCalls) {
-    const args = parseTaskArgs(dispatchTc.argsJson, dispatchTc.toolName);
-    let matchedSessionId: string | null = args.subagent_session_id ?? null;
+  for (const { tc: dispatchTc, rec } of dispatchEntries) {
+    let matchedSessionId: string | null = rec.argSessionId;
 
     // For Agent tool calls, use the meta.json toolUseId mapping for precise matching
-    if (!matchedSessionId && dispatchTc.toolName === 'Agent' && toolUseIdToSubagentSessionId) {
+    if (!matchedSessionId && rec.spec.linkViaToolUseMeta && toolUseIdToSubagentSessionId) {
       matchedSessionId = toolUseIdToSubagentSessionId.get(dispatchTc.toolCallId) ?? null;
     }
 
-    // codex spawn_agent：从输出 JSON 精确取 agent_id，nickname 一并带出
-    let resultNickname: string | null = null;
-    if (!matchedSessionId && dispatchTc.toolName === 'spawn_agent') {
-      const spawned = extractSpawnAgentResult(dispatchTc.resultJson);
-      matchedSessionId = spawned.sessionId;
-      resultNickname = spawned.nickname;
-    }
-
+    // 结果侧提取（spawn_agent JSON agent_id / task_id 文本协议）在 spec 的
+    // 提取器列表里按序完成
     if (!matchedSessionId) {
-      matchedSessionId = extractSubagentSessionIdFromResult(dispatchTc.resultJson);
+      matchedSessionId = rec.resultSessionId;
     }
 
     if (!matchedSessionId) {
@@ -221,11 +142,11 @@ export function buildBridges(
       }
     }
 
-    const dispatchContent = args.summary ?? args.description ?? args.prompt ?? null;
+    const dispatchContent = rec.content;
     const dispatchTimestamp = dispatchTc.startedAt ?? null;
 
-    const subagentName = args.subagent_name ?? resultNickname ?? null;
-    const subagentType = args.subagent_type ?? null;
+    const subagentName = rec.displayName ?? rec.resultNickname ?? null;
+    const subagentType = rec.agentType;
 
     if (matchedSessionId) {
       usedSessionIds.add(matchedSessionId);

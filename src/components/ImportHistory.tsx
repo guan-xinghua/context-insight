@@ -230,7 +230,7 @@ export function ImportHistory() {
                 ? agentFw
                 : null
               const isProxy = isProxyVersion(vSource)
-              const isProxyCapture = entry.sourceType === "claude-jsonl" && (entry.filePath?.includes("/proxy/") ?? false)
+              const isProxyCapture = (entry.sourceType === "claude-jsonl" || entry.sourceType === "jsonl") && (entry.filePath?.includes("/proxy/") ?? false)
               const legacyOpencode = isProxyCapture && /cpx-ses_[^/]*\.jsonl$/.test(entry.filePath ?? "")
               const showOpencode = knownFramework === "opencode" || (!knownFramework && legacyOpencode)
               const showProxy = knownFramework ? isProxy : isProxyCapture
@@ -263,6 +263,8 @@ export function ImportHistory() {
                     )
                   ) : entry.sourceType === "codex-jsonl" ? (
                     <Badge variant="slate">Codex</Badge>
+                  ) : entry.sourceType === "jsonl" ? (
+                    <Badge variant="gray">JSONL</Badge>
                   ) : "—"}
                 </TableCell>
                 <TableCell className="text-xs">

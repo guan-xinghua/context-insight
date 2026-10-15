@@ -16,12 +16,17 @@ export type { SourceDescriptor, SubagentRef } from './contract';
 export {
   SOURCES,
   KNOWN_SOURCE_TYPES,
+  UMBRELLA_SOURCE_TYPES,
+  SOURCE_FAMILIES,
   getSource,
   requireSource,
   isKnownSource,
+  isUmbrellaSource,
   frameworkOfSource,
   sourceOfFramework,
   sniffImportableFile,
+  resolveSource,
+  SourceResolutionError,
 } from './registry';
 
 /** @deprecated 旧 Adapter 形状（仅 listSessions/readSession）。新代码用

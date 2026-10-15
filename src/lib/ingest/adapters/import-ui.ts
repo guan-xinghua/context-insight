@@ -29,13 +29,26 @@ export interface ImportSourceUi {
 }
 
 export const IMPORT_SOURCES_UI: Record<string, ImportSourceUi> = {
+  // 伞形入口（SOURCE_FAMILIES.jsonl）：claude 布局 / codex rollout / DSH 原生
+  // 按文件内容自动识别（registry.resolveSource 探测），UI 不再按框架分键
+  jsonl: {
+    buttonLabel: 'JSONL (auto)',
+    placeholder: '/path/to/*.jsonl(.7z/.gz) or sessions-dir — claude/codex/dsh 自动识别',
+    quickDirs: [
+      { label: 'cpx proxy 捕获', path: '~/.cannbot-insight/proxy' },
+      { label: 'Claude 原生', path: '~/.claude/projects' },
+      { label: 'Codex 原生', path: '~/.codex/sessions' },
+      { label: 'DSH 原生', path: '~/.dsh/sessions' },
+    ],
+    directFileImport: true,
+    badgeLabel: 'JSONL',
+  },
   'claude-jsonl': {
     buttonLabel: 'JSONL',
     placeholder: '/path/to/session.jsonl(.7z/.gz) or /path/to/sessions-dir',
     quickDirs: [
       { label: 'cpx proxy 捕获', path: '~/.cannbot-insight/proxy' },
       { label: 'Claude 原生', path: '~/.claude/projects' },
-      { label: 'DSH 原生', path: '~/.dsh/sessions' },
     ],
     directFileImport: true,
     badgeLabel: 'JSONL',

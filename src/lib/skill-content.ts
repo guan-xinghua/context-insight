@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { parseReadLines } from './file-restore';
+import { isSkillToolCall, extractSkillName, parseReadToolArgs, unwrapSkillContent } from './tool-conventions';
 
 export interface SkillToolCall {
   toolName: string;
@@ -23,24 +24,6 @@ export interface SkillContentResult {
   fullRead: boolean;
   /** read 来源时实际读到的最大行号（文件真实行号）；skill-tool 为 null。 */
   maxLine: number | null;
-}
-
-const SKILL_TOOL_NAMES = new Set(['skill', 'load_skill', 'skill/load_skill', 'skill/invoke']);
-
-export function isSkillToolCall(toolName: string): boolean {
-  const lower = toolName.toLowerCase();
-  return lower.startsWith('skill/') || SKILL_TOOL_NAMES.has(lower);
-}
-
-export function extractSkillName(toolName: string, argsJson: string | null): string {
-  if (!argsJson) return toolName.replace(/^skill\//i, '');
-  try {
-    const args = JSON.parse(argsJson);
-    if (args.skill) return args.skill;
-    if (args.skill_name) return args.skill_name;
-    if (args.name) return args.name;
-  } catch { /* ignore */ }
-  return toolName.replace(/^skill\//i, '');
 }
 
 export function extractSkillNameFromReadPath(filePath: string): string | null {
@@ -77,11 +60,9 @@ function readMaxLine(resultJson: string): number | null {
 }
 
 function hasReadOffsetOrLimit(argsJson: string | null): boolean {
-  if (!argsJson) return false;
-  try {
-    const a = JSON.parse(argsJson);
-    return (a.offset != null && a.offset > 0) || a.limit != null;
-  } catch { return false; }
+  const args = parseReadToolArgs(argsJson);
+  if (!args) return false;
+  return (args.offset != null && args.offset > 0) || args.limit != null;
 }
 
 const TRUNCATION_RE = /(?:only\s+showing\s+(?:the\s+)?first\s+\d+\s+lines)|(?:lines?\s+(?:hidden|omitted|not\s+shown|truncated))|(?:content\s+(?:was\s+)?truncat)|(?:file\s+is\s+(?:large|too\s+large))/i;
@@ -109,12 +90,10 @@ export function selectSkillContent(
       continue;
     }
     if (lower === 'read' && tc.argsJson && tc.resultJson) {
-      try {
-        const args = JSON.parse(tc.argsJson);
-        const fp = String(args.file_path ?? args.filePath ?? '');
-        const name = extractSkillNameFromReadPath(fp);
-        if (name && want(name)) readCandidates.push(tc);
-      } catch { /* ignore */ }
+      // read 参数键走词表（opencode `path` / Claude Code `file_path` 等同义键）
+      const fp = parseReadToolArgs(tc.argsJson)?.filePath ?? '';
+      const name = extractSkillNameFromReadPath(fp);
+      if (name && want(name)) readCandidates.push(tc);
     }
   }
 
@@ -122,7 +101,8 @@ export function selectSkillContent(
     const best = skillToolCandidates.reduce((a, b) =>
       (b.resultJson?.length ?? 0) > (a.resultJson?.length ?? 0) ? b : a
     );
-    const content = stripSkillPreamble(best.resultJson!);
+    // v2 `<skill_content>` 协议壳优先剥除；v1 纯文本形态回落前言剥离
+    const content = unwrapSkillContent(best.resultJson) ?? stripSkillPreamble(best.resultJson!);
     return { content, source: 'skill-tool', length: content.length, fullRead: true, maxLine: null };
   }
 

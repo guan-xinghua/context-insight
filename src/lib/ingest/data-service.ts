@@ -18,8 +18,9 @@ import { isProxyVersion } from '../shared/session-format';
 import { normalize } from './normalize';
 import { splitIntoTurns, resetIdCounter } from './turn-split';
 import type { TurnRow, ToolCallRow, SkillEventRow } from './turn-split';
-import { dedupSession, mergeToolCalls, mergeSkillEvents, diffTurns, diffToolCalls, rankedKeyMap, keyByRankedTurn, detectRankedPrefixDrift } from './merge';
+import { dedupSession, mergeSkillEvents, diffTurns, diffToolCalls, rankedKeyMap, keyByRankedTurn, detectRankedPrefixDrift } from './merge';
 import { buildBridges, resetIdCounter as resetBridgeIdCounter } from './bridge-builder';
+import { backfillTurnNamesFromDispatches } from './dispatch-tools';
 import { splitExecutions, resetIdCounter as resetExecIdCounter } from './execution-split';
 import type { ExecutionRow } from './execution-split';
 import type { InteractionBridgeRow } from './bridge-builder';
@@ -260,6 +261,57 @@ function buildExecutionGraph(
   });
 
   return { executionsData, executionSkillsData, bridgesData, sessionSkillsData, rootExecutionId };
+}
+
+// 派发名回填落库（merge/增量路径）：rankedKey 命中的既有 Turn 行名字空缺时补值
+// （null → 值；已有值不覆盖——与内存回填的 ??= 语义一致，防 stale 名被误改）。
+// 按目标值分组 updateMany，避免逐行 update。新建路径不经此函数（createMany
+// 已带回填值）；增量路径的漂移全量替换亦同（删除重建时带回填值）。
+async function persistTurnNameBackfill(
+  tx: Prisma.TransactionClient,
+  turns: TurnRow[],
+  existingTurnByRankedKey: Map<string, { id: string; subagentName: string | null; agentName: string | null }>,
+  incomingRankedKeys: Map<TurnRow, string>,
+): Promise<void> {
+  const groups = new Map<string, { ids: string[]; subagentName: string | null; agentName: string | null }>();
+  for (const turn of turns) {
+    if (!turn.subagentName && !turn.agentName) continue;
+    const existing = existingTurnByRankedKey.get(incomingRankedKeys.get(turn) ?? '');
+    if (!existing) continue; // 新行：createMany 已带值
+    if (existing.subagentName === turn.subagentName && existing.agentName === turn.agentName) continue;
+    const key = `${turn.subagentName}\u0000${turn.agentName}`;
+    const group = groups.get(key) ?? { ids: [], subagentName: turn.subagentName, agentName: turn.agentName };
+    group.ids.push(existing.id);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    if (group.subagentName != null) {
+      await tx.turn.updateMany({
+        where: { id: { in: group.ids }, subagentName: null },
+        data: { subagentName: group.subagentName },
+      });
+    }
+    if (group.agentName != null) {
+      await tx.turn.updateMany({
+        where: { id: { in: group.ids }, agentName: null },
+        data: { agentName: group.agentName },
+      });
+    }
+  }
+}
+
+/** 存量 ToolCall 行（prisma，Date 日期）→ ToolCallRow（ISO 日期），diffToolCalls 比较用 */
+type PrismaToolCallLike = Omit<ToolCallRow, 'startedAt' | 'completedAt'> & {
+  startedAt: Date | null;
+  completedAt: Date | null;
+};
+
+function existingToolCallToRow(tc: PrismaToolCallLike): ToolCallRow {
+  return {
+    ...tc,
+    startedAt: tc.startedAt?.toISOString() ?? null,
+    completedAt: tc.completedAt?.toISOString() ?? null,
+  };
 }
 
 async function replaceExecutionGraph(
@@ -548,6 +600,11 @@ async function importSessionInner(
     resetExecIdCounter();
 
     const { turns, toolCalls, skillEvents } = splitIntoTurns(normalized, sessionId);
+    // 派发名回填（reuseDispatch 适配）：派发参数是子代理名字的权威源——meta/
+    // 标题路径全断时（自定义派发工具 + 历史湖数据），从派发 args 直取。??= 语义
+    // 不覆盖来源侧已有名字；本路径的去重匹配只用 rankedKey（不含名字字段），
+    // 回填不影响匹配。存量行的落库补丁见 persistTurnNameBackfill。
+    backfillTurnNamesFromDispatches(turns, toolCalls);
     impLog.info('normalize+split', { sid: sessionId, ms: Date.now() - t3, turns: turns.length, toolCalls: toolCalls.length, skillEvents: skillEvents.length });
 
     const t4 = Date.now();
@@ -610,29 +667,16 @@ async function importSessionInner(
         normalized as unknown as RawInteraction[], sessionId, toolUseIdMapping,
       );
 
-      const mergedToolCallRows = mergeToolCalls(
-        existingToolCalls.map(tc => ({
-          id: tc.id,
-          turnId: tc.turnId,
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          argsJson: tc.argsJson,
-          resultJson: tc.resultJson,
-          state: tc.state,
-          errorType: tc.errorType,
-          errorMessage: tc.errorMessage,
-          startedAt: tc.startedAt?.toISOString() ?? null,
-          completedAt: tc.completedAt?.toISOString() ?? null,
-          durationMs: tc.durationMs,
-          dispatchBridgeId: tc.dispatchBridgeId,
-          isSkillRelated: tc.isSkillRelated,
-        })),
-        remappedToolCalls
-      );
-
-      const newToolCalls = mergedToolCallRows.filter(
-        mc => !existingToolCalls.some(ec => ec.toolCallId === mc.toolCallId)
-      ).map(mc => ({ ...mc, turnId: remapTurnId(mc.turnId) }));
+      // 工具调用合并：增量 + 漂移更新（diffToolCalls，与 deltaRefresh / turns
+      // 同语义——来源侧为权威）。历史缺陷：此前纯增量合并（mergeToolCalls）
+      // 使存量行永不更新——结果负载归一等提取约定修复后，存量会话重导入
+      // 无法自愈（v2 内容块 JSON 壳固化），只能删库重导。
+      // dispatchBridgeId 现网全空（桥接走 InteractionBridge 表），无抹除风险。
+      const existingTcByToolCallId = new Map<string, ToolCallRow>();
+      for (const tc of existingToolCalls) {
+        existingTcByToolCallId.set(tc.toolCallId, existingToolCallToRow(tc));
+      }
+      const { toInsert: newToolCalls, toUpdate: tcUpdates } = diffToolCalls(existingTcByToolCallId, remappedToolCalls);
 
       const newToolCallsData = newToolCalls.map(tc => ({
         ...tc,
@@ -640,7 +684,19 @@ async function importSessionInner(
         completedAt: toDate(tc.completedAt),
       }));
 
-      const mergedSkillEventRows = mergeSkillEvents(
+      const appliedTcUpdates = tcUpdates.map(u => {
+        const mapped: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(u.data)) {
+          if (k === 'completedAt' || k === 'startedAt') {
+            mapped[k] = toDate(v as string | null);
+          } else {
+            mapped[k] = v;
+          }
+        }
+        return { dbId: u.dbId, data: mapped };
+      });
+
+      const { rows: mergedSkillEventRows, nameUpdates: skillEventNameUpdates } = mergeSkillEvents(
         existingSkillEvents.map(se => ({
           id: se.id,
           turnId: se.turnId,
@@ -671,8 +727,19 @@ async function importSessionInner(
 
       await client.$transaction(async (tx) => {
         await batchCreateMany(tx, 'Turn' as Prisma.ModelName, newTurnsData);
+        await persistTurnNameBackfill(tx, turns, existingTurnByRankedKey, incomingRankedKeys);
         await batchCreateMany(tx, 'ToolCall' as Prisma.ModelName, newToolCallsData);
+        // 工具调用漂移自愈：存量行由旧提取约定产出（如 v2 内容块整体
+        // stringify 的 JSON 壳）——重导入即采纳来源侧新值（量小，逐行 update）
+        for (const u of appliedTcUpdates) {
+          await tx.toolCall.update({ where: { id: u.dbId }, data: u.data });
+        }
         await batchCreateMany(tx, 'SkillEvent' as Prisma.ModelName, newSkillEventsData);
+        // 名字漂移自愈：存量行由旧提取约定产出（如 opencode skill `id` 键
+        // 识别前回落工具名字面量）——采纳来源侧新名（量小，逐行 update）
+        for (const u of skillEventNameUpdates) {
+          await tx.skillEvent.update({ where: { id: u.dbId }, data: { skillName: u.skillName } });
+        }
         await replaceExecutionGraph(tx, existingSessionPrismaId, executionGraph);
       }, { maxWait: 30000, timeout: 60000 });
 
@@ -972,6 +1039,10 @@ export async function deltaRefreshSession(
     resetExecIdCounter();
 
     const { turns, toolCalls, skillEvents } = splitIntoTurns(normalized, sessionId);
+    // 派发名回填（与 importSessionInner 同源）：漂移检测的字段比对发生在其后，
+    // 名字空缺补值 null→非 null 可能触发一次全量替换——替换路径以补齐后的
+    // turns 重建（自愈），属预期行为而非误判。
+    backfillTurnNamesFromDispatches(turns, toolCalls);
 
     const existingTurns = await prisma.turn.findMany({ where: { sessionId: session.id } });
     const existingToolCalls = await prisma.toolCall.findMany({
@@ -1071,22 +1142,7 @@ export async function deltaRefreshSession(
 
     const existingTcByToolCallId = new Map<string, ToolCallRow>();
     for (const tc of existingToolCalls) {
-      existingTcByToolCallId.set(tc.toolCallId, {
-        id: tc.id,
-        turnId: tc.turnId,
-        toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
-        argsJson: tc.argsJson,
-        resultJson: tc.resultJson,
-        state: tc.state,
-        errorType: tc.errorType,
-        errorMessage: tc.errorMessage,
-        startedAt: tc.startedAt?.toISOString() ?? null,
-        completedAt: tc.completedAt?.toISOString() ?? null,
-        durationMs: tc.durationMs,
-        dispatchBridgeId: tc.dispatchBridgeId,
-        isSkillRelated: tc.isSkillRelated,
-      });
+      existingTcByToolCallId.set(tc.toolCallId, existingToolCallToRow(tc));
     }
 
     const incomingRankedKeys = rankedKeyMap(turns);
@@ -1194,6 +1250,9 @@ export async function deltaRefreshSession(
 
     await prisma.$transaction(async (tx) => {
       await batchCreateMany(tx, 'Turn' as Prisma.ModelName, newTurnsData);
+      // 存量行的派发名回填（null → 值）：diffTurns 的更新字段不含名字列，
+      // 空缺名只能由此显式补
+      await persistTurnNameBackfill(tx, turns, existingTurnByRankedKey, incomingRankedKeys);
       for (const u of appliedTurnUpdates) {
         await tx.turn.update({ where: { id: u.dbId }, data: u.data });
       }

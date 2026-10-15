@@ -7,11 +7,20 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
-import { isKnownSource, getSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
+import fs from 'node:fs';
+import {
+  isKnownSource,
+  isUmbrellaSource,
+  getSource,
+  requireSource,
+  resolveSource,
+  SOURCE_FAMILIES,
+  SourceResolutionError,
+  UMBRELLA_SOURCE_TYPES,
+  KNOWN_SOURCE_TYPES,
+} from '@/lib/ingest/adapters/registry';
+import type { SourceDescriptor } from '@/lib/ingest/adapters/contract';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
-import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
-import { isDshSessionPath } from '@/lib/ingest/dsh-detect';
 import { checkImportablePath } from '@/lib/ingest/import-paths';
 import { logDebug, logError, logInfo } from '@/lib/logger';
 
@@ -21,13 +30,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { filePath } = body;
-    let { source } = body;
+    const { source } = body;
 
-    // 源白名单单点（agent-source-framework 注册表）：新源在 registry 注册
-    // 后此处自动放行，不再枚举字符串
+    // 源白名单单点（agent-source-framework 注册表）：伞形（jsonl/sqlite 族）
+    // 与具体源都放行——伞形按目录内容族扫描
     if (typeof source !== 'string' || !isKnownSource(source)) {
       return NextResponse.json(
-        { error: `Unsupported source: "${source}". Supported: ${KNOWN_SOURCE_TYPES.join(', ')}` },
+        { error: `Unsupported source: "${source}". Supported: ${[...UMBRELLA_SOURCE_TYPES, ...KNOWN_SOURCE_TYPES].join(', ')}` },
         { status: 400 }
       );
     }
@@ -40,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS 设置时）先于一切文件读取——
-    // detectSqliteSource/listSessions 都不得触碰白名单外的路径
+    // resolveSource/listSessions 都不得触碰白名单外的路径
     const pathDecision = checkImportablePath(filePath);
     if (!pathDecision.ok) {
       return NextResponse.json(
@@ -49,32 +58,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 单一 SQLite 入口：opencode 与 CANNBot-Insight 导出库按 schema 自动
-    // 区分（用户选错类型时按内容纠正，文件名不再是唯一判据）——两种 sqlite
-    // 源的 schema 互纠，与其他源无关
-    if (source === 'opencode-db' || source === BRAND_SOURCE_TYPE) {
-      const detected = detectSqliteSource(filePath);
-      if (detected && detected !== source) source = detected;
+    // 解析参与列出的源集合，条目带各自 sourceType 标记（批量导入按条目
+    // source 发，混合目录天然正确）：
+    // - 伞形 + 目录 → 族扫描：全体成员各列各的（claude 侧已跳过 rollout /
+    //   DSH 日志件，不会交叉误吞）；路径不存在时各成员自然返回空（与旧行为一致）
+    // - 伞形 + 文件 → resolveSource 落单源（内容探测）
+    // - 具体 + 文件 → resolveSource（安全网纠偏，原散装 sqlite detect 泛化）
+    // - 具体 + 目录 → 信任声明（目录无法内容探测；原行为）
+    const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
+    let members: SourceDescriptor[];
+    if (isUmbrellaSource(source)) {
+      members = (stat == null || stat.isDirectory())
+        ? SOURCE_FAMILIES[source]
+            .map(t => getSource(t))
+            .filter((m): m is SourceDescriptor => m != null)
+        : [resolveSource(source, filePath)];
+    } else {
+      members = stat?.isFile() ? [resolveSource(source, filePath)] : [requireSource(source)];
     }
 
-    // 通用 JSONL 入口：路径其实是 DSH 原生会话时自动按 dsh-native 读
-    // （DSH 并入 JSONL tab，与上面 SQLite auto 同一思路）
-    if (source === 'claude-jsonl' && isDshSessionPath(filePath)) source = 'dsh-native';
-
-    const descriptor = getSource(source);
-    if (!descriptor) {
-      return NextResponse.json(
-        { error: `Adapter not available for source: "${source}"` },
-        { status: 400 }
-      );
-    }
-
-    const t0 = Date.now();
-    const sessions = descriptor.listSessions(filePath);
-    logInfo('ingest', 'listSessions', { source, path: filePath, count: sessions.length, ms: Date.now() - t0 });
-
-    return NextResponse.json({
-      sessions: sessions.map(s => ({
+    const sessions = [];
+    for (const m of members) {
+      const t0 = Date.now();
+      const listed = m.listSessions(filePath);
+      logInfo('ingest', 'listSessions', { source: m.sourceType, path: filePath, count: listed.length, ms: Date.now() - t0 });
+      sessions.push(...listed.map(s => ({
         id: s.id,
         createdAt: s.createdAt,
         endedAt: s.endedAt ?? null,
@@ -82,9 +90,17 @@ export async function POST(request: NextRequest) {
         turnCount: s.turnCount,
         model: s.modelName,
         totalTokens: s.totalTokens ?? null,
-      })),
-    });
+        source: m.sourceType,
+      })));
+    }
+
+    return NextResponse.json({ sessions });
   } catch (error) {
+    // 伞形 + 单文件但族内无人认领 → 可行动 400
+    if (error instanceof SourceResolutionError) {
+      logDebug('route:ingest/import-file/sessions', '伞形源无人认领', { error: error.message });
+      return NextResponse.json({ error: error.message, reason: 'unresolved-source' }, { status: 400 });
+    }
     // unrecognized sqlite schema → actionable 400 instead of a raw 500
     // (e.g. "no such table: session" on opencode 2.x channel-suffixed dbs)
     if (error instanceof NotOpencodeDbError) {

@@ -8,7 +8,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { parseReadArgs, isDirectoryRead, computeRange, analyzeReads, extractExecFileReads } from '@/lib/file-reads';
+import { isDirectoryRead, computeRange, analyzeReads, extractExecFileReads, extractShellFileReads } from '@/lib/file-reads';
+import { SHELL_TOOL_NAMES, isShellToolCall } from '@/lib/tool-conventions';
+import { parseReadToolArgs } from '@/lib/tool-conventions';
 import type { ReadRange } from '@/lib/file-reads';
 import type { ReadEntry } from '@/lib/file-reads';
 import { withRouteLog } from '@/lib/api-route';
@@ -54,8 +56,8 @@ export const GET = withRouteLog('observe/session/file-reads', async (request: Ne
     );
   }
 
-  // 双查询：Read 需要 resultJson（目录判定）；exec 只消费 argsJson——
-  // 合并查询会把 exec 的 resultJson 一并拉出（实测单会话 16MB 纯浪费）
+  // 双查询：Read 需要 resultJson（目录判定）；shell 命令族只消费 argsJson——
+  // 合并查询会把命令族的 resultJson 一并拉出（实测单会话 16MB 纯浪费）
   const turnSelect = {
     id: true,
     turnIndex: true,
@@ -65,13 +67,15 @@ export const GET = withRouteLog('observe/session/file-reads', async (request: Ne
     subagentSessionId: true,
     contentSummary: true,
   } as const;
-  const [readCalls, execCalls] = await Promise.all([
+  const [readCalls, commandCalls] = await Promise.all([
     prisma.toolCall.findMany({
       where: { toolName: { in: ['read', 'Read'] }, turn: { sessionId: session.id } },
       select: { toolName: true, argsJson: true, resultJson: true, turn: { select: turnSelect } },
     }),
+    // shell 命令工具族（词表）：bash=opencode 1.x / shell=opencode 2.x /
+    // exec·exec_command=codex——v2 会话 shell:read≈3:1，隐式读此前整页缺失
     prisma.toolCall.findMany({
-      where: { toolName: 'exec', turn: { sessionId: session.id } },
+      where: { toolName: { in: [...SHELL_TOOL_NAMES] }, turn: { sessionId: session.id } },
       select: { toolName: true, argsJson: true, turn: { select: turnSelect } },
     }),
   ]);
@@ -80,7 +84,7 @@ export const GET = withRouteLog('observe/session/file-reads', async (request: Ne
     argsJson: string | null;
     resultJson?: string | null;
     turn: (typeof readCalls)[number]['turn'];
-  }> = [...readCalls, ...execCalls];
+  }> = [...readCalls, ...commandCalls];
 
   const subSessionIds = [...new Set(
     toolCalls
@@ -102,16 +106,17 @@ export const GET = withRouteLog('observe/session/file-reads', async (request: Ne
   const fileMap = new Map<string, { displayPath: string; reads: ReadEntry[] }>();
 
   for (const tc of toolCalls) {
-    // exec（codex 形态）：一次 exec 可命中多个文件（内嵌多条命令），
-    // 逐文件生成读取条目；Read 走原参数解析
+    // shell 命令族（词表）：一次调用可命中多个文件（内嵌多条命令），逐文件
+    // 生成读取条目；双提取器正交叠加——command 形态（bash/shell/exec_command）
+    // 与 exec input 形态（codex 代理）互不冲突；Read 走原参数解析
     const perFile: Array<{ filePath: string; displayPath: string; range: ReadRange }> = [];
-    if (tc.toolName === 'exec') {
-      for (const r of extractExecFileReads(tc.argsJson)) {
+    if (isShellToolCall(tc.toolName)) {
+      for (const r of [...extractShellFileReads(tc.argsJson), ...extractExecFileReads(tc.argsJson)]) {
         perFile.push({ filePath: r.filePath, displayPath: r.filePath, range: r.range });
       }
     } else {
-      const args = parseReadArgs(tc.argsJson);
-      if (!args || !args.filePath) continue;
+      const args = parseReadToolArgs(tc.argsJson);
+      if (!args?.filePath) continue;
       if (isDirectoryRead(args.filePath, tc.resultJson ?? null)) continue;
       perFile.push({ filePath: args.filePath, displayPath: args.summary || args.filePath, range: computeRange(args) });
     }

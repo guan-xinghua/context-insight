@@ -10,34 +10,40 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  parseReadArgs,
   isDirectoryRead,
   computeRange,
   rangesOverlap,
   mergeIntervals,
   analyzeReads,
   extractExecFileReads,
+  extractShellFileReads,
 } from '../../src/lib/file-reads.ts';
+import { parseReadToolArgs } from '../../src/lib/tool-conventions.ts';
 import type { ReadEntry, ReadRange } from '../../src/lib/file-reads.ts';
 
 describe('file-reads', () => {
-  describe('parseReadArgs', () => {
+  describe('parseReadToolArgs', () => {
     it('parses valid JSON with filePath', () => {
-      const result = parseReadArgs('{"filePath":"/src/foo.ts","offset":10,"limit":20}');
-      expect(result).toEqual({ filePath: '/src/foo.ts', offset: 10, limit: 20 });
+      const result = parseReadToolArgs('{"filePath":"/src/foo.ts","offset":10,"limit":20}');
+      expect(result).toEqual({ filePath: '/src/foo.ts', offset: 10, limit: 20, summary: null });
     });
 
     it('parses JSON with summary field', () => {
-      const result = parseReadArgs('{"filePath":"/src/foo.ts","summary":"src/foo.ts"}');
-      expect(result).toEqual({ filePath: '/src/foo.ts', summary: 'src/foo.ts' });
+      const result = parseReadToolArgs('{"filePath":"/src/foo.ts","summary":"src/foo.ts"}');
+      expect(result).toEqual({ filePath: '/src/foo.ts', offset: null, limit: null, summary: 'src/foo.ts' });
+    });
+
+    it('parses opencode legacy `path` key', () => {
+      const result = parseReadToolArgs('{"path":"/src/foo.ts"}');
+      expect(result).toEqual({ filePath: '/src/foo.ts', offset: null, limit: null, summary: null });
     });
 
     it('returns null for null input', () => {
-      expect(parseReadArgs(null)).toBeNull();
+      expect(parseReadToolArgs(null)).toBeNull();
     });
 
     it('returns null for invalid JSON', () => {
-      expect(parseReadArgs('not json')).toBeNull();
+      expect(parseReadToolArgs('not json')).toBeNull();
     });
   });
 
@@ -61,22 +67,22 @@ describe('file-reads', () => {
 
   describe('computeRange', () => {
     it('full read with no offset or limit', () => {
-      const range = computeRange({ filePath: '/foo.ts' });
+      const range = computeRange({ offset: null, limit: null });
       expect(range).toEqual({ type: 'full', start: 0, end: null });
     });
 
     it('full read from offset (no limit)', () => {
-      const range = computeRange({ filePath: '/foo.ts', offset: 50 });
+      const range = computeRange({ offset: 50, limit: null });
       expect(range).toEqual({ type: 'full', start: 50, end: null });
     });
 
     it('partial read with limit only', () => {
-      const range = computeRange({ filePath: '/foo.ts', limit: 30 });
+      const range = computeRange({ offset: null, limit: 30 });
       expect(range).toEqual({ type: 'partial', start: 0, end: 30 });
     });
 
     it('partial read with offset and limit', () => {
-      const range = computeRange({ filePath: '/foo.ts', offset: 50, limit: 30 });
+      const range = computeRange({ offset: 50, limit: 30 });
       expect(range).toEqual({ type: 'partial', start: 50, end: 80 });
     });
   });
@@ -250,5 +256,27 @@ describe('extractExecFileReads（codex exec 形态）', () => {
   it('null / 无 input 字段返回空', () => {
     expect(extractExecFileReads(null)).toEqual([]);
     expect(extractExecFileReads('{"foo":1}')).toEqual([]);
+  });
+});
+
+describe('extractShellFileReads（shell 命令工具族：bash/shell/exec_command）', () => {
+  const samples = JSON.parse(
+    fs.readFileSync(path.join(import.meta.dirname, 'data', 'shell-file-reads-samples.json'), 'utf-8'),
+  ) as Array<{ name: string; argsJson: string; expect: Array<{ filePath: string; type: string; start: number; end: number | null }> }>;
+
+  it('真实形态样本逐条命中（数据驱动：字符串/数组 command 双形态）', () => {
+    for (const s of samples) {
+      const got = extractShellFileReads(s.argsJson).map(r => ({
+        filePath: r.filePath, type: r.range.type, start: r.range.start, end: r.range.end,
+      }));
+      expect(got, s.name).toEqual(s.expect);
+    }
+  });
+
+  it('null / 坏 JSON / 无 command 键返回空', () => {
+    expect(extractShellFileReads(null)).toEqual([]);
+    expect(extractShellFileReads('not json')).toEqual([]);
+    expect(extractShellFileReads('{"foo":1}')).toEqual([]);
+    expect(extractShellFileReads('{"command":[]}')).toEqual([]);
   });
 });

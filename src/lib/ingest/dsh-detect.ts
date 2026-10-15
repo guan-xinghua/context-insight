@@ -9,11 +9,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDshSessionLogName } from './dsh-bridge/native';
+import { decodeDshLogFile, DshLogError } from './dsh-bridge/core';
 
-// DSH 原生会话没有独立的导入入口，并入了「JSONL」这个通用 tab。所以当用户
-// 在 JSONL tab 下把路径指向 DSH 原生会话时，服务端要自己把它认出来、改成
-// dsh-native（和 sqlite-detect 的「SQLite 单一入口按内容分流」是同一思路），
-// 否则会被当成 claude 的 .jsonl 文件解析。
+// DSH 原生会话没有独立的导入入口，并入了「JSONL (auto)」这个通用伞形源。
+// 本模块是 DSH 的路径/内容级识别单点：isDshSessionPath 供目录级判定，
+// detectContent 是 SourceDescriptor 探测能力（registry.resolveSource 的
+// 族内探测与纠偏依据）——文件名不是 DSH 固定代际名时明确不认领，
+// 否则按解码器同一语义校验内容。
 //
 // 判定：路径本身是 DSH 会话日志文件；或者是个目录，里面（含子目录）有这种
 // 文件。找到第一份就返回，不扫全树。
@@ -48,4 +50,29 @@ export function isDshSessionPath(target: string): boolean {
   if (st.isFile()) return isDshSessionLogName(path.basename(target));
   if (st.isDirectory()) return containsDshLog(target, 0);
   return false;
+}
+
+/** 内容级识别（SourceDescriptor.detectContent 能力，registry.resolveSource
+ * 的探测依据）：
+ * - 目录 → 含 DSH 日志即认领（族内纠偏：调用方声明 claude-jsonl 但指向 DSH
+ *   会话目录时纠到 dsh-native）
+ * - 文件 → 文件名不是 DSH 固定代际名 = 明确不认领（false）；是则按解码器
+ *   同一语义校验（首行 session 头 + v4），读得动但解不出 = false（让族内
+ *   兄弟继续探测，误命名的 claude 件可被纠偏），IO 读不出 = null（无法判定，
+ *   解析层信任声明值） */
+export function detectContent(filePath: string): boolean | null {
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+  if (st.isDirectory()) return isDshSessionPath(filePath);
+  if (!isDshSessionLogName(path.basename(filePath))) return false;
+  try {
+    decodeDshLogFile(filePath);
+    return true;
+  } catch (e) {
+    return e instanceof DshLogError ? false : null;
+  }
 }

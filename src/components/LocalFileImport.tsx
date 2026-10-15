@@ -23,22 +23,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { saveImportHistory, type ImportHistoryEntry } from "@/components/ImportHistory"
-import { rolloutSessionIdOf } from "@/lib/ingest/adapters/codex-naming"
 import { Button } from "@/components/ui/button"
 import { DownloadIcon, LoaderIcon, FolderIcon, FileIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon, ArrowUpIcon, GlobeIcon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { isProxyVersion, agentFrameworkOf } from "@/lib/shared/session-format"
 import { IMPORT_SOURCES_UI } from "@/lib/ingest/adapters/import-ui"
-
-// DSH 原生日志文件名固定（和 adapters/registry 里认 DSH 的规则一致）。在 JSONL
-// tab 下，如果路径指向这种文件，请求要按 dsh-native 发——否则会被当成 claude
-// 文件解析，还会拿文件名当会话 id（得到 "session.v4" 这种错值）。
-const DSH_LOG_NAMES = ["session.v4.jsonl", "session.v4.jsonl.zstd"]
-function resolveSourceType(sourceType: string, filePath: string): string {
-  const base = filePath.trim().split("/").pop() ?? ""
-  return DSH_LOG_NAMES.includes(base) ? "dsh-native" : sourceType
-}
 
 // imported:false has three distinct causes — label them accurately instead of
 // blanket "Already exists" (which hid file-missing behind an exists message)
@@ -62,6 +52,8 @@ interface SessionPreview {
   /** 数据仓导入的记录类——同 sid 双记录（capture/native）两条 preview 共享
    *  id，按 recording 区分归属（本地导入 preview 无值） */
   recording?: "capture" | "native"
+  /** 条目所属具体源（sessions 扫描响应按成员标记；伞形扫描的批量导入按它发） */
+  source?: string
   createdAt: string
   endedAt: string | null
   firstQuery: string | null
@@ -175,7 +167,7 @@ export function LocalFileImport() {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>("input")
   const [filePath, setFilePath] = useState("/")
-  const [sourceType, setSourceType] = useState<"opencode-db" | "claude-jsonl" | "codex-jsonl" | "dsh-native" | "lake" | typeof BRAND_SOURCE_TYPE>("claude-jsonl")
+  const [sourceType, setSourceType] = useState<"jsonl" | "opencode-db" | "lake" | typeof BRAND_SOURCE_TYPE>("jsonl")
   const [sessions, setSessions] = useState<SessionPreview[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // 会话选择步的 keyword/sessionID 过滤（firstQuery 或 id 子串，大小写不敏感）
@@ -210,7 +202,7 @@ export function LocalFileImport() {
   function resetState() {
     setStep("input")
     setFilePath("/")
-    setSourceType("claude-jsonl")
+    setSourceType("jsonl")
     setSessions([])
     setSelectedIds(new Set())
     setSessionFilter("")
@@ -262,41 +254,34 @@ export function LocalFileImport() {
     }
   }
 
-  // jsonl 类单文件直导：sessionId 按源推导（claude 剥 cpx- 前缀与压缩后缀、
-  // codex 取 rollout-<ts>-<uuid> 的 uuid 段，正则与适配器同一事实源）——
-  // 与列表导入落同一 taskId，避免同会话双身份入库
-  function deriveSessionIdForSource(source: string, filename: string): string {
-    if (source === "codex-jsonl") {
-      return rolloutSessionIdOf(filename) ?? filename.replace(/\.jsonl$/, "")
-    }
-    // .jsonl.7z / .jsonl.gz（cpx 压缩捕获）三形态 + 剥 cpx- 前缀
-    return filename.replace(/\.jsonl(\.7z|\.gz)?$/, "").replace(/^cpx-/, "")
-  }
-
-  async function handleDirectImportJsonl(entry: DirEntry, source: "claude-jsonl" | "codex-jsonl" | "dsh-native", sessionIdOverride?: string) {
-    const sessionId = sessionIdOverride ?? deriveSessionIdForSource(source, entry.name)
+  // jsonl 单文件直导走伞形源（'jsonl'）：claude/codex 由服务端内容探测识别，
+  // sessionId 由解析后源的命名规则推导（响应回传 taskId 对账）——UI 不再
+  // 复制推导规则（与服务端漂移会让同一会话双身份入库）
+  async function handleDirectImportJsonl(entry: DirEntry) {
+    const tempKey = entry.fullPath
     setFilePath(entry.fullPath)
-    setSourceType(source)
+    setSourceType("jsonl")
     setStep("importing")
-    setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
+    setImportStatuses([{ key: tempKey, sessionId: entry.name, status: "importing" }])
     try {
       const res = await fetch("/api/ingest/import-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, sessionId, filePath: entry.fullPath }),
+        body: JSON.stringify({ source: "jsonl", filePath: entry.fullPath }),
       })
       const data = await res.json()
+      const sid: string = res.ok ? (data.taskId ?? entry.name) : entry.name
       if (res.ok && data.query) {
-        setSessions([{ id: sessionId, createdAt: new Date().toISOString(), endedAt: null, firstQuery: data.query, turnCount: 0, totalTokens: null }])
+        setSessions([{ id: sid, createdAt: new Date().toISOString(), endedAt: null, firstQuery: data.query, turnCount: 0, totalTokens: null }])
       }
       setImportStatuses(prev =>
-        prev.map(s => s.key === sessionId
-          ? { ...s, status: res.ok ? "success" : "error", message: res.ok ? importResultMessage(data) : (data.error ?? "Import failed") }
+        prev.map(s => s.key === tempKey
+          ? { ...s, sessionId: sid, status: res.ok ? "success" : "error", message: res.ok ? importResultMessage(data) : (data.error ?? "Import failed"), framework: data.framework ?? undefined, version: data.version ?? undefined }
           : s)
       )
     } catch (e) {
       setImportStatuses(prev =>
-        prev.map(s => s.key === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
+        prev.map(s => s.key === tempKey ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
       )
     }
   }
@@ -305,18 +290,14 @@ export function LocalFileImport() {
     if (entry.isDir) {
       browseDirectory(entry.fullPath)
     } else if (entry.isImportableFile) {
-      if (entry.importableType === "claude-jsonl") {
-        handleDirectImportJsonl(entry, "claude-jsonl")
-      } else if (entry.importableType === "codex-jsonl") {
-        handleDirectImportJsonl(entry, "codex-jsonl")
-      } else if (entry.importableType === "dsh-native") {
-        // DSH 原生日志文件名固定为 session.v4.jsonl[.zstd]，id 只能取父目录名
-        const sessionId = entry.fullPath.split("/").slice(-2, -1)[0] || entry.name
-        handleDirectImportJsonl(entry, "dsh-native", sessionId)
+      // jsonl 族条目（claude / codex / dsh）单文件直导都走伞形源：服务端
+      // 内容探测落具体源，sessionId 按该源规则服务端推导（DSH 取父目录名）
+      if (entry.importableType === "claude-jsonl" || entry.importableType === "codex-jsonl" || entry.importableType === "dsh-native") {
+        handleDirectImportJsonl(entry)
       } else {
         setFilePath(entry.fullPath)
         if (entry.importableType) {
-          setSourceType(entry.importableType as "opencode-db" | "claude-jsonl" | "codex-jsonl" | "dsh-native" | typeof BRAND_SOURCE_TYPE)
+          setSourceType(entry.importableType as "opencode-db" | typeof BRAND_SOURCE_TYPE)
         }
         setStep("input")
       }
@@ -336,36 +317,33 @@ export function LocalFileImport() {
     }
     setError(null)
 
-    // 实际发请求用的源：JSONL tab 指向 DSH 原生日志文件时切成 dsh-native
-    const source = resolveSourceType(sourceType, filePath)
-
-    // jsonl 单文件直导（源声明驱动，agent-source-framework）：claude 压缩三形态
-    // / codex rollout 文件跳过选择步骤直接导入
-    const directImport = source !== "lake" && IMPORT_SOURCES_UI[source]?.directFileImport
+    // jsonl 单文件直导：伞形源，服务端内容探测 + sessionId 推导（响应回传
+    // taskId 对账）——claude 压缩三形态 / codex rollout 跳过选择步骤直接导入
+    const directImport = sourceType !== "lake" && IMPORT_SOURCES_UI[sourceType]?.directFileImport
     if (directImport && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z"))) {
-      // Derive sessionId from filename
-      const filename = filePath.trim().split("/").pop() ?? ""
-      const sessionId = deriveSessionIdForSource(source, filename)
+      const p = filePath.trim()
+      const fileName = p.split("/").pop() ?? p
       setStep("importing")
-      setImportStatuses([{ key: sessionId, sessionId, status: "importing" }])
+      setImportStatuses([{ key: p, sessionId: fileName, status: "importing" }])
       try {
         const res = await fetch("/api/ingest/import-file", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source, sessionId, filePath: filePath.trim() }),
+          body: JSON.stringify({ source: sourceType, filePath: p }),
         })
         const data = await res.json()
+        const sid: string = res.ok ? (data.taskId ?? fileName) : fileName
         if (res.ok && data.query) {
-          setSessions([{ id: sessionId, createdAt: new Date().toISOString(), endedAt: null, firstQuery: data.query, turnCount: 0, totalTokens: null }])
+          setSessions([{ id: sid, createdAt: new Date().toISOString(), endedAt: null, firstQuery: data.query, turnCount: 0, totalTokens: null }])
         }
         setImportStatuses(prev =>
-          prev.map(s => s.key === sessionId
-            ? { ...s, status: res.ok ? "success" : "error", message: res.ok ? importResultMessage(data) : (data.error ?? "Import failed"), framework: data.framework ?? undefined, version: data.version ?? undefined }
+          prev.map(s => s.key === p
+            ? { ...s, sessionId: sid, status: res.ok ? "success" : "error", message: res.ok ? importResultMessage(data) : (data.error ?? "Import failed"), framework: data.framework ?? undefined, version: data.version ?? undefined }
             : s)
         )
       } catch (e) {
         setImportStatuses(prev =>
-          prev.map(s => s.key === sessionId ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
+          prev.map(s => s.key === p ? { ...s, status: "error", message: e instanceof Error ? e.message : "Network error" } : s)
         )
       }
       return
@@ -376,7 +354,7 @@ export function LocalFileImport() {
       const res = await fetch("/api/ingest/import-file/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, filePath: filePath.trim() }),
+        body: JSON.stringify({ source: sourceType, filePath: filePath.trim() }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -617,16 +595,18 @@ export function LocalFileImport() {
     let nextIndex = 0
 
     async function importOne(sessionId: string) {
-      const source = resolveSourceType(sourceType, filePath)
       setImportStatuses(prev =>
         prev.map(s => s.key === sessionId ? { ...s, status: "importing" } : s)
       )
 
       try {
+        // 批量按条目自带的具体 source 发（伞形扫描的目录可能混合 claude/
+        // codex 条目；sqlite 扫描条目同样带成员标记）
+        const entrySource = sessions.find(s => s.id === sessionId)?.source
         const res = await fetch("/api/ingest/import-file", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source, sessionId, filePath: filePath.trim() }),
+          body: JSON.stringify({ source: entrySource ?? sourceType, sessionId, filePath: filePath.trim() }),
         })
         const data = await res.json()
         if (!res.ok) {
@@ -667,7 +647,7 @@ export function LocalFileImport() {
         const addr = lakeRemoteInfo.address.replace(/^https?:\/\//, "")
         return `${BAY_NAME}@${addr}@${lakeRemoteInfo.branch}:${paradigm ? `${paradigm}/` : ""}${dirName}`
       }
-      const historySource = resolveSourceType(sourceType, filePath)
+      const historySource = sourceType
       const entries: ImportHistoryEntry[] = importStatuses.map(s => {
         const session = previewOf(sessions, s)
         return {
@@ -738,20 +718,13 @@ export function LocalFileImport() {
           <div className="space-y-3">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Source Type</label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button
-                  variant={sourceType === "claude-jsonl" ? "default" : "outline"}
+                  variant={sourceType === "jsonl" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => { setSourceType("claude-jsonl"); setError(null) }}
+                  onClick={() => { setSourceType("jsonl"); setError(null) }}
                 >
-                  JSONL (Claude / Proxy)
-                </Button>
-                <Button
-                  variant={sourceType === "codex-jsonl" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => { setSourceType("codex-jsonl"); setError(null) }}
-                >
-                  Codex
+                  JSONL (auto)
                 </Button>
                 <Button
                   variant={sourceType === "opencode-db" || sourceType === BRAND_SOURCE_TYPE ? "default" : "outline"}
@@ -826,17 +799,11 @@ export function LocalFileImport() {
                     <p>{BRAND_NAME} 导出: {BRAND_SLUG}_session_xxx.db（导入时按库 schema 自动识别）</p>
                   </>
                 )}
-                {sourceType === "claude-jsonl" && (
+                {sourceType === "jsonl" && (
                   <>
                     <p>Claude 原生: ~/.claude/projects/&lt;hash&gt;/&lt;id&gt;.jsonl</p>
-                    <p>cpx proxy 捕获: ~/.cannbot-insight/proxy/cpx-&lt;session-id&gt;.jsonl.7z（明文 .jsonl 与压缩 .jsonl.7z/.gz 均可，cpx- 前缀自动剥）</p>
-                    <p>Or point to a directory to scan all .jsonl / .jsonl.7z / .jsonl.gz files</p>
-                  </>
-                )}
-                {sourceType === "codex-jsonl" && (
-                  <>
+                    <p>cpx proxy 捕获: ~/.cannbot-insight/proxy/cpx-&lt;sid&gt;.jsonl</p>
                     <p>Codex 原生: ~/.codex/sessions/&lt;年&gt;/&lt;月&gt;/&lt;日&gt;/rollout-&lt;时间戳&gt;-&lt;会话id&gt;.jsonl</p>
-                    <p>单文件直导或指向 sessions 目录扫描；子代理（spawn）会话自动并入主会话</p>
                   </>
                 )}
                 <p className="text-blue-500 dark:text-blue-400">Click Browse to explore directories and select files interactively</p>
@@ -1303,7 +1270,7 @@ export function LocalFileImport() {
                   Loading...
                 </span>
               ) : (
-                IMPORT_SOURCES_UI[resolveSourceType(sourceType, filePath)]?.directFileImport && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z")) ? "Import" : "Load Sessions"
+                IMPORT_SOURCES_UI[sourceType]?.directFileImport && (filePath.trim().endsWith(".jsonl") || filePath.trim().endsWith(".jsonl.gz") || filePath.trim().endsWith(".jsonl.7z")) ? "Import" : "Load Sessions"
               )}
             </Button>
           )}

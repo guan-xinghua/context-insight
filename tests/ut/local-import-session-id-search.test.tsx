@@ -86,10 +86,11 @@ async function openSelectStep(): Promise<void> {
   click(findButtonByText('Import Session')!)
   await flush()
 
-  // 选 Codex 源 → 输入 sessions 目录（非单文件 → 走列表选择步）
-  click(findButtonByText('Codex')!)
+  // 选 JSONL (auto) 伞形源（claude/codex 内容自动识别）→ 输入 sessions 目录
+  //（非单文件 → 走列表选择步）
+  click(findButtonByText('JSONL (auto)')!)
   await flush()
-  const pathInput = document.querySelector('input[placeholder*="rollout"]') as HTMLInputElement
+  const pathInput = document.querySelector('input[placeholder*="sessions-dir"]') as HTMLInputElement
   expect(pathInput).not.toBeNull()
   typeInto(pathInput, '/home/tester/.codex/sessions')
   click(findButtonByText('Load Sessions')!)
@@ -100,8 +101,8 @@ describe('Import Session 会话列表：Session ID 列 + 按 id 搜索', () => {
   it('select 步渲染 Session ID 列（含 firstQuery 为空的行），id 子串过滤命中目标行', async () => {
     await openSelectStep()
 
-    // 走到了 select 步（sessions 路由被 codex-jsonl 源调用）
-    expect(listedSources).toContain('codex-jsonl')
+    // 走到了 select 步（sessions 路由被伞形 jsonl 源调用，服务端族扫描识别）
+    expect(listedSources).toContain('jsonl')
     expect(document.querySelector('input[placeholder*="Search by keyword or session ID"]')).not.toBeNull()
 
     // Session ID 列存在：3 行 id 全部在 DOM（CSS truncate 只裁显示，文本完整可搜可复制）

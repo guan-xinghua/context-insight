@@ -13,18 +13,25 @@ import Database from 'better-sqlite3';
 // （Prisma 大写表 "Session"/"Turn"）靠 schema 区分。文件名约定
 // （cannbot_session_ 前缀）只是 browse 层的提示；导入时按内容纠正，
 // 让单一 SQLite 入口对两种库透明。
-export function detectSqliteSource(filePath: string): 'opencode-db' | 'cannbot-insight' | null {
+// 表级探测 util（peekSqliteTables）供两源适配器的 detectContent 能力消费；
+// detectSqliteSource 保留为组合薄壳（既有调用方与测试契约不变）。
+export function peekSqliteTables(filePath: string): Set<string> | null {
   let db: Database.Database | null = null;
   try {
     db = new Database(filePath, { readonly: true });
     const rows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
-    const tables = new Set(rows.map(r => r.name));
-    if (tables.has('Session')) return 'cannbot-insight';
-    if (tables.has('session') || tables.has('session_v2')) return 'opencode-db';
-    return null;
+    return new Set(rows.map(r => r.name));
   } catch {
     return null;
   } finally {
     try { db?.close(); } catch { /* best-effort */ }
   }
+}
+
+export function detectSqliteSource(filePath: string): 'opencode-db' | 'cannbot-insight' | null {
+  const tables = peekSqliteTables(filePath);
+  if (tables == null) return null;
+  if (tables.has('Session')) return 'cannbot-insight';
+  if (tables.has('session') || tables.has('session_v2')) return 'opencode-db';
+  return null;
 }

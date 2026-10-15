@@ -9,11 +9,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import { importSession } from '@/lib/ingest/data-service';
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
-import { isKnownSource, KNOWN_SOURCE_TYPES } from '@/lib/ingest/adapters/registry';
+import {
+  isKnownSource,
+  isUmbrellaSource,
+  resolveSource,
+  SourceResolutionError,
+  UMBRELLA_SOURCE_TYPES,
+  KNOWN_SOURCE_TYPES,
+} from '@/lib/ingest/adapters/registry';
 import { NotOpencodeDbError } from '@/lib/ingest/adapters/opencode-db';
-import { detectSqliteSource } from '@/lib/ingest/sqlite-detect';
-import { isDshSessionPath } from '@/lib/ingest/dsh-detect';
 import { checkImportablePath } from '@/lib/ingest/import-paths';
 import { prisma } from '@/lib/db';
 import { logDebug, logError } from '@/lib/logger';
@@ -24,26 +28,26 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { sessionId, filePath } = body;
-    let { source } = body;
+    const { source } = body;
 
-    // 源白名单单点（agent-source-framework 注册表）：新源在 registry 注册
-    // 后此处自动放行，不再枚举字符串
+    // 源白名单单点（agent-source-framework 注册表）：伞形（jsonl/sqlite 族）
+    // 与具体源都放行——伞形由解析单点（resolveSource）按内容落到具体源
     if (typeof source !== 'string' || !isKnownSource(source)) {
       return NextResponse.json(
-        { error: `Unsupported source: "${source}". Supported: ${KNOWN_SOURCE_TYPES.join(', ')}` },
+        { error: `Unsupported source: "${source}". Supported: ${[...UMBRELLA_SOURCE_TYPES, ...KNOWN_SOURCE_TYPES].join(', ')}` },
         { status: 400 }
       );
     }
 
-    if (!sessionId || !filePath) {
+    if (!filePath) {
       return NextResponse.json(
-        { error: 'Missing required fields: sessionId, filePath' },
+        { error: 'Missing required field: filePath' },
         { status: 400 }
       );
     }
 
     // 白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS 设置时）先于一切文件读取——
-    // detectSqliteSource/fileExists 都不得触碰白名单外的路径
+    // resolveSource/fileExists 都不得触碰白名单外的路径
     const pathDecision = checkImportablePath(filePath);
     if (!pathDecision.ok) {
       return NextResponse.json(
@@ -51,18 +55,6 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
-
-    // 单一 SQLite 入口：opencode 与 CANNBot-Insight 导出库按 schema 自动
-    // 区分（与 /import-file/sessions 同一纠正逻辑）
-    if (source === 'opencode-db' || source === BRAND_SOURCE_TYPE) {
-      const detected = detectSqliteSource(filePath);
-      if (detected && detected !== source) source = detected;
-    }
-
-    // 通用 JSONL 入口：路径其实是 DSH 原生会话时自动按 dsh-native 读。
-    // DSH 不再有独立 tab、并入了 JSONL，与上面 SQLite auto 是同一思路；
-    // 不这样做的话，DSH 的 session.v4.jsonl 会被当成 claude 文件解析。
-    if (source === 'claude-jsonl' && isDshSessionPath(filePath)) source = 'dsh-native';
 
     // Distinguish "file missing" from "session already exists" up front:
     // both surface as imported:false downstream, and the UI used to label
@@ -81,7 +73,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await importSession(filePath, sessionId, prisma, filePath, source);
+    // 伞形 + 目录：内容探测需要具体文件；目录批量导入请传扫描条目自带的
+    // 具体 source（/import-file/sessions 的条目已标记）
+    if (isUmbrellaSource(source) && fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+      return NextResponse.json(
+        { error: `Umbrella source "${source}" requires a concrete file path; directory imports should pass the per-entry source from /import-file/sessions`, reason: 'umbrella-needs-file' },
+        { status: 400 }
+      );
+    }
+
+    // 解析单点：伞形探测 / 具体验证 + 族内纠偏（原散装 detectSqliteSource
+    // 纠偏的泛化——任何调用方传错源都被内容真相兜住）
+    let resolved;
+    try {
+      resolved = resolveSource(source, filePath);
+    } catch (e) {
+      if (e instanceof SourceResolutionError) {
+        logDebug('route:ingest/import-file', '伞形源无人认领', { source, filePath, error: e.message });
+        return NextResponse.json({ error: e.message, reason: 'unresolved-source' }, { status: 400 });
+      }
+      throw e;
+    }
+
+    // sessionId 缺省 → 解析后具体源的命名规则推导（与该源 listSessions
+    // 同源，UI/调用方不再各自复制；DSH 的规则取日志父目录名，故传完整路径）；
+    // 认不出命名约定（改名件）→ 400 请显式传
+    const effectiveSessionId: string | null =
+      sessionId ?? resolved.deriveSessionId?.(filePath) ?? null;
+    if (!effectiveSessionId) {
+      return NextResponse.json(
+        { error: `无法从路径推导 sessionId（"${filePath}" 不符合 ${resolved.sourceType} 命名约定），请显式传入 sessionId`, reason: 'session-id-underivable' },
+        { status: 400 }
+      );
+    }
+
+    const result = await importSession(filePath, effectiveSessionId, prisma, filePath, resolved.sourceType);
 
     // 导入后的会话归属（framework/version）以 DB 为准 —— proxy 捕获按文件内
     // source 标记归属（opencode-proxy → opencode），路径/文件名猜不出。
@@ -95,6 +121,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       sessionId: result.sessionId,
+      // 生效的会话键（taskId）：sessionId 由服务端推导时，调用方据此对账
+      //（UI 状态行/导入历史都用它锚定）
+      taskId: effectiveSessionId,
       imported: result.imported,
       // imported:false + query:null = 0 interactions parsed (unreadable file);
       // imported:false + query = session existed, merged;

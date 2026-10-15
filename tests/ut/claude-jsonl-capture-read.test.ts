@@ -13,12 +13,12 @@
 // 空壳行）。新实现 Buffer 逐行切片解码，读取/解压/单行超限错误一律上抛；
 // 单行 JSON 解析失败仍跳过（内容级容错，行为不变）。
 // 超限重载用例（>512MiB 明文）由 RUN_HEAVY_CAPTURE_IT=1 显式开启，默认跳过。
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { parseJsonlLines, listSessions } from '@/lib/ingest/adapters/claude-jsonl'
+import { parseJsonlLines, listSessions, detectContent } from '@/lib/ingest/adapters/claude-jsonl'
 
 const TMP = path.join(os.tmpdir(), `capture-read-it-${process.pid}`)
 fs.rmSync(TMP, { recursive: true, force: true })
@@ -101,6 +101,31 @@ describe('parseJsonlLines — Buffer 逐行读取', () => {
     const items = listSessions(dir)
     expect(items.length).toBe(1)
     expect(items[0].id).toBe('good')
+  })
+})
+
+describe('detectContent — 有界读头（探测不整文件读入）', () => {
+  it('明文 > 256KB：信封在前几行，探测仍返回 true（有界读不丢前 10 有效行）', () => {
+    const p = path.join(TMP, 'detect-big.jsonl')
+    const pad = 'x'.repeat(300 * 1024)
+    fs.writeFileSync(p, [
+      '{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-09-20T12:00:00.000Z"}',
+      `{"type":"assistant","message":{"role":"assistant","content":"${pad}"}}`,
+    ].join('\n') + '\n')
+    expect(fs.statSync(p).size).toBeGreaterThan(256 * 1024)
+    expect(detectContent(p)).toBe(true)
+  })
+
+  it('明文探测走 fs.open 有界 read，不触碰 fs.readFileSync（全文读回归即红）', () => {
+    const p = path.join(TMP, 'detect-bounded.jsonl')
+    fs.writeFileSync(p, '{"type":"user","message":{"role":"user","content":"hi"}}\n')
+    const spy = vi.spyOn(fs, 'readFileSync')
+    try {
+      expect(detectContent(p)).toBe(true)
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 

@@ -37,6 +37,15 @@ export function isDshSessionLogName(fileName: string): boolean {
   return SESSION_LOG_NAME_SET.has(fileName);
 }
 
+/** 路径 → 会话 id（SourceDescriptor.deriveSessionId 能力）：id = 日志所在
+ * 目录名（与 listSessions 的推导同源——日志文件名固定代际名，从文件名取
+ * 不到 id）；路径不是 DSH 会话日志时返回 null（认不出命名约定）。 */
+export function deriveSessionId(filePath: string): string | null {
+  return isDshSessionLogName(path.basename(filePath))
+    ? path.basename(path.dirname(filePath))
+    : null;
+}
+
 /** 同一目录里两种形态并存时只留优先级最高的那个。否则同一个会话会在列表里
  *  出现两条（id 相同），而且 readSession 读到哪份取决于 readdir 顺序。 */
 function dedupeByDirectory(refs: SessionFileRef[]): SessionFileRef[] {

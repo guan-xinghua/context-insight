@@ -103,4 +103,15 @@ export interface SourceDescriptor {
    * 即优先级——前缀精确嗅探（rollout-/cannbot_session_）必须排在扩展名
    * 兜底（claude-jsonl）之前。 */
   sniffFile?(fileName: string): boolean;
+  /** 内容级识别（registry.resolveSource 的探测依据）：读文件头判定本源
+   * 是否认领。true = 认领；false = 明确不认领（触发族内兄弟纠偏）；
+   * null = 无法判定（读不出/无有效行，信任声明值）。指纹规则框架自持
+   * ——与 sniffFile（文件名级）、injections/（行级）同一哲学的高一层。 */
+  detectContent?(filePath: string): boolean | null;
+  /** 文件路径 → 会话 id 推导（导入时 sessionId 缺省的服务端兜底）。输入是
+   * 完整路径——规则自持：多数源只看文件名（内部自行 basename），DSH 的 id
+   * 是日志父目录名（文件名固定代际名，取不到 id）。规则与 listSessions
+   * 内部推导同源导出，UI/调用方不再各自复制（漂移会让同一会话以双身份
+   * 入库）。认不出命名约定时返回 null。 */
+  deriveSessionId?(filePath: string): string | null;
 }

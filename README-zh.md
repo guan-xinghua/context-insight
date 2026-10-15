@@ -6,7 +6,7 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 ## 功能介绍
 
-导入 SQLite（opencode.db）或 JSONL（Claude 原生 / Codex 原生 `rollout-*.jsonl` / DSH 原生 `session.v4.jsonl`（含 `.zstd`）/ cpx proxy 捕获，明文与 `.jsonl.7z`、存量 `.jsonl.gz` 均可，`cpx-` 前缀自动处理），进入 session 详情页的多个分析 Tab：
+导入 SQLite（opencode.db）或 JSONL（Claude 原生 / Codex 原生 `rollout-*.jsonl` / DSH 原生 `session.v4.jsonl`（含 `.zstd`）/ cpx proxy 捕获，明文与 `.jsonl.7z`、存量 `.jsonl.gz` 均可，`cpx-` 前缀自动处理），进入 session 详情页的多个分析 Tab。JSONL 是单一「JSONL (auto)」入口，按文件内容自动识别 Claude / Codex / DSH，无需按框架选择：
 
 - **Token 与费用** — 每轮 token 五项拆解，按模型上下文窗口显示占比，估算费用
 - **上下文增长** — 逐 subagent 的上下文增长曲线与动画回放，`/compact` 压缩点标注

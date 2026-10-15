@@ -4,9 +4,18 @@
 
 ## [Unreleased]
 
+### Changed
+- 【会话页返回语义】会话页内切 tab / 跨 tab 跳转不再逐条进入浏览器历史——Back（页内按钮与浏览器返回键）直接回到上一个大页面（如主页）；地址栏仍实时反映当前视图，深链 / 刷新 / 分享不受影响
+
 ### Added
+- 【JSONL 导入自动识别（源族）】导入入口合并为单一「JSONL (auto)」：claude / cpx 捕获、codex rollout 与 DSH 原生日志按文件内容自动识别，传错源自动纠正，目录扫描混合条目各带归属；后续新 jsonl 框架接入不再新增 UI 按键
 - 【dsh（DeepSeek Harness）会话归类】cpx 捕获的 dsh 会话按框架归类显示 DSH 徽标（与 claude / opencode / codex 并列，同 sid 多记录类共存）
 - 【DSH 原生会话导入】`~/.dsh/sessions/**/session.v4.jsonl(.zstd)` 与 dsh-export 导出根可直接导入：多帧 zstd 解压 → 事件转义为会话轮次 → 子代理按 `header.parentSession` 并入主会话时间线（DSH 徽标）
+
+### Fixed
+- 【opencode 会话 Files 分析与技能名】opencode 旧版 read 的 `path` 参数键读取纳入 Files 分析（此前整页不可见）；skill 工具新版 `id` 参数键识别出真技能名（此前显示为字面量 "skill"），存量会话重导入后自动订正且不产生重复记录
+- 【opencode 2.x 会话内容恢复】v2 会话的工具结果（内容块数组，含湖导出的嵌套壳形态）归一为文本——read 行级解析、文件还原、skill 内容恢复全链可用；存量会话重导入自动解包订正
+- 【shell 命令安全面与隐式读】bash / shell（opencode 2.x）/ exec_command（codex）统一纳入 Files 隐式文件读采集与 D2 安全评分（破坏性命令 / 密钥外发检测此前在这两类会话整块盲区）
 
 ### Security
 - 【浏览器跨源请求防护】API 增加浏览器来源校验（单点入口 proxy）：非本机页面发起的跨源请求一律拒绝；本地 CLI / TUI / cpx 自动导入等非浏览器调用不受影响

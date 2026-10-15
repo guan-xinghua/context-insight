@@ -6,13 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-export interface ReadArgs {
-  filePath?: string;
-  file_path?: string;
-  offset?: number;
-  limit?: number;
-  summary?: string;
-}
+import { shellCommandArgsOf, type ReadToolArgs } from './tool-conventions';
 
 export interface ReadRange {
   type: 'full' | 'partial';
@@ -30,27 +24,13 @@ export interface ReadEntry {
   range: ReadRange;
 }
 
-export function parseReadArgs(argsJson: string | null): ReadArgs | null {
-  if (!argsJson) return null;
-  try {
-    const parsed = JSON.parse(argsJson)
-    // Normalize file_path → filePath for Claude Code format
-    if (parsed.file_path && !parsed.filePath) parsed.filePath = parsed.file_path
-    if (parsed.offset && !parsed.start) parsed.offset = parsed.offset ?? parsed.start
-    if (parsed.limit && !parsed.end) parsed.limit = parsed.limit ?? parsed.end
-    return parsed as ReadArgs;
-  } catch {
-    return null;
-  }
-}
-
 export function isDirectoryRead(filePath: string, resultJson: string | null): boolean {
   if (filePath.endsWith('/')) return true;
   if (resultJson && resultJson.includes('<type>directory</type>')) return true;
   return false;
 }
 
-export function computeRange(args: ReadArgs): ReadRange {
+export function computeRange(args: Pick<ReadToolArgs, 'offset' | 'limit'>): ReadRange {
   const hasOffset = args.offset !== undefined && args.offset !== null;
   const hasLimit = args.limit !== undefined && args.limit !== null;
 
@@ -178,6 +158,22 @@ function readFileOpsFromSegment(seg: string): ExecFileRead[] {
   return [];
 }
 
+/** 命令文本 → 文件读记录（段切分 + 去重收集）；exec/shell 两提取器共用的解析核 */
+function fileReadsFromCommandText(cmd: string, seen: Set<string>, out: ExecFileRead[]): void {
+  for (const seg of cmd.split(/\n|&&|\|\||;|\|/)) {
+    for (const r of readFileOpsFromSegment(seg.trim())) {
+      // 目录尾斜杠跳过（与 Read 分支 isDirectoryRead 同口径）；rg 递归搜
+      // 目录树（参数无尾斜杠）无法在此判别，按文件计入——已知近似
+      if (r.filePath.endsWith('/')) continue;
+      const key = `${r.filePath}:${r.range.type}:${r.range.start}-${r.range.end}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(r);
+      }
+    }
+  }
+}
+
 export function extractExecFileReads(argsJson: string | null): ExecFileRead[] {
   if (!argsJson) return [];
   let input = '';
@@ -191,18 +187,22 @@ export function extractExecFileReads(argsJson: string | null): ExecFileRead[] {
   const seen = new Set<string>();
   for (const m of input.matchAll(/exec_command\(\{cmd:"((?:[^"\\]|\\.)*)"/g)) {
     const cmd = m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
-    for (const seg of cmd.split(/\n|&&|\|\||;|\|/)) {
-      for (const r of readFileOpsFromSegment(seg.trim())) {
-        // 目录尾斜杠跳过（与 Read 分支 isDirectoryRead 同口径）；rg 递归搜
-        // 目录树（参数无尾斜杠）无法在此判别，按文件计入——已知近似
-        if (r.filePath.endsWith('/')) continue;
-        const key = `${r.filePath}:${r.range.type}:${r.range.start}-${r.range.end}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          out.push(r);
-        }
-      }
-    }
+    fileReadsFromCommandText(cmd, seen, out);
+  }
+  return out;
+}
+
+/**
+ * shell 工具族（bash=opencode 1.x / shell=opencode 2.x / exec_command=codex，
+ * 词表）的隐式文件读：command 键字符串/数组双形态（codex exec_command 的
+ * 载荷在数组末元素，逐元素尝试避免连接后头部变 bash 漏提取），逐段复用
+ * exec 提取同一套命令解析核（cat/sed/rg/…）。
+ */
+export function extractShellFileReads(argsJson: string | null): ExecFileRead[] {
+  const out: ExecFileRead[] = [];
+  const seen = new Set<string>();
+  for (const part of shellCommandArgsOf(argsJson)) {
+    fileReadsFromCommandText(part, seen, out);
   }
   return out;
 }

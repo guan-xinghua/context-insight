@@ -12,6 +12,7 @@ export { convertDshSession } from './convert';
 export type { ConvertDshSessionResult } from './convert';
 export {
   isDshSessionLogName,
+  deriveSessionId,
   listSessions,
   readSession,
   readSubagentInteractions,

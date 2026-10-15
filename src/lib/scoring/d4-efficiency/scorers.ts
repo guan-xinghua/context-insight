@@ -13,7 +13,8 @@ import type { SubItemResult } from '../core/types';
 import { BaselineCompareScorer } from '../core/baseline-compare';
 import { consecutiveRuns } from '../core/loop-detect';
 import { isCompactionMarkerTurn } from '../core/compaction';
-import { parseReadArgs, computeRange, rangesOverlap, isDirectoryRead, type ReadRange } from '@/lib/file-reads';
+import { computeRange, rangesOverlap, isDirectoryRead, type ReadRange } from '@/lib/file-reads';
+import { parseReadToolArgs } from '@/lib/tool-conventions';
 import { extractFilePath, parseWriteLines } from '@/lib/file-restore';
 import { BASELINE_MEASURES } from '../core/baseline/measures';
 import type { ScoreToolCall, ScoreTurn } from '../core/assembler/types';
@@ -118,7 +119,7 @@ class WasteAttributionScorer extends Scorer {
       if (tc.toolName.toLowerCase() !== 'read') continue;
       const filePath = extractFilePath(tc.argsJson);
       if (!filePath || isDirectoryRead(filePath, tc.resultJson)) continue;
-      const args = parseReadArgs(tc.argsJson);
+      const args = parseReadToolArgs(tc.argsJson);
       if (!args) continue;
       const arr = readsByFile.get(filePath) ?? [];
       arr.push({ range: computeRange(args), chars: (tc.resultJson ?? '').length, turnIndex: tc.turnIndex });

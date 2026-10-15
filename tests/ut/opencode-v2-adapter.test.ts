@@ -137,15 +137,17 @@ describe('opencode v2 readSession（全类型映射）', () => {
     const skill = first.tool_calls![0]!;
     expect(skill).toMatchObject({ toolCallId: 'call_skill_001', toolName: 'skill', state: 'completed' });
     expect(JSON.parse(skill.argsJson!)).toEqual({ skill: 'demo-skill' });
-    expect(skill.resultJson).toContain('demo-skill loaded');
+    // 结果负载归一（词表）：v2 内容块数组取 text 拼接——历史缺陷：整体
+    // stringify 落 JSON 壳（[{"type":"text","text":…}]），弱断言 toContain 掩盖
+    expect(skill.resultJson).toBe('Skill demo-skill loaded with 3 instructions');
   });
 
-  it('工具错误态：state=error，resultJson 取 error 载荷', () => {
+  it('工具错误态：state=error，resultJson 取 error 载荷（对象回落 JSON 序列化）', () => {
     const second = v2MainRows[2]!;
     const read = second.tool_calls![0]!;
     expect(read).toMatchObject({ toolCallId: 'call_read_002', toolName: 'read', state: 'error' });
     expect(JSON.parse(read.argsJson!)).toEqual({ filePath: 'missing.txt' });
-    expect(read.resultJson).toContain('file not found');
+    expect(read.resultJson).toBe('{"message":"file not found: missing.txt"}');
   });
 
   it('末段 assistant：finish=stop 无工具', () => {
@@ -179,7 +181,7 @@ describe('opencode v2 readSession（全类型映射）', () => {
     expect(args.subagent_model).toEqual({ id: 'model-a1', providerID: 'gateway' });
     const bash = sub[1]!.tool_calls!.find(t => t.toolName === 'bash')!;
     expect(bash.state).toBe('completed');
-    expect(bash.resultJson).toContain('missing.txt not found');
+    expect(bash.resultJson).toBe('error: missing.txt not found');
   });
 
   it('子代理枚举与 readSessionMeta（v2 列映射）', () => {

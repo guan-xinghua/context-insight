@@ -106,8 +106,9 @@ async function openBrowseStep(): Promise<void> {
   click(findButtonByText('Import Session')!)
   await flush()
 
-  // Codex 源 → 快捷按钮「Codex 原生」直达 sessions 根 → browse 步
-  click(findButtonByText('Codex')!)
+  // JSONL (auto) 伞形源（claude/codex 内容自动识别）→ 快捷按钮「Codex 原生」
+  // 直达 sessions 根 → browse 步
+  click(findButtonByText('JSONL (auto)')!)
   await flush()
   click(findButtonByText('Codex 原生')!)
   await flush()

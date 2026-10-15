@@ -1,0 +1,36 @@
+[
+  {
+    "name": "opencode v1 bash：cat 全文 + head",
+    "argsJson": "{\"command\":\"cat /w/src/a.py && head -n 20 /w/README.md\"}",
+    "expect": [
+      { "filePath": "/w/src/a.py", "type": "full", "start": 0, "end": null },
+      { "filePath": "/w/README.md", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "opencode v2 shell：多命令链 sed 区间 + rg 模式命中",
+    "argsJson": "{\"command\":\"sed -n '5,9p' /w/b.txt && rg 'def main' /w/app/main.py\"}",
+    "expect": [
+      { "filePath": "/w/b.txt", "type": "partial", "start": 5, "end": 9 },
+      { "filePath": "/w/app/main.py", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "codex exec_command 数组形态：载荷在末元素（逐元素防 join 改头漏判）",
+    "argsJson": "{\"command\":[\"bash\",\"-lc\",\"cat /w/a.txt; tail -n 5 /w/log.txt\"]}",
+    "expect": [
+      { "filePath": "/w/a.txt", "type": "full", "start": 0, "end": null },
+      { "filePath": "/w/log.txt", "type": "full", "start": 0, "end": null }
+    ]
+  },
+  {
+    "name": "cd 前缀 / 管道 / sed -i 写操作不计读",
+    "argsJson": "{\"command\":\"cd /w && ls -la | grep foo && sed -i 's/a/b/' /w/c.txt\"}",
+    "expect": []
+  },
+  {
+    "name": "无 command 键（exec input 形态）→ 空",
+    "argsJson": "{\"input\":\"exec_command({cmd:\\\"cat x\\\"})\"}",
+    "expect": []
+  }
+]

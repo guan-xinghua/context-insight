@@ -38,7 +38,7 @@ opencode opencode.db (external)
   → Prisma write (8 models, SQLite)
 ```
 
-Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework，设计见 `docs/design/agent-source-framework/design.md`）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探）；目前注册 `cannbot-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源。新框架接入 = 适配器模块 + registry 一行 + import-ui 一条，data-service/API 路由/normalize 零改动。
+Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework，设计见 `docs/design/agent-source-framework/design.md`）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探/内容探测/sessionId 推导）；目前注册 `cannbot-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源，并按文件形态声明源族（`SOURCE_FAMILIES`：jsonl / sqlite，伞形 sourceType 是 API 一等值，`resolveSource` 单点探测解析）。新框架接入 = 适配器模块 + registry 一行（jsonl 系自动入族）+ import-ui quickDir 一条（可选），data-service/API 路由/normalize 零改动。
 
 ### Frontend Modes (shared backend)
 

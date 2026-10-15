@@ -14,6 +14,10 @@ import { extractSkillNameFromArgs } from "@/lib/skill-event-grouping";
 // 调 ensureWorkflowExtractPluginLoaded 激活），此处只引类型/默认值/holder。
 import { DEFAULT_PLUGIN, getWorkflowExtractPlugin } from "@/lib/workflow-extract-plugin";
 import { buildAgentRoleNameMap } from "@/lib/agent-role-name-map";
+import { unwrapSkillContent } from "@/lib/tool-conventions";
+// dispatch-tools 是纯模块（唯一导入为 type-only，无 fs/db）——client bundle 安全；
+// 派发工具判定单点：task/agent/subagent/spawn_agent 及注册表未来形态自动纳入。
+import { dispatchSpecOf } from "@/lib/ingest/dispatch-tools";
 
 /**
  * sift 对账桥接：从 insight 的 session 里恢复某 skill 的 SKILL.md 正文，
@@ -23,19 +27,18 @@ import { buildAgentRoleNameMap } from "@/lib/agent-role-name-map";
  * `<skill_content name="…">…</skill_content>` 包裹（见 skill-event-grouping.ts 的 invokeTc）。
  */
 
-const SKILL_CONTENT_RE = /<skill_content[^>]*>([\s\S]*?)<\/skill_content>/;
-
 /** skill 工具调用里能带 <skill_content> 正文的 toolName（小写）。 */
 const SKILL_INVOKE_TOOLS = new Set(["skill", "skill/invoke", "skill/use"]);
 
 /**
  * 从一段文本里剥出 `<skill_content>…</skill_content>` 内部的正文（trim）。
  * 没有外壳 / 空输入 → null。audit 期望的是纯 SKILL.md markdown，不要外壳。
+ * 协议壳剥除上收词表（unwrapSkillContent，单一事实源）；尾部运行时注入
+ * 块（Base directory / skill_files）仍由本模块剥离。
  */
 export function stripSkillContent(resultJson: string | null | undefined): string | null {
-  if (!resultJson) return null;
-  const m = resultJson.match(SKILL_CONTENT_RE);
-  return m ? stripSkillRuntimeTail(m[1].trim()) : null;
+  const inner = unwrapSkillContent(resultJson);
+  return inner !== null ? stripSkillRuntimeTail(inner) : null;
 }
 
 /**
@@ -262,16 +265,17 @@ export async function buildStructuredRecords(
       // 的 session.json 撑到 20MB+,序列化 / 落盘 / sift 解析全慢——纯死重量,砍之。
       // sift 结构化 reader 对缺 result 的 tool_call 本就容错(不产 tool_result 块)。
       //
-      // **例外:dispatch 类(task/agent)带 result**(截断 4096)。派发的 tool_result 是子代理
+      // **例外:dispatch 类带 result**(截断 4096)。派发的 tool_result 是子代理
       // 最终报告——cc 原生 transcript 里它本来就是主作用域记录(主 agent 亲眼看到才能决策
       // 推进/修复),sift 层3 用它构建"派发-回报对"喂 step 判官(缺席式误判的洗冤证据 +
       // "传递≠达成"的验收结论依据)。sift reader 原生支持 tool_calls[].result。
+      // 派发判定走注册表（task/agent/subagent/spawn_agent 及未来形态单点纳入）。
       rec.tool_calls = tcs.map((tc) => {
         const call: Record<string, unknown> = {
           name: tc.toolName,
           input: parseArgs(tc.argsJson),
         };
-        if (/^(task|agent)$/i.test(tc.toolName) && tc.resultJson) {
+        if (dispatchSpecOf(tc.toolName) !== null && tc.resultJson) {
           call.result = tc.resultJson.slice(0, 4096);
         }
         return call;

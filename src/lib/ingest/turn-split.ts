@@ -99,38 +99,7 @@ function truncateTo200(text: string | null): string | null {
 }
 
 import { stripThinkingAndReminder } from '../shared/text-strip';
-
-function isSkillToolCall(toolName: string): boolean {
-  const lower = toolName.toLowerCase();
-  return lower.startsWith('skill/') || lower === 'skill' || lower === 'load_skill';
-}
-
-function getSkillEventType(toolName: string): string {
-  const lower = toolName.toLowerCase();
-  if (lower === 'skill/load_skill' || lower === 'load_skill') return 'load';
-  if (lower === 'skill/invoke' || lower === 'skill') return 'invoke';
-  return 'use';
-}
-
-function extractSkillName(toolName: string, argsJson: string | null): string {
-  if (!argsJson) return toolName.replace(/^skill\//i, '');
-  try {
-    const args = JSON.parse(argsJson);
-    if (args.skill) return args.skill;
-    if (args.skill_name) return args.skill_name;
-    if (args.name) return args.name;
-  } catch { /* ignore */ }
-  return toolName.replace(/^skill\//i, '');
-}
-
-function extractSkillVersion(argsJson: string | null): number | null {
-  if (!argsJson) return null;
-  try {
-    const args = JSON.parse(argsJson);
-    if (typeof args.version === 'number') return args.version;
-  } catch { /* ignore */ }
-  return null;
-}
+import { isSkillToolCall, skillEventTypeOf, extractSkillName, extractSkillVersion } from '../tool-conventions';
 
 function isAgentSkillDispatch(toolName: string, argsJson: string | null): boolean {
   const lower = toolName.toLowerCase();
@@ -392,7 +361,7 @@ export function splitIntoTurns(
         if (isSkillRelated) {
           const skillEventRowId = generateId();
           const isDispatch = isAgentSkillDispatch(tc.toolName, tc.argsJson);
-          const eventType = isDispatch ? 'dispatch' : getSkillEventType(tc.toolName);
+          const eventType = isDispatch ? 'dispatch' : skillEventTypeOf(tc.toolName);
           const skillName = isDispatch ? extractDispatchSkillName(tc.argsJson) : extractSkillName(tc.toolName, tc.argsJson);
           const skillVersion = isDispatch ? null : extractSkillVersion(tc.argsJson);
           const success = (tc.state === 'ok' || tc.state === 'completed') && !errMsg;

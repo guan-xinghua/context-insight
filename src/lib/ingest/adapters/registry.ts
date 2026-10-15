@@ -8,29 +8,35 @@
 
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import type { SourceDescriptor } from './contract';
-import { listSessions as opencodeDbListSessions, readSession as opencodeDbReadSession } from './opencode-db';
+import { listSessions as opencodeDbListSessions, readSession as opencodeDbReadSession, detectContent as detectOpencodeDbContent } from './opencode-db';
 import {
   listSessions as claudeJsonlListSessions,
   readSession as claudeJsonlReadSession,
   readSubagentInteractions as claudeJsonlReadSubagents,
   collectSubagentToolUseMappings,
   extractVersion as extractClaudeVersion,
+  detectContent as detectClaudeContent,
+  deriveSessionIdFromPath as deriveClaudeSessionId,
 } from './claude-jsonl';
 import {
   listSessions as codexJsonlListSessions,
   readSession as codexJsonlReadSession,
   readSubagentInteractions as codexJsonlReadSubagents,
   extractVersion as extractCodexVersion,
+  detectContent as detectCodexContent,
+  deriveSessionIdFromPath as deriveCodexSessionId,
 } from './codex-jsonl';
 import { isRolloutFileName } from './codex-naming';
-import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession } from './cannbot-insight';
+import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession, detectContent as detectCannbotContent } from './cannbot-insight';
 import {
   listSessions as dshNativeListSessions,
   readSession as dshNativeReadSession,
   readSubagentInteractions as dshNativeReadSubagents,
   extractVersion as dshNativeExtractVersion,
   isDshSessionLogName,
+  deriveSessionId as deriveDshSessionId,
 } from '../dsh-bridge/native';
+import { detectContent as detectDshContent } from '../dsh-detect';
 
 // ── 源注册表 ─────────────────────────────────────────────────────────
 // 每个源在这里声明一次（字段见 contract.ts 的 SourceDescriptor）。导入接口、
@@ -56,6 +62,7 @@ const opencodeDbSource: SourceDescriptor = {
   listSessions: opencodeDbListSessions,
   readSession: opencodeDbReadSession,
   sniffFile: (fileName) => isSqliteName(fileName),
+  detectContent: detectOpencodeDbContent,
 };
 
 const codexJsonlSource: SourceDescriptor = {
@@ -68,6 +75,8 @@ const codexJsonlSource: SourceDescriptor = {
   // 按 rollout- 前缀认 codex 文件：必须排在 claude-jsonl（按 .jsonl 认）前面，
   // 否则 codex 的 rollout-*.jsonl 会被当成 claude 文件
   sniffFile: (fileName) => isRolloutFileName(fileName),
+  detectContent: detectCodexContent,
+  deriveSessionId: deriveCodexSessionId,
 };
 
 const dshNativeSource: SourceDescriptor = {
@@ -80,6 +89,9 @@ const dshNativeSource: SourceDescriptor = {
   // 按固定文件名认 DSH 文件（session.v4.jsonl / session.v4.jsonl.zstd）：必须排在
   // claude-jsonl（按 .jsonl 认）前面，否则 .jsonl 那种会被当成 claude 文件
   sniffFile: (fileName) => isDshSessionLogName(fileName),
+  detectContent: detectDshContent,
+  // DSH 会话 id = 日志所在目录名（日志文件名固定，从文件名取不到 id）
+  deriveSessionId: deriveDshSessionId,
 };
 
 const claudeJsonlSource: SourceDescriptor = {
@@ -93,6 +105,8 @@ const claudeJsonlSource: SourceDescriptor = {
   // 按 .jsonl 结尾认文件：任何 jsonl 都先按 claude 格式试着解析。放最后，
   // 前面按名字匹配的源（rollout- 等）会先命中
   sniffFile: (fileName) => isJsonlName(fileName),
+  detectContent: detectClaudeContent,
+  deriveSessionId: deriveClaudeSessionId,
 };
 
 const cannbotInsightSource: SourceDescriptor = {
@@ -101,6 +115,7 @@ const cannbotInsightSource: SourceDescriptor = {
   listSessions: cannbotInsightListSessions,
   readSession: cannbotInsightReadSession,
   sniffFile: (fileName) => isSqliteName(fileName) && fileName.startsWith('cannbot_session_'),
+  detectContent: detectCannbotContent,
 };
 
 // 顺序 = 文件识别优先级（从上到先命中先用）：
@@ -115,7 +130,20 @@ export const SOURCES: SourceDescriptor[] = [
 
 export const KNOWN_SOURCE_TYPES: string[] = SOURCES.map(s => s.sourceType);
 
-const SUPPORTED_LIST = KNOWN_SOURCE_TYPES.join(', ');
+// ── 源族（file format family）：UI 入口与解析探测的粒度 ────────────────
+// UI 按文件形态（jsonl / sqlite）给入口而非按框架；伞形 sourceType（族名）
+// 是 API 一等值——"JSONL (auto)" 按钮发 'jsonl'，解析层（resolveSource）
+// 在族内按内容探测落到具体源。声明序 = 探测优先级：特异源在前（rollout
+// 信封 / DSH 固定文件名 / cannbot 导出 schema）、扩展名兜底源在后（claude
+// 布局 / opencode db），与上方 SOURCES 的 sniffFile 序同一条原则。新 jsonl
+// 框架接入 = 适配器模块 + 在此注册一行，"(auto)" 入口/嗅探/纠偏自动覆盖。
+export const SOURCE_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  jsonl: ['codex-jsonl', 'dsh-native', 'claude-jsonl'],
+  sqlite: [BRAND_SOURCE_TYPE, 'opencode-db'],
+};
+export const UMBRELLA_SOURCE_TYPES: string[] = Object.keys(SOURCE_FAMILIES);
+
+const SUPPORTED_LIST = [...UMBRELLA_SOURCE_TYPES, ...KNOWN_SOURCE_TYPES].join(', ');
 
 export function getSource(sourceType: string): SourceDescriptor | null {
   return SOURCES.find(s => s.sourceType === sourceType) ?? null;
@@ -130,8 +158,13 @@ export function requireSource(sourceType: string): SourceDescriptor {
   return found;
 }
 
+export function isUmbrellaSource(sourceType: string): boolean {
+  return sourceType in SOURCE_FAMILIES;
+}
+
 export function isKnownSource(sourceType: string): boolean {
-  return getSource(sourceType) != null;
+  // 伞形（族名）是一等值：'jsonl' / 'sqlite' 由 resolveSource 落到具体源
+  return isUmbrellaSource(sourceType) || getSource(sourceType) != null;
 }
 
 /** sourceType → framework（写进 Session.framework 的值）。
@@ -153,4 +186,41 @@ export function sniffImportableFile(fileName: string): string | null {
     if (source.sniffFile?.(fileName)) return source.sourceType;
   }
   return null;
+}
+
+/** 伞形解析失败（族内无人认领）：路由捕获后转 400 可行动报错 */
+export class SourceResolutionError extends Error {}
+
+/** 源解析单点（agent-source-framework）：把「源的选择」从调用方声明变成
+ * 探测结果。三分支——
+ * ① 伞形（'jsonl'/'sqlite'）→ 按族声明序探测成员 detectContent，首个
+ *    认领者胜出；无人认领抛 SourceResolutionError
+ * ② 具体源自身认领 → 零干预（绝大多数调用）
+ * ③ 自身不认领但族内兄弟认领 → 纠偏到兄弟（detectSqliteSource 先例的
+ *    泛化：browse 嗅探错 / 调用方手滑 / 改名文件全被兜住）
+ * ④ 全都认不出（读不出/无有效行）→ 信任声明值，适配器自然报错
+ *   （与散装 detect 时代行为一致，零新失败模式） */
+export function resolveSource(declared: string, filePath: string): SourceDescriptor {
+  const family = SOURCE_FAMILIES[declared];
+  if (family) {
+    for (const memberType of family) {
+      const member = getSource(memberType);
+      if (member?.detectContent?.(filePath) === true) return member;
+    }
+    throw new SourceResolutionError(
+      `无法识别该 ${declared} 文件的格式（${family.join(' / ')} 均不认领）：${filePath}。` +
+        `请确认文件是有效会话导出且非空，或显式传入具体 source。`,
+    );
+  }
+  const own = requireSource(declared);
+  if (own.detectContent?.(filePath) === true) return own;
+  const siblings = Object.values(SOURCE_FAMILIES).find(members => members.includes(declared));
+  if (siblings) {
+    for (const siblingType of siblings) {
+      if (siblingType === declared) continue;
+      const sibling = getSource(siblingType);
+      if (sibling?.detectContent?.(filePath) === true) return sibling;
+    }
+  }
+  return own;
 }

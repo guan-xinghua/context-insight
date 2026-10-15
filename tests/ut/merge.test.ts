@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { describe, it, expect } from 'vitest';
-import { dedupSession, mergeTurns, mergeToolCalls, mergeSkillEvents, diffTurns, diffToolCalls, rankedKeyMap, keyByRankedTurn } from '../../src/lib/ingest/merge.ts';
+import { dedupSession, mergeSkillEvents, diffTurns, diffToolCalls, rankedKeyMap, keyByRankedTurn } from '../../src/lib/ingest/merge.ts';
 import type { TurnRow, ToolCallRow, SkillEventRow } from '../../src/lib/ingest/turn-split.ts';
 
 function makeTurn(turnIndex: number, role: string, sessionId: string = 's1'): TurnRow {
@@ -68,16 +68,16 @@ function makeToolCall(toolCallId: string, turnId: string, toolName: string): Too
   };
 }
 
-function makeSkillEvent(turnId: string, skillName: string, eventType: string): SkillEventRow {
+function makeSkillEvent(turnId: string, skillName: string, eventType: string, argsJson: string | null = null): SkillEventRow {
   return {
-    id: `se-${turnId}-${skillName}-${eventType}`,
+    id: `se-${turnId}-${skillName}-${eventType}-${argsJson ?? 'noargs'}`,
     turnId,
     skillName,
     skillVersion: null,
     eventType,
     success: true,
     errorMessage: null,
-    argsJson: null,
+    argsJson,
     startedAt: null,
     completedAt: null,
     durationMs: 0,
@@ -104,90 +104,6 @@ describe('merge', () => {
       const second = dedupSession('session-created-id', 'task-001');
       expect(second.shouldImport).toBe(false);
       expect(second.existingSessionId).toBe('session-created-id');
-    });
-  });
-
-  describe('mergeTurns', () => {
-    it('empty existing data: all new data imported', () => {
-      const newTurns = [makeTurn(0, 'user'), makeTurn(1, 'assistant'), makeTurn(2, 'user')];
-      const result = mergeTurns([], newTurns);
-      expect(result.length).toBe(3);
-      expect(result.map(t => t.turnIndex)).toEqual([0, 1, 2]);
-    });
-
-    it('identical data: no new rows added', () => {
-      const turns = [makeTurn(0, 'user'), makeTurn(1, 'assistant')];
-      const result = mergeTurns(turns, turns);
-      expect(result.length).toBe(2);
-    });
-
-    it('existing 5 turns, full re-parse of 7: result has 7 turns, no duplicates', () => {
-      const existing = [
-        makeTurn(0, 'user'),
-        makeTurn(1, 'assistant'),
-        makeTurn(2, 'user'),
-        makeTurn(3, 'assistant'),
-        makeTurn(4, 'user'),
-      ];
-      const newTurns = [
-        makeTurn(0, 'user'),
-        makeTurn(1, 'assistant'),
-        makeTurn(2, 'user'),
-        makeTurn(3, 'assistant'),
-        makeTurn(4, 'user'),
-        makeTurn(5, 'assistant'),
-        makeTurn(6, 'user'),
-      ];
-      const result = mergeTurns(existing, newTurns);
-      expect(result.length).toBe(7);
-      const indices = result.map(t => t.turnIndex);
-      expect(indices).toContain(0);
-      expect(indices).toContain(4);
-      expect(indices).toContain(5);
-      expect(indices).toContain(6);
-    });
-
-    it('deduplicates by context rank slot', () => {
-      const existing = [makeTurn(0, 'user'), makeTurn(1, 'assistant')];
-      const newTurns = [makeTurn(0, 'user'), makeTurn(1, 'assistant'), makeTurn(2, 'user')];
-      const result = mergeTurns(existing, newTurns);
-      expect(result.length).toBe(3);
-      const same0User = result.filter(t => t.turnIndex === 0 && t.role === 'user');
-      expect(same0User.length).toBe(1);
-    });
-
-    it('main 增长平移 subagent 全局下标时不产生重复（Bug #7）', () => {
-      const sub = (i: number, role: string) => ({ ...makeTurn(i, role), subagentSessionId: 'sub-x', isSubagent: true });
-      const existing = [
-        makeTurn(0, 'user'),
-        makeTurn(1, 'assistant'),
-        makeTurn(2, 'user'),
-        makeTurn(3, 'assistant'),
-        sub(4, 'user'),
-        sub(5, 'assistant'),
-      ];
-      const newTurns = [
-        makeTurn(0, 'user'),
-        makeTurn(1, 'assistant'),
-        makeTurn(2, 'user'),
-        makeTurn(3, 'assistant'),
-        makeTurn(4, 'user'),
-        sub(5, 'user'),
-        sub(6, 'assistant'),
-      ];
-      const result = mergeTurns(existing, newTurns);
-      expect(result.length).toBe(7);
-      expect(result.filter(t => t.subagentSessionId === 'sub-x').length).toBe(2);
-      expect(result.some(t => t.turnIndex === 4 && t.role === 'user' && !t.subagentSessionId)).toBe(true);
-    });
-
-    it('result is sorted by turnIndex then role', () => {
-      const existing = [makeTurn(0, 'user'), makeTurn(1, 'assistant')];
-      const newTurns = [makeTurn(0, 'user'), makeTurn(1, 'assistant'), makeTurn(2, 'user')];
-      const result = mergeTurns(existing, newTurns);
-      expect(result[0].turnIndex).toBe(0);
-      expect(result[1].turnIndex).toBe(1);
-      expect(result[2].turnIndex).toBe(2);
     });
   });
 
@@ -221,34 +137,6 @@ describe('merge', () => {
     });
   });
 
-  describe('mergeToolCalls', () => {
-    it('empty existing: all incoming tool calls imported', () => {
-      const incoming = [
-        makeToolCall('tc1', 't1', 'bash'),
-        makeToolCall('tc2', 't1', 'read'),
-      ];
-      const result = mergeToolCalls([], incoming);
-      expect(result.length).toBe(2);
-    });
-
-    it('identical data: no duplicates', () => {
-      const calls = [makeToolCall('tc1', 't1', 'bash')];
-      const result = mergeToolCalls(calls, calls);
-      expect(result.length).toBe(1);
-    });
-
-    it('deduplicates by toolCallId', () => {
-      const existing = [makeToolCall('tc1', 't1', 'bash')];
-      const incoming = [makeToolCall('tc1', 't1', 'bash'), makeToolCall('tc2', 't1', 'read')];
-      const result = mergeToolCalls(existing, incoming);
-      expect(result.length).toBe(2);
-      const ids = result.map(tc => tc.toolCallId);
-      expect(ids).toContain('tc1');
-      expect(ids).toContain('tc2');
-      expect(ids.filter(id => id === 'tc1').length).toBe(1);
-    });
-  });
-
   describe('mergeSkillEvents', () => {
     it('empty existing: all incoming skill events imported', () => {
       const incoming = [
@@ -256,13 +144,15 @@ describe('merge', () => {
         makeSkillEvent('t1', 'my-skill', 'invoke'),
       ];
       const result = mergeSkillEvents([], incoming);
-      expect(result.length).toBe(2);
+      expect(result.rows.length).toBe(2);
+      expect(result.nameUpdates).toEqual([]);
     });
 
     it('identical data: no duplicates', () => {
       const events = [makeSkillEvent('t1', 'my-skill', 'load')];
       const result = mergeSkillEvents(events, events);
-      expect(result.length).toBe(1);
+      expect(result.rows.length).toBe(1);
+      expect(result.nameUpdates).toEqual([]);
     });
 
     it('deduplicates by turnId+skillName+eventType', () => {
@@ -272,7 +162,35 @@ describe('merge', () => {
         makeSkillEvent('t2', 'my-skill', 'load'),
       ];
       const result = mergeSkillEvents(existing, incoming);
-      expect(result.length).toBe(2);
+      expect(result.rows.length).toBe(2);
+      expect(result.nameUpdates).toEqual([]);
+    });
+
+    it('name drift on same event identity: adopts incoming name, no duplicate row', () => {
+      // 存量行是旧提取约定产出（opencode skill `id` 键识别前回落字面量 "skill"），
+      // 来源侧重导入以新约定提取出真名 → 采纳新名且不重复落行
+      const args = '{"id":"ops-spec-gen"}';
+      const existing = [makeSkillEvent('t1', 'skill', 'invoke', args)];
+      const incoming = [makeSkillEvent('t1', 'ops-spec-gen', 'invoke', args)];
+      const result = mergeSkillEvents(existing, incoming);
+      expect(result.rows.length).toBe(1); // 不重复落行
+      expect(result.nameUpdates).toEqual([{ dbId: existing[0].id, skillName: 'ops-spec-gen' }]);
+    });
+
+    it('same identity and same name: no name updates', () => {
+      const args = '{"skill":"my-skill"}';
+      const events = [makeSkillEvent('t1', 'my-skill', 'invoke', args)];
+      const result = mergeSkillEvents(events, events);
+      expect(result.nameUpdates).toEqual([]);
+      expect(result.rows.length).toBe(1);
+    });
+
+    it('different args same name: no name updates, additive union unchanged', () => {
+      const existing = [makeSkillEvent('t1', 'my-skill', 'invoke', '{"skill":"my-skill"}')];
+      const incoming = [makeSkillEvent('t1', 'my-skill', 'invoke', '{"skill":"my-skill","x":1}')];
+      const result = mergeSkillEvents(existing, incoming);
+      expect(result.nameUpdates).toEqual([]);
+      expect(result.rows.length).toBe(1); // 原语义保持：turnId:skillName:eventType 键去重
     });
   });
 

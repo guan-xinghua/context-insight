@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { readCaptureHead } from '@/lib/compression';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
 import { classifyCodexUserInjection } from './injections/codex';
 import { isRolloutFileName, rolloutSessionIdOf } from './codex-naming';
@@ -72,6 +73,50 @@ const EMPTY_META: SessionMetaInfo = {
   id: null, parentThreadId: null, threadSource: null,
   agentNickname: null, cliVersion: null, timestamp: null,
 };
+
+// 内容级识别（SourceDescriptor.detectContent 能力）：rollout 恒明文（无压缩
+// 形态），直读文件；首 N 条有效 JSON 行中任一命中 rollout 信封
+// {timestamp, ordinal, type, payload} 即认领（首行恒为 ordinal=0 的
+// session_meta，窗口扫描容忍前导坏行）。读不出/无有效行 → null。
+const DETECT_SCAN_LINES = 10;
+
+function isRolloutEnvelope(obj: unknown): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  const o = obj as { timestamp?: unknown; ordinal?: unknown; type?: unknown; payload?: unknown };
+  return typeof o.timestamp === 'string'
+    && typeof o.ordinal === 'number'
+    && typeof o.type === 'string'
+    && o.payload != null && typeof o.payload === 'object';
+}
+
+export function detectContent(filePath: string): boolean | null {
+  let buf: Buffer;
+  try {
+    buf = readCaptureHead(filePath);
+  } catch {
+    return null;
+  }
+  let valid = 0;
+  let matched = false;
+  let start = 0;
+  const consider = (end: number): void => {
+    const t = buf.toString('utf-8', start, end).trim();
+    start = end + 1;
+    if (!t) return;
+    try {
+      valid += 1;
+      if (isRolloutEnvelope(JSON.parse(t))) matched = true;
+    } catch {
+      // 坏行/半写行（活文件尾行）跳过
+    }
+  };
+  for (let i = 0; i < buf.length && !matched && valid < DETECT_SCAN_LINES; i++) {
+    if (buf[i] === 0x0a) consider(i);
+  }
+  if (!matched && valid < DETECT_SCAN_LINES) consider(buf.length);
+  if (matched) return true;
+  return valid > 0 ? false : null;
+}
 
 // Buffer 逐行扫描（V8 单字符串上限防线，claude 侧 631MB wire 捕获先例）；
 // 0x0a 不出现在 UTF-8 多字节序列内，按字节切片安全。单行 JSON 解析失败
@@ -420,6 +465,13 @@ function resolveSessionFilePath(filePath: string, sessionId: string): string | n
 }
 
 // ── Adapter 契约实现 ─────────────────────────────────────────────────
+
+// 路径 → 会话 id（SourceDescriptor.deriveSessionId 能力）：rollout 文件名内
+// 嵌会话 id；deriveSessionId 契约收完整路径（DSH 的 id 取日志父目录名），
+// 先剥目录再按命名约定提取，认不出返回 null
+export function deriveSessionIdFromPath(filePath: string): string | null {
+  return rolloutSessionIdOf(path.basename(filePath));
+}
 
 export function readSession(filePath: string, sessionId: string): RawInteraction[] {
   const resolved = resolveSessionFilePath(filePath, sessionId);

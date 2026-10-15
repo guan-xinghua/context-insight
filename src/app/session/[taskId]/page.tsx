@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { VERSION_DISPLAY } from "@/lib/version"
 import { BRAND_NAME, BAY_NAME } from "@/lib/branding"
-import type { TurnHighlight } from "@/lib/shared/highlight"
 import { TurnTimeline } from "@/components/observe/TurnTimeline"
 import { TurnDetail } from "@/components/observe/TurnDetail"
 import { buildSubagentNumbers } from "@/lib/subagent-numbering"
@@ -39,7 +38,7 @@ import { summarizeToolCallErrors } from "@/lib/tool-call-errors"
 import { dispatchOnlySkillNames } from "@/lib/sift-audit"
 import { TrajectoryScoring } from "@/components/scoring/TrajectoryScoring"
 
-type TabKey = "overview" | "turns" | "wireRounds" | "trace" | "skills" | "workflowAnalyse" | "performance" | "context" | "scoring" | "fileReads" | "replay"
+import { useSessionView, isKnownTab, type TabKey } from "@/app/session/[taskId]/session-view"
 
 interface SessionData {
   sessionId: string
@@ -510,22 +509,30 @@ export default function SessionDetailPage({
   const searchParams = useSearchParams()
   const router = useRouter()
   const framework = searchParams.get("framework") ?? undefined
-  const errorTurnParam = searchParams.get("errorTurn")
-  const tabParam = searchParams.get("tab")
-  const turnParam = searchParams.get("turn")
   const TABS = showAdvancedTabs() || searchParams.has("a")
     ? ALL_TABS
     : ALL_TABS.filter(t => !HIDDEN_TABS_DEFAULT.includes(t.key))
-  const [activeTab, setActiveTab] = useState<TabKey>(() =>
-    ALL_TABS.some(t => t.key === tabParam) ? (tabParam as TabKey) : "overview")
   const [session, setSession] = useState<SessionData | null>(null)
   const [turns, setTurns] = useState<TurnRowItem[]>([])
-  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null)
-  const [highlightSubagentTurnId, setHighlightSubagentTurnId] = useState<string | null>(null)
   const [showAllErrorTurns, setShowAllErrorTurns] = useState(false)
-  const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null)
-  const [traceHighlight, setTraceHighlight] = useState<TurnHighlight | null>(null)
-  const [selectedBridgeId, setSelectedBridgeId] = useState<string | null>(null)
+  // 视图状态层（session-view.ts）：跨 tab「位置」单点管理——state 权威 +
+  // URL 镜像经 replace（会话页单条 history，Back 直回上一个大页面）。
+  // 解构沿用旧字段名，页面其余引用零改动
+  const { view, navigate, select } = useSessionView({
+    resolveTurn: useCallback((id: string) => turns.find(t => t.turnId === id), [turns]),
+    resolveTurnIndex: useCallback((index: number) => {
+      const t = turns.find(t => t.turnIndex === index)
+      return t ? { turnId: t.turnId, isSubagent: t.isSubagent } : undefined
+    }, [turns]),
+    turnsReady: turns.length > 0,
+  })
+  const {
+    tab: activeTab,
+    turnId: selectedTurnId,
+    subagentHighlightId: highlightSubagentTurnId,
+    traceHighlight,
+    scrollTargetTurnId: scrollToTurnId,
+  } = view
   const [selectedTurnDetail, setSelectedTurnDetail] = useState<TurnDetailData | null>(null)
   const [turnDetailLoading, setTurnDetailLoading] = useState(false)
   const [turnDetailRefreshKey, setTurnDetailRefreshKey] = useState(0)
@@ -993,51 +1000,6 @@ export default function SessionDetailPage({
     fetchTurnDetail()
   }, [selectedTurnId, turnDetailRefreshKey])
 
-  // No scroll on turn selection — keep current scroll position
-
-  // Auto-select error turn from URL param
-  useEffect(() => {
-    if (errorTurnParam && turns.length > 0 && !selectedTurnId) {
-      const turnIndex = Number(errorTurnParam)
-      const errorTurn = turns.find(t => t.turnIndex === turnIndex)
-      if (errorTurn) {
-        setActiveTab("turns")
-        setSelectedTurnId(errorTurn.turnId)
-        if (errorTurn.isSubagent) setHighlightSubagentTurnId(errorTurn.turnId)
-        setScrollToTurnId(errorTurn.turnId)
-      }
-    }
-  }, [errorTurnParam, turns])
-
-  // tab/turn 随 URL 恢复（back/forward/深链）：切 tab 与跨 tab 跳转都经
-  // router.push 进 history（switchTab / navigateToTab），浏览器返回键逐级
-  // 回退到上一个 tab 视图，而不是直接退出会话页。无 ?tab= 的 URL（初始
-  // 进入态）回落 overview；errorTurn 深链依赖数据加载后的 effect，不受
-  // 首帧回落影响。
-  useEffect(() => {
-    const next = tabParam && ALL_TABS.some(t => t.key === tabParam) ? (tabParam as TabKey) : "overview"
-    setActiveTab(prev => (prev === next ? prev : next))
-  }, [tabParam])
-
-  // 只随 URL 参数驱动（依赖不含 selectedTurnId）：放进依赖会把手动时间线选轮
-  // 弹回 URL 里的旧轮——URL 是深链/返回键入口，不是选中态的权威源。同一深链
-  // 只应用一次（appliedTurnParamRef）：turns 留在依赖里是为等数据加载完成，
-  // 但 5s 自动同步的 setTurns 会重放 effect，把选中态/高亮/滚动全部弹回
-  // URL 旧轮；换一个 turn 深链（值变化）才重新应用
-  const appliedTurnParamRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!turnParam || turns.length === 0) return
-    if (appliedTurnParamRef.current === turnParam) return
-    const t = turns.find(x => x.turnId === turnParam)
-    if (t) {
-      appliedTurnParamRef.current = turnParam
-      setSelectedTurnId(t.turnId)
-      setHighlightSubagentTurnId(t.isSubagent ? t.turnId : null)
-      setScrollToTurnId(t.turnId)
-    }
-  }, [turnParam, turns])
-
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1235,7 +1197,7 @@ export default function SessionDetailPage({
               <Card size="sm" className="flex-1 border-red-200 dark:border-red-500/30 cursor-pointer hover:bg-red-100/30 dark:hover:bg-red-500/10 transition-colors"
                 onClick={() => {
                   if (allErrors.length > 0) {
-                    navigateToTab("turns", allErrors[0].turn.turnId)
+                    navigate({ tab: "turns", turnId: allErrors[0].turn.turnId })
                   }
                 }}
               >
@@ -1253,8 +1215,7 @@ export default function SessionDetailPage({
             const firstSubTurn = agentSessionId
               ? turns.find(t => t.isSubagent && t.subagentSessionId === agentSessionId)
               : undefined
-            navigateToTab("turns", firstSubTurn?.turnId ?? null)
-            if (agentSessionId) setHighlightSubagentTurnId(agentSessionId)
+            navigate({ tab: "turns", turnId: firstSubTurn?.turnId, subagentHighlightId: agentSessionId ?? undefined })
           }} />
         </div>
 
@@ -1354,7 +1315,7 @@ export default function SessionDetailPage({
                       key={t.turnId}
                       className="w-full px-2 py-1.5 rounded-md border border-red-100 dark:border-red-500/20 bg-red-50/30 dark:bg-red-500/5 text-xs hover:bg-red-100/50 dark:hover:bg-red-500/10 transition-colors cursor-pointer text-left"
                       onClick={() => {
-                        navigateToTab("turns", t.turnId)
+                        navigate({ tab: "turns", turnId: t.turnId })
                       }}
                     >
                       <div className="flex items-center gap-2 mb-0.5">
@@ -1594,17 +1555,11 @@ export default function SessionDetailPage({
             scrollToTurnId={scrollToTurnId}
             onSelectTurn={(turnId) => {
               if (turnId === selectedTurnId) setTurnDetailRefreshKey(k => k + 1)
-              setSelectedTurnId(turnId)
-              setHighlightSubagentTurnId(null)
-              setScrollToTurnId(null)
-              setTraceHighlight(null)
+              select({ turnId, subagentHighlightId: null, scrollTargetTurnId: null, traceHighlight: null })
             }}
             onJumpToTurnIndex={(turnIndex) => {
               const turn = turns.find(t => t.turnIndex === turnIndex)
-              if (turn) {
-                setTraceHighlight(null)
-                navigateToTab("turns", turn.turnId)
-              }
+              if (turn) navigate({ tab: "turns", turnId: turn.turnId, traceHighlight: null })
             }}
           />
         </div>
@@ -1660,50 +1615,15 @@ export default function SessionDetailPage({
           onAuditSkill={(skillName, kind) => {
             setAuditSub("skill")
             setAuditSelected({ name: skillName, kind })
-            navigateToTab("workflowAnalyse")
+            navigate({ tab: "workflowAnalyse" })
           }}
           onNavigateToTurn={(turnIndex) => {
             const turn = turns.find(t => t.turnIndex === turnIndex)
-            if (turn) navigateToTab("turns", turn.turnId)
+            if (turn) navigate({ tab: "turns", turnId: turn.turnId })
           }}
         />
       </div>
     )
-  }
-
-  // 跨 tab 跳转统一入口：state 立即生效 + URL 进 history（?tab= / ?turn=），
-  // 浏览器 back/forward 经 URL 恢复视图，不再一步退回首页。
-  function navigateToTab(tab: string, turnId?: string | null, bridgeId?: string | null, highlight?: TurnHighlight) {
-    setActiveTab(tab as TabKey)
-    if (turnId) {
-      setSelectedTurnId(turnId)
-      setScrollToTurnId(turnId)
-      const turn = turns.find(t => t.turnId === turnId)
-      if (turn?.isSubagent) {
-        setHighlightSubagentTurnId(turnId)
-      } else {
-        setHighlightSubagentTurnId(null)
-      }
-    }
-    if (highlight) setTraceHighlight(highlight)
-    if (bridgeId) {
-      const bridge = bridges.find(b => b.bridgeId === bridgeId)
-      if (bridge) {
-        setSelectedBridgeId(bridgeId)
-      }
-    }
-    const p = new URLSearchParams(searchParams.toString())
-    p.set("tab", tab)
-    if (turnId) p.set("turn", turnId); else p.delete("turn")
-    router.push(`?${p.toString()}`, { scroll: false })
-  }
-
-  function switchTab(tab: TabKey) {
-    setActiveTab(tab)
-    const p = new URLSearchParams(searchParams.toString())
-    p.set("tab", tab)
-    p.delete("turn")
-    router.push(`?${p.toString()}`, { scroll: false })
   }
 
   function renderTrace() {
@@ -1713,7 +1633,14 @@ export default function SessionDetailPage({
         bridges={bridges}
         taskId={taskId}
         sessionQuery={s.query}
-        navigateToTab={navigateToTab}
+        // TraceView 的 onViewBridge 仍以旧签名跳 "interactions"（该 tab 已不
+        // 存在）：isKnownTab 拦下后停在当前 tab；bridgeId 当前无消费方，忽略
+        navigateToTab={(tab, turnId, _bridgeId, highlight) =>
+          navigate({
+            tab: isKnownTab(tab) ? tab : undefined,
+            turnId: turnId ?? undefined,
+            traceHighlight: highlight,
+          })}
       />
     )
   }
@@ -1724,7 +1651,7 @@ export default function SessionDetailPage({
         <ContextTracker
           turns={turns}
           sessionModel={s.model}
-          onNavigateToTurn={(turnId) => navigateToTab("turns", turnId)}
+          onNavigateToTurn={(turnId) => navigate({ tab: "turns", turnId })}
         />
       </div>
     )
@@ -1735,7 +1662,7 @@ export default function SessionDetailPage({
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <FileReadAnalysis
           taskId={taskId}
-          onNavigateToTurn={(turnId) => navigateToTab("turns", turnId)}
+          onNavigateToTurn={(turnId) => navigate({ tab: "turns", turnId })}
         />
       </div>
     )
@@ -1774,7 +1701,7 @@ export default function SessionDetailPage({
       <ChatReplayView
         turns={replayTurns}
         sessionModel={s.model}
-        onNavigateToTurn={(turnId) => navigateToTab("turns", turnId)}
+        onNavigateToTurn={(turnId) => navigate({ tab: "turns", turnId })}
       />
     )
   }
@@ -1797,7 +1724,7 @@ export default function SessionDetailPage({
           const t =
             turns.find(x => x.turnIndex === turn && !x.isSubagent) ??
             turns.find(x => x.turnIndex === turn)
-          if (t) navigateToTab("turns", t.turnId)
+          if (t) navigate({ tab: "turns", turnId: t.turnId })
         }}
       />
     )
@@ -1808,7 +1735,7 @@ export default function SessionDetailPage({
       const t =
         turns.find(x => x.turnIndex === turn && !x.isSubagent) ??
         turns.find(x => x.turnIndex === turn)
-      if (t) navigateToTab("turns", t.turnId)
+      if (t) navigate({ tab: "turns", turnId: t.turnId })
     }
     return (
       <div className="h-full overflow-auto p-4 space-y-4">
@@ -1818,9 +1745,9 @@ export default function SessionDetailPage({
           onJumpToTurn={handleTurnIndex}
           onJumpToSubagent={(sid) => {
             // Perf 柱子（subagent 执行段）→ Turns：定位该 subagent 首个 turn，
-            // navigateToTab 自带 subagent lane 高亮
+            // navigate 派生 subagent lane 高亮
             const t = turns.find(x => x.isSubagent && x.subagentSessionId === sid)
-            if (t) navigateToTab("turns", t.turnId)
+            if (t) navigate({ tab: "turns", turnId: t.turnId })
           }}
         />
       </div>
@@ -1844,7 +1771,7 @@ export default function SessionDetailPage({
         onJumpToTurn={(turn) => {
           // 评分证据 §N → DB turnIndex（1-based）；优先主 agent 轮，避免 subagent 同号遮蔽
           const t = turns.find(x => x.turnIndex === turn && !x.isSubagent) ?? turns.find(x => x.turnIndex === turn)
-          if (t) navigateToTab("turns", t.turnId)
+          if (t) navigate({ tab: "turns", turnId: t.turnId })
         }}
       />
     ),
@@ -1944,7 +1871,7 @@ export default function SessionDetailPage({
                   ? "border-transparent text-violet-600 dark:text-violet-400 hover:text-violet-700"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               )}
-              onClick={() => { if (tab.key !== activeTab) switchTab(tab.key) }}
+              onClick={() => { if (tab.key !== activeTab) navigate({ tab: tab.key }) }}
             >
               <span className="flex items-center gap-1">{tab.icon}{tab.label}</span>
             </button>

@@ -6,6 +6,8 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
+import { parseReadToolArgs } from './tool-conventions';
+
 export interface RestoreOp {
   kind: 'read' | 'write';
   argsJson: string | null;
@@ -25,14 +27,9 @@ export interface RestoreResult {
   opsUsed: number;
 }
 
+/** read 路径键走词表（opencode `path` / Claude Code `file_path` 等同义键） */
 export function extractFilePath(argsJson: string | null): string | null {
-  if (!argsJson) return null;
-  try {
-    const p = JSON.parse(argsJson);
-    return p.filePath ?? p.file_path ?? null;
-  } catch {
-    return null;
-  }
+  return parseReadToolArgs(argsJson)?.filePath ?? null;
 }
 
 export function extractOffset(argsJson: string | null): number | undefined {

@@ -23,6 +23,16 @@ prisma/dev.db
 prisma/dev.db-journal
 prisma/dev.db-wal
 prisma/dev.db-shm
+# 测试库同族（测试运行生成：本体是测试数据，边车在并行测试热写时会让
+# npm pack 读到变异文件报 EOF——与 dev.db 边车同一问题面）
+test.db
+test.db-journal
+test.db-wal
+test.db-shm
+prisma/test.db
+prisma/test.db-journal
+prisma/test.db-wal
+prisma/test.db-shm
 logs/
 logs
 tmp/

@@ -9,7 +9,8 @@
 // 第 1 层确定性过程分 D1–D6：全部零 LLM、纯函数、可复算。
 // 每个指标返回 MetricResult（value + formula + inputs + evidence），账本原则。
 
-import { parseReadArgs, computeRange, rangesOverlap, isDirectoryRead, type ReadRange } from '@/lib/file-reads';
+import { computeRange, rangesOverlap, isDirectoryRead, type ReadRange } from '@/lib/file-reads';
+import { parseReadToolArgs } from '@/lib/tool-conventions';
 import { extractFilePath, parseWriteLines } from '@/lib/file-restore';
 import type { MetricResult, LoopPattern, LoopBand, PlanDeviationBreakdown, PlanStepMatch } from './types';
 import type { ScoreToolCall, WireCharsSummary } from './collect';
@@ -36,7 +37,7 @@ export function computeRepeatedRead(toolCalls: ScoreToolCall[]): MetricResult {
     if (lowerTool(tc.toolName) !== 'read') continue;
     const filePath = extractFilePath(tc.argsJson);
     if (!filePath || isDirectoryRead(filePath, tc.resultJson)) continue;
-    const args = parseReadArgs(tc.argsJson);
+    const args = parseReadToolArgs(tc.argsJson);
     if (!args) continue;
     const arr = readsByFile.get(filePath) ?? [];
     arr.push({ range: computeRange(args), turnIndex: tc.turnIndex });

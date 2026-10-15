@@ -8,12 +8,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { readCaptureBuffer, readCaptureText as readArchivedText } from '@/lib/compression';
+import { readCaptureBuffer, readCaptureHead, readCaptureText as readArchivedText } from '@/lib/compression';
 import { readEnvelope } from '@/lib/shared/envelope';
 import { classifyUserInjection } from './injections/index';
 import { isSkillInjectionText } from './injections/claude-code';
+import { isRolloutFileName } from './codex-naming';
+import { isDshSessionLogName } from '../dsh-bridge/native';
 import type { SubagentRef } from './contract';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
+import { normalizeToolResultPayload } from '../../tool-conventions';
 
 // Shared scan helpers (claude-format concepts, also reused by the proxy
 // extension layer claude-jsonl-full-context.ts).
@@ -171,8 +174,7 @@ function extractToolCalls(content: ContentBlock[]): ToolCallInfo[] | null {
   const resultMap = new Map<string, string>();
   for (const r of toolResultBlocks) {
     if (r.tool_use_id && r.content) {
-      const val = r.content;
-      resultMap.set(r.tool_use_id, typeof val === 'string' ? val : JSON.stringify(val));
+      resultMap.set(r.tool_use_id, normalizeToolResultPayload(r.content) ?? '');
     }
   }
 
@@ -202,11 +204,55 @@ function mapUsage(usage: ClaudeUsage | undefined, costUsd?: number): TokenUsage 
   };
 }
 
-function deriveSessionId(filePath: string): string {
-  // .jsonl.7z / .jsonl.gz（压缩态）与 .jsonl（明文）三形态取 stem；proxy 捕获
-  // 文件的 cpx- 前缀剥掉——目录扫描与 cpx 退出自动导入（传真实 sid）必须落
-  // 同一 taskId，否则同一会话以 cpx-<sid>/<sid> 双身份重复入库
-  return path.basename(filePath).replace(/\.jsonl(\.7z|\.gz)?$/, '').replace(/^cpx-/, '');
+// 文件名 → 会话 id（SourceDescriptor.deriveSessionId 能力的命名层）：.jsonl.7z /
+// .jsonl.gz（压缩态）与 .jsonl（明文）三形态取 stem；proxy 捕获文件的
+// cpx- 前缀剥掉——目录扫描、单文件直导与服务端缺省推导必须落同一 taskId，
+// 否则同一会话以 cpx-<sid>/<sid> 双身份重复入库
+export function deriveSessionIdFromName(fileName: string): string {
+  return fileName.replace(/\.jsonl(\.7z|\.gz)?$/, '').replace(/^cpx-/, '');
+}
+
+// 路径 → 会话 id（SourceDescriptor.deriveSessionId 能力）：deriveSessionId
+// 契约收完整路径（DSH 的 id 取日志父目录名，只有 basename 推不出来），
+// claude 规则只看文件名，先剥目录
+export function deriveSessionIdFromPath(filePath: string): string {
+  return deriveSessionIdFromName(path.basename(filePath));
+}
+
+// 内容级识别（SourceDescriptor.detectContent 能力）：首 N 条有效 JSON 行中
+// 任一命中 claude wire 信封（type + message 对象）即认领——不要求首行命中
+// （summary/result 等无 message 的元数据行可能在前）。三形态透明解压；
+// 读不出/无有效行 → null（无法判定，解析层信任声明值）。
+const DETECT_SCAN_LINES = 10;
+
+export function detectContent(filePath: string): boolean | null {
+  let buf: Buffer;
+  try {
+    buf = readCaptureHead(resolveCaptureForm(filePath));
+  } catch {
+    return null;
+  }
+  let valid = 0;
+  let matched = false;
+  let start = 0;
+  const consider = (end: number): void => {
+    const t = buf.toString('utf-8', start, end).trim();
+    start = end + 1;
+    if (!t || t.startsWith('//')) return;
+    try {
+      const obj = JSON.parse(t) as { type?: unknown; message?: unknown };
+      valid += 1;
+      if (typeof obj.type === 'string' && obj.message != null && typeof obj.message === 'object') matched = true;
+    } catch {
+      // 坏行/半写行（活文件尾行）跳过
+    }
+  };
+  for (let i = 0; i < buf.length && !matched && valid < DETECT_SCAN_LINES; i++) {
+    if (buf[i] === 0x0a) consider(i);
+  }
+  if (!matched && valid < DETECT_SCAN_LINES) consider(buf.length);
+  if (matched) return true;
+  return valid > 0 ? false : null;
 }
 
 // 捕获文件行流（7z at rest，docs 见 proxy/COMPRESSION-DESIGN.md）：
@@ -263,8 +309,7 @@ function collectAllToolResults(lines: ClaudeJsonlLine[]): Map<string, string> {
     if (line.type === 'user' && line.message?.content && Array.isArray(line.message.content)) {
       for (const block of line.message.content as ContentBlock[]) {
         if (block.type === 'tool_result' && block.tool_use_id && block.content) {
-          const val = block.content;
-          resultMap.set(block.tool_use_id, typeof val === 'string' ? val : JSON.stringify(val));
+          resultMap.set(block.tool_use_id, normalizeToolResultPayload(block.content) ?? '');
         }
       }
     }
@@ -282,6 +327,11 @@ function collectJsonlFiles(dirPath: string): string[] {
         if (entry.name === 'subagents') continue;
         results.push(...collectJsonlFiles(full));
       } else if (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.gz') || entry.name.endsWith('.jsonl.7z')) {
+        // rollout-*.jsonl / session.v4.jsonl 是 codex / dsh 源的文件名指纹
+        // （registry sniff 序：前缀与固定名精确嗅探先于本兜底）——claude 扫描
+        // 不得把它们当捕获件列进会话表，否则族扫描产出假条目、导入即失败
+        if (isRolloutFileName(entry.name)) continue;
+        if (isDshSessionLogName(entry.name)) continue;
         results.push(full);
       }
     }
@@ -305,7 +355,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
 
   const result: SessionListItem[] = [];
   for (const file of files) {
-    const sessionId = deriveSessionId(file);
+    const sessionId = deriveSessionIdFromPath(file);
     // 目录扫描会撞上外来/半写坏的捕获件：逐件降级跳过，不炸整个列表
     // （parseJsonlLines 已不吞读取错误，降级责任在消费点）
     let lines: ClaudeJsonlLine[];

@@ -8,8 +8,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  isSkillToolCall,
-  extractSkillName,
   extractSkillNameFromReadPath,
   stripSkillPreamble,
   selectSkillContent,
@@ -19,38 +17,6 @@ import {
 const t = (n: number) => new Date(n);
 
 describe('skill-content', () => {
-  describe('isSkillToolCall', () => {
-    it('matches Skill/skill/load_skill/skill/*', () => {
-      expect(isSkillToolCall('Skill')).toBe(true);
-      expect(isSkillToolCall('skill')).toBe(true);
-      expect(isSkillToolCall('load_skill')).toBe(true);
-      expect(isSkillToolCall('skill/load_skill')).toBe(true);
-      expect(isSkillToolCall('skill/invoke')).toBe(true);
-      expect(isSkillToolCall('skill/foo')).toBe(true);
-    });
-    it('rejects non-skill tools', () => {
-      expect(isSkillToolCall('Read')).toBe(false);
-      expect(isSkillToolCall('Write')).toBe(false);
-      expect(isSkillToolCall('Bash')).toBe(false);
-    });
-  });
-
-  describe('extractSkillName', () => {
-    it('reads args.skill', () => {
-      expect(extractSkillName('Skill', '{"skill":"a2h-spec"}')).toBe('a2h-spec');
-    });
-    it('falls back to skill_name / name', () => {
-      expect(extractSkillName('skill', '{"skill_name":"x"}')).toBe('x');
-      expect(extractSkillName('skill', '{"name":"y"}')).toBe('y');
-    });
-    it('falls back to toolName strip when no args', () => {
-      expect(extractSkillName('skill/ops-spec-gen', null)).toBe('ops-spec-gen');
-    });
-    it('falls back to toolName strip on bad json', () => {
-      expect(extractSkillName('skill/foo', 'not json')).toBe('foo');
-    });
-  });
-
   describe('extractSkillNameFromReadPath', () => {
     it('extracts parent dir of SKILL.md (forward slash)', () => {
       expect(extractSkillNameFromReadPath('/a/b/ops-spec-gen/SKILL.md')).toBe('ops-spec-gen');
@@ -100,6 +66,24 @@ describe('skill-content', () => {
         {
           toolName: 'Read',
           argsJson: '{"file_path":"/a/b/foo/SKILL.md"}',
+          resultJson: '1\t# Foo\n2\t\n3\tbody',
+          startedAt: t(1),
+        },
+      ];
+      const r = selectSkillContent(ops, 'foo');
+      expect(r).not.toBeNull();
+      expect(r!.source).toBe('read');
+      expect(r!.content).toBe('# Foo\n\nbody');
+      expect(r!.fullRead).toBe(true);
+      expect(r!.maxLine).toBe(3);
+    });
+
+    it('resolves Read path via opencode legacy `path` key', () => {
+      // opencode 旧版 read 参数键为 `path`（新版 filePath）——词表统一识别
+      const ops: SkillToolCall[] = [
+        {
+          toolName: 'read',
+          argsJson: '{"path":"/home/u/.opencode/skills/foo/SKILL.md"}',
           resultJson: '1\t# Foo\n2\t\n3\tbody',
           startedAt: t(1),
         },

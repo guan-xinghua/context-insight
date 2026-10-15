@@ -98,42 +98,48 @@ export function detectRankedPrefixDrift<T extends {
   return false;
 }
 
-export function mergeTurns(existingTurns: TurnRow[], newTurns: TurnRow[]): TurnRow[] {
-  const existingKeys = new Set(keyByRankedTurn(existingTurns).keys());
-  const incomingKeys = rankedKeyMap(newTurns);
+export interface SkillEventNameUpdate {
+  /** 存量行 DB 主键 */
+  dbId: string;
+  /** 采纳的（来源侧新提取约定的）技能名 */
+  skillName: string;
+}
 
-  const merged = [...existingTurns];
-  for (const turn of newTurns) {
-    if (!existingKeys.has(incomingKeys.get(turn)!)) {
-      merged.push(turn);
+export function mergeSkillEvents(
+  existing: SkillEventRow[],
+  incoming: SkillEventRow[],
+): { rows: SkillEventRow[]; nameUpdates: SkillEventNameUpdate[] } {
+  // 事件身份 = (turnId, eventType, argsJson)——skillName 是其派生值（词表
+  // extractSkillName 从 toolName+args 提取）。名字漂移 = 存量行由旧提取
+  // 约定产出（如 opencode skill `id` 键识别前回落工具名字面量 "skill"），
+  // 来源侧重导入以新约定提取 → 采纳新名且不重复落行（与 diffTurns 内容
+  // 更新同语义：来源侧为权威）。
+  const identityOf = (se: SkillEventRow) => `${se.turnId}|${se.eventType}|${se.argsJson ?? ''}`;
+  const incomingNameByIdentity = new Map<string, string>();
+  for (const se of incoming) {
+    const k = identityOf(se);
+    if (!incomingNameByIdentity.has(k)) incomingNameByIdentity.set(k, se.skillName);
+  }
+  const nameUpdates: SkillEventNameUpdate[] = [];
+  const updatedDbIds = new Set<string>();
+  for (const se of existing) {
+    const name = incomingNameByIdentity.get(identityOf(se));
+    if (name !== undefined && name !== se.skillName && !updatedDbIds.has(se.id)) {
+      updatedDbIds.add(se.id);
+      nameUpdates.push({ dbId: se.id, skillName: name });
     }
   }
 
-  merged.sort((a, b) => a.turnIndex - b.turnIndex || a.role.localeCompare(b.role));
-  return merged;
-}
-
-export function mergeToolCalls(existing: ToolCallRow[], incoming: ToolCallRow[]): ToolCallRow[] {
-  const existingIds = new Set(existing.map(tc => tc.toolCallId));
-
-  const merged = [...existing];
-  for (const tc of incoming) {
-    if (!existingIds.has(tc.toolCallId)) {
-      merged.push(tc);
-      existingIds.add(tc.toolCallId);
-    }
-  }
-
-  return merged;
-}
-
-export function mergeSkillEvents(existing: SkillEventRow[], incoming: SkillEventRow[]): SkillEventRow[] {
+  // 增量合并（原语义保持）：同事件身份的重观察不落新行（含名字漂移——
+  // 走 nameUpdates 更新存量行）；其余按 turnId:skillName:eventType 去重追加
+  const existingIdentities = new Set(existing.map(identityOf));
   const existingKeys = new Set(
     existing.map(se => `${se.turnId}:${se.skillName}:${se.eventType}`)
   );
 
   const merged = [...existing];
   for (const se of incoming) {
+    if (existingIdentities.has(identityOf(se))) continue;
     const key = `${se.turnId}:${se.skillName}:${se.eventType}`;
     if (!existingKeys.has(key)) {
       merged.push(se);
@@ -141,7 +147,7 @@ export function mergeSkillEvents(existing: SkillEventRow[], incoming: SkillEvent
     }
   }
 
-  return merged;
+  return { rows: merged, nameUpdates };
 }
 
 export interface TurnUpdate {

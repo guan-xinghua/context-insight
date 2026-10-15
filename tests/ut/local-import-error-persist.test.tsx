@@ -153,8 +153,8 @@ describe('导入失败驻留 + 报错完整可见（不自动关闭）', () => {
 
   it('本地 JSONL 导入失败：报错可见、不自动关闭', async () => {
     await renderAndOpen()
-    // 默认 sourceType = claude-jsonl；填入单文件路径后按钮变「Import」
-    const input = [...document.querySelectorAll('input')].find(i => i.placeholder?.includes('session.jsonl')) as HTMLInputElement
+    // 默认 sourceType = jsonl（伞形，claude/codex 自动识别）；填入单文件路径后按钮变「Import」
+    const input = [...document.querySelectorAll('input')].find(i => i.placeholder?.includes('*.jsonl')) as HTMLInputElement
     expect(input, 'File Path 输入框未找到').toBeTruthy()
     setInputValue(input, '/tmp/cpx-ses_badfile.jsonl')
     await flush(100)

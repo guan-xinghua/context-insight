@@ -84,8 +84,12 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
       p === ".env" ||
       p.endsWith("dev.db") || p.endsWith("dev.db-journal") ||
       // SQLite WAL 边车：.npmignore 曾只排 dev.db/-journal 漏了这两个——并行
-      // 测试热写 WAL 时 npm pack 读到变异文件报 EOF，安静态则会静默进包
+      // 测试热写 WAL 时 npm pack 读到变异文件报 EOF，安静态则会静默进包。
+      // test.db 同族同理：测试库本体与边车都不属于运行时产物，静默态会连同
+      // 测试数据一起进包
       p.endsWith("dev.db-wal") || p.endsWith("dev.db-shm") ||
+      p.endsWith("test.db") || p.endsWith("test.db-journal") ||
+      p.endsWith("test.db-wal") || p.endsWith("test.db-shm") ||
       p === "package-lock.json" ||
       p === ".next" || p.startsWith(".next/") ||
       p === "home" || p.startsWith("home/")

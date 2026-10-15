@@ -183,15 +183,41 @@ adapters/system-structure/
 ### 2.6 新框架接入清单（重构后）
 
 ```
-1. adapters/<framework>.ts   解析内核 + 可选能力实现（readSubagents/sniffFile/…）
+1. adapters/<framework>.ts   解析内核 + 可选能力实现（readSubagents/sniffFile/
+                             detectContent/deriveSessionId/…，探测指纹框架自持）
 2. adapters/injections/<framework>.ts   注入指纹（有 user 行注入的框架）
 3. injections/index.ts       分发表加一行
 4. adapters/system-structure/<framework>.ts   系统提示结构（有结构段/结构化全集需求的框架）
 5. system-structure/index.ts 分发表加一行
-6. registry.ts               加一行注册
-7. import-ui.ts              加一条 UI 数据（可选）
+6. registry.ts               加一行注册（jsonl 系自动入族，"(auto)" 入口/嗅探/纠偏自动覆盖）
+7. import-ui.ts              加一条 quickDir（可选；无需新增 UI 按键）
 —— API 路由、data-service、normalize、refresh 全部零改动
 ```
+
+### 2.7 源族与解析单点（umbrella source）
+
+「源」分两层：**族**（文件形态：jsonl / sqlite）是 UI 入口与探测的粒度，
+**成员**（具体源：claude-jsonl / codex-jsonl / dsh-native / …）是解析的粒度
+（dsh-native 是源族落地后首个按「适配器 + 注册一行」接入的新框架，
+未新增 UI 按键）。
+
+- **族声明**（`SOURCE_FAMILIES`）：族名即伞形 sourceType（`jsonl` / `sqlite`），
+  API 一等值；声明序 = 探测优先级（特异源在前、扩展名兜底源在后，与
+  sniffFile 序同一条原则）
+- **探测能力框架自持**：`detectContent`（内容级，读首 N 有效行判信封）/
+  `deriveSessionId`（命名规则）——与 sniffFile（文件名级）、injections/
+  （行级）同一哲学的高一层
+- **解析单点**（`resolveSource`）：① 伞形 → 族内按序探测，无人认领抛
+  `SourceResolutionError`（路由转 400 可行动报错）② 具体源自身认领 → 零
+  干预 ③ 不认领但族内兄弟认领 → 纠偏（detectSqliteSource 先例的泛化）
+  ④ 全都认不出 → 信任声明值（与散装时代行为一致）
+- **目录扫描族分发**：伞形 + 目录 = 族成员各列各的（条目带成员 sourceType
+  标记，批量导入按条目发，混合目录天然正确）；sessionId 推导服务端单点
+  （响应回传 `taskId`），UI 不再复制命名规则
+- **两级判定分层**：文件格式解析（本层，选适配器）≠ 框架分类
+  （injections/proxy-classify，定 Session.framework）——claude 布局里的
+  codex-proxy 捕获走 claude-jsonl 适配器、framework 照旧判 codex-proxy
+
 
 ## 三、codex-jsonl 适配器设计（新框架首个客户）
 

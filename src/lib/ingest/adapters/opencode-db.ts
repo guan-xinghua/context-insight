@@ -7,7 +7,19 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import Database from 'better-sqlite3';
+import { peekSqliteTables } from '../sqlite-detect';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
+import { normalizeToolResultPayload } from '../../tool-conventions';
+
+// 内容级识别（SourceDescriptor.detectContent 能力）：schema 可读且带
+// session/session_v2 表即认领；可读但属于 CANNBot 导出库（Prisma 大写
+// "Session" 表）或未知 schema 时明确不认领（false，触发族内兄弟纠偏）；
+// 读不出（非 sqlite / 目录 / 缺件）→ null（信任声明值）。
+export function detectContent(filePath: string): boolean | null {
+  const tables = peekSqliteTables(filePath);
+  if (tables == null) return null;
+  return tables.has('session') || tables.has('session_v2');
+}
 
 // opencode native db comes in two schema generations:
 //   v1 (opencode 1.x):   tables session / message / part, messages ordered by time_created
@@ -427,11 +439,15 @@ function _readSession(db: Database.Database, sessionId: string): RawInteraction[
 
   let subagent_name: string | null = null;
   if (subagentInfo) {
-    const titleMatch = subagentInfo.title.match(/@\((\w+)\)\s+subagent/);
+    // 标题双格式（括号序两种，真机均存在）：
+    //   '任务描述 (@ascendc-ops-architect subagent)' ← 湖数据实测（连字符全名）
+    //   '@(build) subagent: scan logs'               ← 旧版 opencode
+    // 旧正则只认 '@(name)' 序 → 新序永不命中、fallback 在连字符截断
+    const titleMatch = subagentInfo.title.match(/\(@([\w.-]+)\s+subagent\)/) ?? subagentInfo.title.match(/@\(([\w.-]+)\)\s+subagent/);
     if (titleMatch) {
       subagent_name = titleMatch[1];
     } else {
-      const agentFromTitle = subagentInfo.title.match(/@(\w+)/);
+      const agentFromTitle = subagentInfo.title.match(/@([\w.-]+)/) ?? subagentInfo.title.match(/\(([\w.-]+)\)\s+subagent/);
       if (agentFromTitle) subagent_name = agentFromTitle[1];
     }
   }
@@ -517,9 +533,10 @@ function _readSession(db: Database.Database, sessionId: string): RawInteraction[
 
       let resultJson: string | null = null;
       if (pd.output) {
-        resultJson = typeof pd.output === 'string' ? pd.output : JSON.stringify(pd.output);
+        // 结果负载归一（词表）：v1 字符串直通；内容块数组取 text 拼接
+        resultJson = normalizeToolResultPayload(pd.output);
       } else if (pd.state?.output) {
-        resultJson = typeof pd.state.output === 'string' ? pd.state.output : JSON.stringify(pd.state.output);
+        resultJson = normalizeToolResultPayload(pd.state.output);
       }
 
       const tc: ToolCallInfo = { toolCallId: callID, toolName, argsJson, resultJson, state };
@@ -751,12 +768,14 @@ function v2ToolCallInfo(c: Record<string, unknown>): ToolCallInfo {
 
   let resultJson: string | null = null;
   if (status === 'completed' && state.content !== undefined && state.content !== null) {
-    resultJson = typeof state.content === 'string' ? state.content : JSON.stringify(state.content);
+    // 结果负载归一（词表）：v2 的 content 是内容块数组，取 text 拼接——
+    // 历史缺陷：整体 stringify 落库使 read 行级解析/文件还原全链失效
+    resultJson = normalizeToolResultPayload(state.content);
   } else if (status === 'error') {
     if (state.error !== undefined && state.error !== null) {
-      resultJson = typeof state.error === 'string' ? state.error : JSON.stringify(state.error);
+      resultJson = normalizeToolResultPayload(state.error);
     } else if (state.content !== undefined && state.content !== null) {
-      resultJson = typeof state.content === 'string' ? state.content : JSON.stringify(state.content);
+      resultJson = normalizeToolResultPayload(state.content);
     }
   }
 
@@ -844,11 +863,13 @@ function _readSessionV2(db: Database.Database, sessionId: string): RawInteractio
 
   let subagent_name: string | null = null;
   if (isSubagent && sessionRow.title) {
-    const titleMatch = sessionRow.title.match(/@\((\w+)\)\s+subagent/);
+    // 标题双格式（括号序两种，同 v1 reader 的修复说明：新序 '(@name subagent)'
+    // 连字符全名 / 旧序 '@(name) subagent'）
+    const titleMatch = sessionRow.title.match(/\(@([\w.-]+)\s+subagent\)/) ?? sessionRow.title.match(/@\(([\w.-]+)\)\s+subagent/);
     if (titleMatch) {
       subagent_name = titleMatch[1];
     } else {
-      const agentFromTitle = sessionRow.title.match(/@(\w+)/);
+      const agentFromTitle = sessionRow.title.match(/@([\w.-]+)/) ?? sessionRow.title.match(/\(([\w.-]+)\)\s+subagent/);
       if (agentFromTitle) subagent_name = agentFromTitle[1];
     }
   }

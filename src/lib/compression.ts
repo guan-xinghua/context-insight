@@ -89,6 +89,24 @@ export function readCaptureText(filePath: string): string {
   return readCaptureBuffer(filePath).toString('utf8');
 }
 
+/** 有界读头（detectContent 探测用）：探测只扫头 N 条有效行，不必整文件读入。
+ *  明文走 fs.open + 有界 read——直导大捕获主流是明文原生日志（631MB wire 先例
+ *  在案，探测一遍 + 解析一遍各全文读入使峰值内存/耗时翻倍）；.gz/.7z 压缩态
+ *  不便流式提前终止，仍整档解压（与 readCaptureBuffer 同构，见其头注）。 */
+export function readCaptureHead(filePath: string, maxBytes = 256 * 1024): Buffer {
+  if (!is7z(filePath) && !isGz(filePath)) {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.allocUnsafe(maxBytes);
+      const n = fs.readSync(fd, buf, 0, maxBytes, 0);
+      return n < maxBytes ? buf.subarray(0, n) : buf;
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+  return readCaptureBuffer(filePath);
+}
+
 /** staging 转换：任意形态（明文/.gz）→ .7z。旧 gz 数据上传时迁移到新格式；已 .7z 原样返回。
  * 全程 Buffer/子进程、零字符串中转（明文/解压后 >512MB 过 V8 单字符串上限必炸——
  * 631MB wire 捕获量级在案，旧 gzip 路径全程 Buffer 能处理，字符串中转是回归）：
