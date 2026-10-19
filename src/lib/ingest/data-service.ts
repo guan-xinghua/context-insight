@@ -443,6 +443,37 @@ export function computeSessionAggregates(
   };
 }
 
+// 子代理块按「块内最早交互时刻」升序并入主流：主时间线在前、子代理整块
+// 追加的结构不变，块序从源侧发现序（opencode 双表 union / claude 目录序，
+// 实测常为建会话倒序——晚派发的块先并入，全局 turnIndex 与真实时间逆行，
+// 现场读作「后来的 turn 数字大」）改为派发正序。排序只在块粒度：块内序列
+// 不动——上下文内位次是合并/刷新的稳定身份键（merge.ts rankedKey），块序
+// 重排不影响增量匹配。异步子代理同样安全：排序键是子代理自己开跑的时刻
+// （timeInfo.created），与主时间线无耦合。无时间戳的块排尾部，稳定排序
+// 保发现序。
+export function appendSubagentBlocksOrdered(
+  allRawInteractions: RawInteraction[],
+  subInteractions: RawInteraction[],
+): void {
+  const blocks = new Map<string, RawInteraction[]>();
+  for (const r of subInteractions) {
+    const sid = r.subagent_session_id ?? '';
+    const list = blocks.get(sid) ?? [];
+    list.push(r);
+    blocks.set(sid, list);
+  }
+  const keyed = [...blocks.values()].map((block, i) => ({
+    block,
+    i,
+    firstMs: block.reduce<number | null>((m, r) => {
+      const c = r.timeInfo?.created;
+      return typeof c === 'number' && Number.isFinite(c) ? (m === null ? c : Math.min(m, c)) : m;
+    }, null),
+  }));
+  keyed.sort((a, b) => (a.firstMs ?? Infinity) - (b.firstMs ?? Infinity) || a.i - b.i);
+  for (const { block } of keyed) allRawInteractions.push(...block);
+}
+
 // 会话级导入边界日志（start/done/failed 三件套 + sid 归属）：并发/失败场景
 // 下每条管线阶段行都能对回会话——此前 8 条阶段计时行不带 sid，两个导入
 // 交叉时无法归属（现场排查痛点）。lake 导入在编排层另有 start/done，分层
@@ -604,13 +635,14 @@ async function importSessionInner(
     // readSubagents 内实现，data-service 不再持有框架分支（新源接入零改动）。
     if (srcType === 'opencode-db' && sharedDb) {
       const subagentSessionIds = listSubagentSessionsWithDb(sharedDb, sessionId);
+      const subInteractions: RawInteraction[] = [];
       for (const subId of subagentSessionIds) {
-        const subInteractions = readSessionWithDb(sharedDb, subId);
-        allRawInteractions.push(...subInteractions);
+        subInteractions.push(...readSessionWithDb(sharedDb, subId));
       }
+      appendSubagentBlocksOrdered(allRawInteractions, subInteractions);
     } else if (descriptor.readSubagents) {
       toolUseIdMapping = descriptor.collectSubagentToolUseMap?.(dbPath, sessionId);
-      allRawInteractions.push(...descriptor.readSubagents(dbPath, sessionId));
+      appendSubagentBlocksOrdered(allRawInteractions, descriptor.readSubagents(dbPath, sessionId));
     }
     impLog.info('subagents', { sid: sessionId, ms: Date.now() - t2, interactions: allRawInteractions.length });
 
@@ -1045,15 +1077,17 @@ export async function deltaRefreshSession(
 
     if (srcType === 'opencode-db' && sharedDb) {
       const subIds = listSubagentSessionsWithDb(sharedDb, sessionId);
+      const subInteractions: RawInteraction[] = [];
       for (const subId of subIds) {
-        allRawInteractions.push(...readSessionWithDb(sharedDb, subId));
+        subInteractions.push(...readSessionWithDb(sharedDb, subId));
       }
+      appendSubagentBlocksOrdered(allRawInteractions, subInteractions);
     } else if (descriptor.readSubagents) {
       // 注册表通用子代理路径（与导入路径同源：readSubagents 已打标含
       // name/type——此前刷新分支只打 session_id，刷新后子代理轮缺名，导入
       // 与刷新两口径就此统一）
       toolUseIdMapping = descriptor.collectSubagentToolUseMap?.(session.sourcePath, sessionId);
-      allRawInteractions.push(...descriptor.readSubagents(session.sourcePath, sessionId));
+      appendSubagentBlocksOrdered(allRawInteractions, descriptor.readSubagents(session.sourcePath, sessionId));
     }
 
     if (allRawInteractions.length === 0) {

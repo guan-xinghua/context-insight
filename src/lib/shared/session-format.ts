@@ -9,6 +9,14 @@
 /** DB 侧 proxy 判定的唯一形式：Session.version 带 -proxy 后缀（统一分类器
  * proxy-classify.ts 导入时写入）。UI 徽标 / API 门禁一律用本谓词，不再各写
  * endsWith 字符串比较。 */
+/** 展示用版本号：剥掉 -proxy / -<agent>-proxy 后缀（proxy 与否由
+ *  isProxyVersion 徽标单独表达，文本里不重复）。所有展示位共用本函数，
+ *  避免各处正则漂移（曾出现 opencode 剥得掉、codex/cannbot 剥不掉的分叉） */
+export function displayVersion(version: string | null | undefined): string | null {
+  if (!version) return null;
+  return version.replace(/-(?:[a-z0-9]+-)?proxy$/i, "") || null;
+}
+
 export function isProxyVersion(version: string | null | undefined): boolean {
   return version?.endsWith('-proxy') ?? false;
 }

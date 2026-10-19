@@ -113,9 +113,9 @@ describe('contextWindowLimit：turn 无 model 回退会话级 model', () => {
     expect(data.items.find(t => t.turnIndex === 4)?.contextWindowLimit).toBe(1000000);
   });
 
-  it('turn 详情：会话自身无 model 时保持 200k 默认（回归锁）', async () => {
+  it('turn 详情：会话自身无 model 时保持 1M 默认（回归锁；曾为 200k）', async () => {
     const { body } = await getTurnDetail(turnUserNoModel);
-    expect(body.contextWindowLimit).toBe(200000);
+    expect(body.contextWindowLimit).toBe(1000000);
   });
 
   it('turn 详情：-continuation 合成轮同样按会话 model 取基数', async () => {

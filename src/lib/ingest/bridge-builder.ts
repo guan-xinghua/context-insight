@@ -97,6 +97,29 @@ export function buildBridges(
 
   const usedSessionIds = new Set<string>();
 
+  // 复用会话的派发时刻表：同 sid 相邻两次派发（dispatch_i → dispatch_{i+1}）
+  // 构成本次派发的窗口，response/末条 turn/tokens 只在窗口内锚定。否则复用
+  // 会话（首发+返工重入）的每条桥都锚到会话全局末条 turn，两窗互相包含
+  //（现场 ses_ecb797cb P1/P2 各一对，读成「没执行完就返工」）
+  const dispatchTimesBySession = new Map<string, number[]>();
+  for (const { tc, rec } of dispatchEntries) {
+    // 与主循环 matchedSessionId 同序三段解析（arg → meta 映射 → result）：
+    // meta 直连形态（claude proxy Agent）下 meta 值可能与 resultSessionId
+    // 不同，只认 arg/result 会查空时刻表 → 窗口退化为无界、复用配对失效
+    const preSid = rec.argSessionId
+      ?? (rec.spec.linkViaToolUseMeta && toolUseIdToSubagentSessionId
+        ? toolUseIdToSubagentSessionId.get(tc.toolCallId) ?? null
+        : null)
+      ?? rec.resultSessionId;
+    if (!preSid) continue;
+    const preMs = tc.startedAt ? new Date(tc.startedAt).getTime() : NaN;
+    if (!Number.isFinite(preMs)) continue;
+    const arr = dispatchTimesBySession.get(preSid) ?? [];
+    arr.push(preMs);
+    dispatchTimesBySession.set(preSid, arr);
+  }
+  for (const arr of dispatchTimesBySession.values()) arr.sort((a, b) => a - b);
+
   for (const { tc: dispatchTc, rec } of dispatchEntries) {
     let matchedSessionId: string | null = rec.argSessionId;
 
@@ -151,7 +174,39 @@ export function buildBridges(
     if (matchedSessionId) {
       usedSessionIds.add(matchedSessionId);
 
-      const subTurns = subagentTurnMap.get(matchedSessionId) ?? [];
+      const subTurnsAll = [...(subagentTurnMap.get(matchedSessionId) ?? [])].sort((a, b) => {
+        const ta = a.createdAt_ts ? new Date(a.createdAt_ts).getTime() : 0;
+        const tb = b.createdAt_ts ? new Date(b.createdAt_ts).getTime() : 0;
+        return ta - tb;
+      });
+      // 窗口 = [本次派发, 同 sid 下次派发)；窗口内无 turn 时退化为「本次派发
+      // 之后的尾巴」，仍为空再退化为整会话（单派发/异步兜底，行为不变）
+      const dispatchMs = dispatchTimestamp ? new Date(dispatchTimestamp).getTime() : NaN;
+      const sidTimes = dispatchTimesBySession.get(matchedSessionId) ?? [];
+      const nextDispatchMs = Number.isFinite(dispatchMs)
+        ? sidTimes.find(t => t > dispatchMs) ?? null
+        : null;
+      let subTurns = subTurnsAll;
+      if (Number.isFinite(dispatchMs) && subTurnsAll.length > 0) {
+        const afterDispatch = subTurnsAll.filter(t => {
+          const ts = t.createdAt_ts ? new Date(t.createdAt_ts).getTime() : NaN;
+          return Number.isFinite(ts) && ts >= dispatchMs;
+        });
+        const inWindow = nextDispatchMs !== null
+          ? afterDispatch.filter(t => new Date(t.createdAt_ts!).getTime() < nextDispatchMs)
+          : afterDispatch;
+        if (inWindow.length > 0) subTurns = inWindow;
+        else if (nextDispatchMs !== null) {
+          // 空窗回退只放开下界、仍卡上界（时钟偏移下 turn 早于派发时刻的形态）；
+          // 再空则宁空（桥走 pending 口径）也不吞下窗 turn——后台派发
+          // 「先派发、turn 后到」时旧回退会把下一窗的 turn 记到本次头上
+          const boundedAbove = subTurnsAll.filter(t => {
+            const ts = t.createdAt_ts ? new Date(t.createdAt_ts).getTime() : NaN;
+            return Number.isFinite(ts) && ts < nextDispatchMs;
+          });
+          subTurns = boundedAbove; // 空则置空（pending 口径），不回落整会话
+        } else if (afterDispatch.length > 0) subTurns = afterDispatch;
+      }
 
       if (subTurns.length > 0) {
         const lastTurn = subTurns[subTurns.length - 1];

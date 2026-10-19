@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BRAND_NAME, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
-import { isProxyVersion, agentFrameworkOf } from '@/lib/shared/session-format'
+import { isProxyVersion, agentFrameworkOf, displayVersion } from '@/lib/shared/session-format'
 import { sessionHref } from '@/lib/shared/session-link'
 import { useRouter } from 'next/navigation';
 import {
@@ -518,6 +518,13 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                               : agent === 'codex'
                                 ? <Badge variant="slate">Codex</Badge>
                                 : <Badge variant="orange">Claude</Badge>}
+                          {/* 版本紧跟框架徽标（同框架行宽恒定，跨行纵向对齐），
+                              proxy 徽标放版本之后；后缀已由黄标表达，展示时剥掉 */}
+                          {displayVersion(item.version) && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              {displayVersion(item.version)}
+                            </span>
+                          )}
                           {isProxyVersion(item.version) && (
                             <Badge variant="yellow">proxy</Badge>
                           )}

@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logError } from '@/lib/logger';
 import { prisma } from '@/lib/db';
 import { getContextWindowLimit } from '@/lib/context-window-config';
+import { isProxyVersion } from '@/lib/shared/session-format';
+import { resolveSubagentIdentity } from '@/lib/subagent-identity';
 import { selectInputContextTurns } from '@/lib/ingest/input-reconstruct';
 import { isContinuationTurn } from '@/lib/shared/command-parser';
 import { wireToolDurations } from '@/lib/tool-timing';
@@ -223,6 +225,38 @@ export async function GET(request: NextRequest) {
         t.model || (t.subagentSessionId ? subagentModels.get(t.subagentSessionId) ?? null : null) || session.model
       );
 
+    // 子代理身份双字段（类型 + 派发步骤）：API 时按 subagentSessionId join
+    // Bridge 回填，不落库。proxy 形态步骤优先 Turn.subagentName（=cpx
+    // meta.name=Task description，自证身份不依赖桥锚定），原生形态
+    // subagentName 泛化、取 dispatchContent。
+    const identityBySession = new Map<string, ReturnType<typeof resolveSubagentIdentity>>();
+    {
+      const subTurns = turns.filter(t => t.subagentSessionId);
+      if (subTurns.length > 0) {
+        const bridgeRows = await prisma.interactionBridge.findMany({
+          where: { sessionId: session.id, subagentSessionId: { not: null } },
+          orderBy: [{ dispatchTimestamp: 'asc' }],
+          select: { subagentSessionId: true, subagentType: true, dispatchContent: true },
+        });
+        // 复用会话（首发+返工同 sid）身份取首发派发——与详情 route 同口径；
+        // 不排序+末条覆盖时，列表会显示返工步骤而详情显示首发步骤
+        const bridgeBySession = new Map<string, typeof bridgeRows[number]>();
+        for (const b of bridgeRows) {
+          if (!bridgeBySession.has(b.subagentSessionId!)) bridgeBySession.set(b.subagentSessionId!, b);
+        }
+        const isProxy = isProxyVersion(session.version);
+        for (const t of subTurns) {
+          const sid = t.subagentSessionId!;
+          if (identityBySession.has(sid)) continue;
+          identityBySession.set(sid, resolveSubagentIdentity({
+            subagentName: t.subagentName,
+            bridge: bridgeBySession.get(sid) ?? null,
+            isProxy,
+          }));
+        }
+      }
+    }
+
     // Reconstruct inputMessagesJson for assistant turns if not stored (import optimization)
     if (includeDetail) {
       const assistantTurnsNeedingReconstruction = turns.filter(
@@ -372,6 +406,8 @@ export async function GET(request: NextRequest) {
       isSubagent: t.isSubagent,
       subagentName: t.subagentName,
       subagentSessionId: t.subagentSessionId,
+      subagentType: identityBySession.get(t.subagentSessionId ?? '')?.subagentType ?? null,
+      dispatchStep: identityBySession.get(t.subagentSessionId ?? '')?.step ?? null,
       parentExecutionId: t.parentExecutionId,
       totalTokens: t.totalTokens,
       inputTokens: t.inputTokens,
@@ -464,6 +500,8 @@ export async function GET(request: NextRequest) {
             isSubagent: item.isSubagent,
             subagentName: item.subagentName,
             subagentSessionId: item.subagentSessionId,
+            subagentType: identityBySession.get(item.subagentSessionId ?? '')?.subagentType ?? null,
+            dispatchStep: identityBySession.get(item.subagentSessionId ?? '')?.step ?? null,
             parentExecutionId: item.parentExecutionId,
             totalTokens: 0,
             inputTokens: 0,

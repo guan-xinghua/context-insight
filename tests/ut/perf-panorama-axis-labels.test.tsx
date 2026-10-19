@@ -72,13 +72,13 @@ async function renderPanorama(onJumpToSubagent?: (sid: string) => void) {
 }
 
 describe('PerfPanorama 横轴 agent 名标注', () => {
-  it('柱下直接显示 agent 名:#N 保留、长名断行、超宽截断、按 agent 固定色', async () => {
+  it('柱下直接显示 subagent 类型名:无 #N 序号、长名断行、超宽截断、按 agent 固定色', async () => {
     await renderPanorama()
     const textEls = [...container!.querySelectorAll('svg text')]
     const texts = textEls.map(t => t.textContent ?? '')
 
-    // #N 序号保留(Duration + Token 两图各一份)
-    expect(texts.filter(t => t === '#1').length).toBe(2)
+    // #N 序号已移除（无意义的混编序号，类型名自身可辨识）
+    expect(texts.filter(t => t === '#1').length).toBe(0)
 
     // agent 名直接可见,无需悬停
     expect(texts.filter(t => t === '探索').length).toBe(2)

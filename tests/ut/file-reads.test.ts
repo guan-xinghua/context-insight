@@ -28,6 +28,7 @@ describe('file-reads', () => {
       expect(result).toEqual({ filePath: '/src/foo.ts', offset: 10, limit: 20, summary: null });
     });
 
+
     it('parses JSON with summary field', () => {
       const result = parseReadToolArgs('{"filePath":"/src/foo.ts","summary":"src/foo.ts"}');
       expect(result).toEqual({ filePath: '/src/foo.ts', offset: null, limit: null, summary: 'src/foo.ts' });

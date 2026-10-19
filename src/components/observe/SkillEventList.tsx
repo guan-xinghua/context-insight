@@ -10,6 +10,7 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { type SkillEventItem, type SkillToolCallItem, type SkillGroup, extractSkillNameFromArgs, groupSkillEvents } from "@/lib/skill-event-grouping"
+import { isBackgroundDispatch } from "@/lib/subagent-identity"
 import { CopyButton } from "./CopyButton"
 
 const EVENT_TYPE_BADGE_VARIANTS: Record<string, "blue" | "green" | "orange" | "gray"> = {
@@ -108,6 +109,9 @@ export function SkillEventList({ skillEvents, skillToolCalls }: SkillEventListPr
               <Badge variant={group.allSuccess ? "green" : "red"}>
                 {group.allSuccess ? "success" : "fail"}
               </Badge>
+              {isBackgroundDispatch(group.dispatchArgsJson, group.dispatchResultJson) && (
+                <Badge variant="yellow" title="后台异步派发：立即返回，完成后再通知父会话">background</Badge>
+              )}
               {(() => {
                 const matchingTcs = skillToolCalls ? skillToolCalls.filter(tc => {
                   const sn = extractSkillNameFromArgs(tc.argsJson)

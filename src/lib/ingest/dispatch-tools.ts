@@ -292,8 +292,9 @@ function extractResultSessionId(
       const dshSub = resultJson.match(/started subagent\s+([0-9a-fA-F-]{36})/);
       if (dshSub) return { sessionId: dshSub[1]!, nickname: null };
     } else if (extractor === 'task-id-xml') {
-      // opencode task 真机结果形态：<task id="ses_…" state="completed">
-      const match = resultJson.match(/<task\s+id="([^"]+)"/);
+      // opencode task 真机结果形态：<task id="ses_…" state="completed">。结果
+      // 可能是 JSON 内容块数组（text 内层引号转义成 \"），直引号与转义引号都要容
+      const match = resultJson.match(/<task\s+id=\\?"([^"\\]+)\\?"/);
       if (match) return { sessionId: match[1]!, nickname: null };
     } else if (extractor === 'subagent-result') {
       // reuseDispatch 插件结果双形态（真机核实）。结果常是嵌套 JSON 字符串

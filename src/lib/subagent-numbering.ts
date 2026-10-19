@@ -22,6 +22,10 @@ export interface SubagentNumberingTurn {
   isSubagent: boolean
   subagentSessionId: string | null
   createdAt: string | null
+  /** resolveSubagentIdentity 产出的子代理类型：分组名类型优先——原生形态
+   *  agentName 全体泛化（如 89 个 "design"），按它分组 #N 跨类型无意义；
+   *  缺省回退 agentName，行为不变 */
+  subagentType?: string | null
 }
 
 export function subagentGroupKey(t: { isSubagent: boolean; subagentSessionId: string | null; turnIndex: number }): string {
@@ -36,7 +40,7 @@ export function buildSubagentNumbers(turns: SubagentNumberingTurn[]): Map<string
     const key = subagentGroupKey(t)
     if (groups.has(key)) continue
     groups.set(key, {
-      agentName: t.agentName ?? "?",
+      agentName: t.subagentType ?? t.agentName ?? "?",
       firstAt: t.createdAt ? new Date(t.createdAt).getTime() : Number.MAX_SAFE_INTEGER,
       order: i,
     })

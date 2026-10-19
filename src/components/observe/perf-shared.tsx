@@ -8,6 +8,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { useState } from "react"
+import { Badge } from "@/components/ui/badge"
 
 export interface TurnPerf {
   turnId: string
@@ -17,6 +18,8 @@ export interface TurnPerf {
   isSubagent: boolean
   subagentName: string | null
   subagentSessionId: string | null
+  subagentType: string | null
+  dispatchStep: string | null
   contentSummary: string | null
   createdAt: string | null
   totalTokens: number
@@ -48,6 +51,7 @@ export interface BridgePerf {
 export interface SubagentStat {
   sessionId: string
   name: string
+  subagentType: string | null
   taskDescription: string | null
   turns: TurnPerf[]
   totalMs: number
@@ -316,10 +320,15 @@ export function PerfTopTable({ subagents, onJumpToTurn }: {
                       onClick={() => setExpanded(isOpen ? null : s.sessionId)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setExpanded(isOpen ? null : s.sessionId) }}
                     >▶</span>
-                    <span className="truncate">{s.name}</span>
+                    {/* 与 turns 时间线同款（subagent 橙色胶囊徽章）：类型在行首、
+                        步骤同行跟上；无类型（codex spawn 系）回落第二行描述小字 */}
+                    {s.subagentType && (
+                      <Badge variant="orange" className="shrink-0 text-[10px] font-mono max-w-[220px] truncate" title={s.taskDescription ?? s.subagentType}>🔗 {s.subagentType}</Badge>
+                    )}
+                    <span className="truncate" title={s.taskDescription ?? undefined}>{s.name}</span>
                   </span>
-                  {s.taskDescription && (
-                    <span className="text-[10px] text-muted-foreground truncate ml-4">{s.taskDescription}</span>
+                  {!s.subagentType && s.taskDescription && (
+                    <span className="text-[10px] text-muted-foreground truncate ml-4" title={s.taskDescription}>{s.taskDescription}</span>
                   )}
                   {sortKey !== "order" && (
                     <div className="h-2.5 bg-muted/30 rounded overflow-hidden ml-4">

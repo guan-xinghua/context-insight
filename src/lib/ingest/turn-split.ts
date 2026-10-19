@@ -103,11 +103,18 @@ import { isSkillToolCall, skillEventTypeOf, extractSkillName, extractSkillVersio
 
 function isAgentSkillDispatch(toolName: string, argsJson: string | null): boolean {
   const lower = toolName.toLowerCase();
-  if (lower !== 'agent' && lower !== 'task') return false;
+  if (lower !== 'agent' && lower !== 'task' && lower !== 'subagent') return false;
   if (!argsJson) return false;
   try {
     const args = JSON.parse(argsJson);
-    const subagentType = args.subagent_type ?? args.subagent_name ?? null;
+    const strArg = (...keys: string[]): string | null => {
+      for (const k of keys) {
+        const v = args[k];
+        if (typeof v === 'string' && v) return v;
+      }
+      return null;
+    };
+    const subagentType = strArg('subagent_type', 'subagent_name', 'agent');
     if (!subagentType) {
       // opencode 新版工作流派发：subagent_type 是 'general' 或缺失，角色写
       // 在 prompt 首句（"你在此任务中扮演 …中的 \"<role>\" agent"）——仍算
@@ -130,7 +137,8 @@ function extractDispatchSkillName(argsJson: string | null): string {
   if (!argsJson) return 'unknown-dispatch';
   try {
     const args = JSON.parse(argsJson);
-    const subagentType = args.subagent_type ?? args.subagent_name ?? null;
+    const subagentType = [args.subagent_type, args.subagent_name, args.agent]
+      .find((v): v is string => typeof v === 'string' && Boolean(v)) ?? null;
     if (subagentType && subagentType !== 'general-purpose' && subagentType !== 'general') return subagentType;
     const prompt = typeof args.prompt === 'string' ? args.prompt : '';
     // 中文形态：扮演 …工作流中的 "developer" agent / `developer` agent

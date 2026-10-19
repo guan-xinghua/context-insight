@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getContextWindowLimit } from '@/lib/context-window-config';
+import { isProxyVersion } from '@/lib/shared/session-format';
+import { resolveSubagentIdentity } from '@/lib/subagent-identity';
 import { selectInputContextTurns, toWireOrder } from '@/lib/ingest/input-reconstruct';
 import { isContinuationTurn } from '@/lib/shared/command-parser';
 import { listSubagentSessions } from '@/lib/ingest/adapters/claude-jsonl';
@@ -347,6 +349,21 @@ export const GET = withRouteLog('observe/session/turns/[turnId]', async (request
   const contextWindowLimit = getContextWindowLimit(
     turn.model || (await resolveSubagentModel(turn.sessionId, turn.subagentSessionId)) || sess?.model || null
   );
+  // 子代理身份双字段（类型 + 派发步骤），与列表 route 同源同口径：
+  // Bridge join + proxy/原生步骤优先级
+  const identity = turn.subagentSessionId
+    ? resolveSubagentIdentity({
+        subagentName: turn.subagentName,
+        bridge: await prisma.interactionBridge.findFirst({
+          where: { sessionId: turn.sessionId, subagentSessionId: turn.subagentSessionId },
+          orderBy: [{ dispatchTimestamp: 'asc' }],
+          select: { subagentType: true, dispatchContent: true },
+        }),
+        isProxy: isProxyVersion(
+          (await prisma.session.findUnique({ where: { id: turn.sessionId }, select: { version: true } }))?.version ?? null
+        ),
+      })
+    : null;
   // post-patch（spec §4.1 导入归宿）：proxy 捕获的 temperature/maxTokens/
   // 请求 model 只存在 jsonl 的 x_cannbay.data，DB 无对应列 → API 层按需叠加。
   // root assistant turn 才对齐 roundIndex（subagent turn 的全局 turnIndex 与
@@ -376,6 +393,8 @@ export const GET = withRouteLog('observe/session/turns/[turnId]', async (request
     agentName: turn.agentName,
     subagentName: turn.subagentName,
     subagentSessionId: turn.subagentSessionId,
+    subagentType: identity?.subagentType ?? null,
+    dispatchStep: identity?.step ?? null,
     isSubagent: turn.isSubagent,
     totalTokens: turn.totalTokens,
     inputTokens: turn.inputTokens,

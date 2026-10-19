@@ -205,8 +205,8 @@ export function RunsTable({
                       <span className={`inline-block rounded px-1.5 py-0.5 text-xs ${agent ? (FRAMEWORK_BADGE[agent] ?? 'bg-neutral-100 text-neutral-700') : 'bg-neutral-100 text-neutral-400'}`}>
                         {agent || '未知'}
                       </span>
-                      {proxy && <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-amber-100 text-amber-800">proxy</span>}
                       {r.ccVersion && <span className="ml-1 text-xs text-neutral-500">{r.ccVersion}</span>}
+                      {proxy && <span className="inline-block rounded px-1.5 py-0.5 text-xs bg-amber-100 text-amber-800">proxy</span>}
                     </span>
                   );
                 })()}

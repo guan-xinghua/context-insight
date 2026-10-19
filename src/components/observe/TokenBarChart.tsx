@@ -34,7 +34,7 @@ export function TokenBarChart({
   cacheReadTokens,
   cacheWriteTokens,
   toolOverheadTokens,
-  contextWindowLimit = 200000,
+  contextWindowLimit = 1000000,
 }: TokenBarChartProps) {
   if (totalTokens === 0) {
     return <div className="text-sm text-muted-foreground">No token data</div>

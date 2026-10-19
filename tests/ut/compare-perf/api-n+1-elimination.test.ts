@@ -197,6 +197,11 @@ const mocked = vi.hoisted(() => {
         return []
       },
     },
+    // 子代理身份双字段（subagentType/dispatchStep）的桥 join：本 fixture 无桥，
+    // findMany 返回空 → 步骤回落 subagentName（null），行为定义明确
+    interactionBridge: {
+      findMany: async () => [],
+    },
   }
 
   return { counts, prismaMock }

@@ -11,8 +11,9 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { clusterActiveSegments } from "@/lib/active-time"
+import { resolveSubagentIdentity } from "@/lib/subagent-identity"
 
-interface AgentItem {
+export interface AgentItem {
   executionId: string
   agentName: string | null
   agentSessionId: string | null
@@ -35,7 +36,7 @@ interface AgentItem {
   firstPrompt: string | null
 }
 
-interface BridgeItem {
+export interface BridgeItem {
   bridgeId: string
   dispatchExecutionId: string
   dispatchTurnId: string | null
@@ -58,6 +59,8 @@ interface BridgeItem {
 interface AgentCallGraphProps {
   agents: AgentItem[]
   bridges: BridgeItem[]
+  /** 派发步骤优先级用（proxy 形态 subagentName 即步骤描述，原生泛化取桥） */
+  isProxy?: boolean
   onViewTurns?: (agentSessionId: string | null) => void
 }
 
@@ -123,26 +126,32 @@ interface LaneDef {
   bg: string
 }
 
+// 匹配顺序 = 特异性优先：review/test 先于 design——真实现场类型多为
+// design-xxx 前缀族（design-step-reviewer / design-kernel-coder），design
+// 放前面会把审核员全吞进「设计」一条泳道
 const LANE_PATTERNS: Array<{ pattern: RegExp; label: string; color: string; bg: string }> = [
   { pattern: /architect/i, label: "架构", color: "#10b981", bg: "#10b98120" },
-  { pattern: /design/i, label: "设计", color: "#f59e0b", bg: "#f59e0b20" },
   { pattern: /review/i, label: "评审", color: "#8b5cf6", bg: "#8b5cf620" },
   { pattern: /test/i, label: "测试", color: "#ef4444", bg: "#ef444420" },
+  { pattern: /design/i, label: "设计", color: "#f59e0b", bg: "#f59e0b20" },
   { pattern: /general/i, label: "通用", color: "#06b6d4", bg: "#06b6d420" },
 ]
 
-function assignToLane(agent: AgentItem): LaneDef {
+function assignToLane(agent: AgentItem, subagentType: string | null = null): LaneDef {
   if (!agent.isSubagent) {
     return { key: "command", label: "总控", color: "#3b82f6", bg: "#3b82f620" }
   }
-  const name = (agent.agentName ?? "").toLowerCase()
+  // 名字优先用解析出的 subagentType（resolveSubagentIdentity 唯一入口）：
+  // 原生形态 agentName 泛化（如全体 "design"），真类型在桥里
+  const displayName = subagentType ?? agent.agentName
+  const name = (displayName ?? "").toLowerCase()
   for (const p of LANE_PATTERNS) {
     if (p.pattern.test(name)) {
       return { key: p.label, label: p.label, color: p.color, bg: p.bg }
     }
   }
-  const shortName = agent.agentName ?? "unknown"
-  const color = getAgentColor(agent.agentName)
+  const shortName = displayName ?? "unknown"
+  const color = getAgentColor(displayName)
   return { key: shortName, label: shortName, color, bg: `${color}20` }
 }
 
@@ -162,7 +171,7 @@ interface TooltipData {
   status: string
 }
 
-export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphProps) {
+export function AgentCallGraph({ agents, bridges, isProxy = false, onViewTurns }: AgentCallGraphProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   // 时间轴缩放：1 = 全览（整段会话铺满宽度），越大越细
   const [zoom, setZoom] = useState(1)
@@ -259,6 +268,25 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
     return result
   }, [totalDuration, tickInterval, globalStartMs])
 
+  const bridgeBySessionId = useMemo(() => {
+    const map = new Map<string, BridgeItem>()
+    for (const b of bridges) {
+      if (b.subagentSessionId) map.set(b.subagentSessionId, b)
+    }
+    return map
+  }, [bridges])
+
+  // 子代理身份唯一入口：类型/步骤都从这里解析（与 turns API 服务端同源），
+  // 展示层不再各自拿 agentName 猜
+  const identityOf = useCallback((agent: AgentItem) =>
+    agent.isSubagent && agent.agentSessionId
+      ? resolveSubagentIdentity({
+          subagentName: agent.agentName,
+          bridge: bridgeBySessionId.get(agent.agentSessionId) ?? null,
+          isProxy,
+        })
+      : null, [bridgeBySessionId, isProxy])
+
   const lanes = useMemo(() => {
     // 泳道模式：
     //   "slots"  —— B 方案：主 agent 一条 + N 个并发槽位复用（谁先空谁接下一个）
@@ -354,7 +382,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
     // ── 原始逻辑：按角色分组的多泳道 ────────────────────────────────
     const laneMap = new Map<string, { def: LaneDef; agents: AgentItem[] }>()
     for (const agent of sorted) {
-      const def = assignToLane(agent)
+      const def = assignToLane(agent, identityOf(agent)?.subagentType ?? null)
       const existing = laneMap.get(def.key)
       if (existing) existing.agents.push(agent)
       else laneMap.set(def.key, { def, agents: [agent] })
@@ -368,15 +396,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
     return entries.map(([key, { def, agents }]) => {
       return { key, def, ...packAgents(agents) }
     })
-  }, [sorted, wallMs, totalDuration, globalStartMs])
-
-  const bridgeBySessionId = useMemo(() => {
-    const map = new Map<string, BridgeItem>()
-    for (const b of bridges) {
-      if (b.subagentSessionId) map.set(b.subagentSessionId, b)
-    }
-    return map
-  }, [bridges])
+  }, [sorted, wallMs, totalDuration, globalStartMs, identityOf])
 
   function getStartPct(when: string | number): number {
     const t = typeof when === "number" ? when : new Date(when).getTime()
@@ -401,7 +421,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
     setTooltip({
       x: rect.left + rect.width / 2,
       y: rect.top,
-      label: agent.agentName ?? (agent.isSubagent ? "subagent" : "root"),
+      label: identityOf(agent)?.subagentType ?? agent.agentName ?? (agent.isSubagent ? "subagent" : "root"),
       firstPrompt: agent.firstPrompt,
       tokens: agent.tokens,
       maxSingleCallTokens: agent.maxSingleCallTokens,
@@ -413,7 +433,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
       lane: laneLabel,
       status: bridge?.status ?? "completed",
     })
-  }, [bridgeBySessionId])
+  }, [bridgeBySessionId, identityOf])
 
   const handleMouseLeave = useCallback(() => setTooltip(null), [])
 
@@ -429,7 +449,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle>Agent Swimlane ({agents.length})</CardTitle>
+        <CardTitle>Agent Swimlane (old) ({agents.length})</CardTitle>
         <CardAction>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
@@ -498,7 +518,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
                       <div key={i} className="absolute top-0 h-full w-px bg-border/20" style={{ left: `${t.pct}%` }} />
                     ))}
                     {packed.map(({ agent, key: spanKey, trackIdx, startPct, widthPct, startMs, endMs }) => {
-                      const agentColor = getAgentColor(agent.agentName)
+                      const agentColor = getAgentColor(identityOf(agent)?.subagentType ?? agent.agentName)
                       const bridge = agent.isSubagent && agent.agentSessionId ? bridgeBySessionId.get(agent.agentSessionId) : undefined
                       const isError = bridge?.status === "error" || bridge?.status === "failed"
                       const barTop = SUB_GAP + trackIdx * (SUB_BAR_H + SUB_GAP)
@@ -561,7 +581,7 @@ export function AgentCallGraph({ agents, bridges, onViewTurns }: AgentCallGraphP
         </div>
 
         <div className="flex flex-wrap gap-2 pt-1">
-          {[...new Set(agents.map(a => a.agentName ?? "root"))].map(name => (
+          {[...new Set(agents.map(a => identityOf(a)?.subagentType ?? a.agentName ?? "root"))].map(name => (
             <div key={name} className="flex items-center gap-1 text-xs">
               <div className="w-3 h-3" style={{ backgroundColor: getAgentColor(name) }} />
               <span className="text-muted-foreground truncate max-w-[120px]">{name}</span>

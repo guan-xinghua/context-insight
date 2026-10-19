@@ -40,6 +40,8 @@ interface BridgeItem {
   bridgeId: string
   dispatchTurnId: string | null
   dispatchContent: string | null
+  dispatchTimestamp?: string | null
+  responseTimestamp?: string | null
   subagentSessionId: string | null
   subagentType: string | null
   subagentName: string | null
@@ -47,6 +49,8 @@ interface BridgeItem {
   status: string
   subagentTokens: number
   subagentLatencyMs: number
+  /** 派发是否后台异步（bridges API 由派发 ToolCall args/result 判定） */
+  dispatchBackground?: boolean | null
 }
 
 interface TurnTimelineProps {
@@ -112,6 +116,7 @@ interface SubagentLane {
   sessionId: string | null
   name: string
   type: string | null
+  background: boolean
   summary: string | null
   turns: TurnRowItem[]
   status: string
@@ -146,6 +151,7 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
     )}>
       <div className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left">
         <Badge variant="orange" className="text-xs max-w-[60%] truncate">{lane.name}</Badge>
+        {lane.background && <Badge variant="yellow" className="text-xs shrink-0" title="后台异步派发：立即返回，完成后再通知父会话">background</Badge>}
         {lane.summary && <span className="text-xs text-foreground/80 truncate">{lane.summary}</span>}
         {isError && <Badge variant="red" className="text-xs shrink-0">error</Badge>}
         <span
@@ -250,6 +256,7 @@ export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; c
               >
                 <span className="select-none shrink-0">{isExpanded ? "▼" : "▶"}</span>
                 <Badge variant="orange" className="max-w-[180px] truncate">{lane.name}</Badge>
+                {lane.background && <Badge variant="yellow" className="shrink-0" title="后台异步派发：立即返回，完成后再通知父会话">background</Badge>}
                 {isError && <Badge variant="red" className="shrink-0">error</Badge>}
                 <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
                 {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
@@ -466,13 +473,34 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
     const lanes: SubagentLane[] = []
     for (const b of bs) {
       const sid = b.subagentSessionId
-      const sturns = sid ? (subTurnsBySession.get(sid) ?? []) : []
+      let sturns = sid ? (subTurnsBySession.get(sid) ?? []) : []
+      // 复用会话（首发+返工同 sid）：lane 只显示该派发窗口内的 turn，
+      // 否则 turn10/turn19 两个 lane 各含全会话 turn，互相包含
+      const dMs = b.dispatchTimestamp ? new Date(b.dispatchTimestamp).getTime() : null
+      // 上界钳到同 sid 下次派发时刻（ingest [dispatch_i, dispatch_{i+1}) 同口径）：
+      // 窗内末条 turn 的 completedAt 可能越过下次派发，不钳会把下窗 turn 吞进来
+      let rMs = b.responseTimestamp ? new Date(b.responseTimestamp).getTime() : null
+      if (sid && dMs !== null) {
+        const next = bridges
+          .map(x => x.subagentSessionId === sid && x.dispatchTimestamp ? new Date(x.dispatchTimestamp).getTime() : null)
+          .filter((t): t is number => t !== null && t > dMs)
+          .sort((x, y) => x - y)[0]
+        if (next !== undefined && (rMs === null || rMs > next)) rMs = next
+      }
+      if (sid && dMs !== null && rMs !== null && sturns.length > 0) {
+        const w = sturns.filter(t => {
+          const ts = t.createdAt ? new Date(t.createdAt).getTime() : NaN
+          return Number.isFinite(ts) && ts >= dMs && ts <= rMs
+        })
+        if (w.length > 0) sturns = w
+      }
       const laneNum = sid ? subagentNumbers.get(sid) : undefined
       lanes.push({
         bridgeId: b.bridgeId,
         sessionId: sid,
         name: (b.agentName ?? b.subagentName ?? b.subagentType ?? "subagent") + (laneNum !== undefined ? ` #${laneNum}` : ""),
         type: b.subagentType,
+        background: b.dispatchBackground === true,
         summary: b.dispatchContent,
         turns: sturns,
         status: b.status,

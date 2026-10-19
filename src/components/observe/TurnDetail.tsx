@@ -161,7 +161,7 @@ export function TurnDetail({ turn, highlight, onRefresh, subagentLabel }: { turn
             cacheReadTokens={turn.cacheReadTokens}
             cacheWriteTokens={turn.cacheWriteTokens}
             toolOverheadTokens={toolOverheadTokens}
-            contextWindowLimit={turn.contextWindowLimit ?? 200000}
+            contextWindowLimit={turn.contextWindowLimit ?? 1000000}
           />
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-3 pt-2 border-t flex-wrap">

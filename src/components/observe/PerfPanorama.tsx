@@ -8,6 +8,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { useEffect, useMemo, useState } from "react"
+import { resolveSubagentIdentity } from "@/lib/subagent-identity"
 import {
   PerfTopTable, PerfBenchmarkChart,
   type SubagentStat, type TurnPerf, type BridgePerf,
@@ -33,6 +34,11 @@ interface ExecItem {
   llmCallCount: number
   model: string | null
   createdAt: string
+  /** 桥 join 解析出的子代理类型（resolveSubagentIdentity 唯一入口）；
+   *  原生形态 subagentName 泛化（全体 "design"），真类型在桥里 */
+  subagentType?: string | null
+  /** 派发内容（桥 dispatchContent，悬停展示用） */
+  dispatchContent?: string | null
 }
 
 interface Props {
@@ -235,7 +241,9 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent
     for (const t of subTurns) {
       const sid = t.subagentSessionId ?? "unknown"
       const ex = m.get(sid) ?? {
-        sessionId: sid, name: t.subagentName ?? "unknown", taskDescription: null, turns: [],
+        // 主标题=派发步骤（API 已按 proxy/原生优先级解析），subagentName 仅兜底
+        sessionId: sid, name: t.dispatchStep ?? t.subagentName ?? "unknown",
+        subagentType: t.subagentType ?? null, taskDescription: null, turns: [],
         totalMs: 0, totalTokens: 0, totalGenTokens: 0, tps: 0,
         cacheRead: 0, inputTokens: 0, cacheHitRate: 0,
       } as SubagentStat
@@ -273,10 +281,22 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent
 
   const model = useMemo<PerfModel | null>(() => {
     if (!items || items.length === 0) return null
+    // 子代理身份唯一入口：按 agentSessionId ↔ 桥 join 出类型（与 Turns/
+    // 泳道同源），X 轴标签不再用泛化的 subagentName
+    const identityBySession = new Map<string, { subagentType: string | null; dispatchContent: string | null }>()
+    for (const b of bridges) {
+      if (b.subagentSessionId && !identityBySession.has(b.subagentSessionId)) {
+        identityBySession.set(b.subagentSessionId, {
+          subagentType: resolveSubagentIdentity({ bridge: b }).subagentType,
+          dispatchContent: b.dispatchContent?.replace(/[\n\r]+/g, ' ').trim() || null,
+        })
+      }
+    }
     const sub = items
       .filter(r => includeRoot ? true : r.isSubagent)
       .slice()
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map(r => ({ ...r, ...(r.agentSessionId ? identityBySession.get(r.agentSessionId) ?? { subagentType: null, dispatchContent: null } : { subagentType: null, dispatchContent: null }) }))
     if (sub.length === 0) return null
     const slices = computeWallSlices(sub)
     const totalTokens = sub.reduce((s, r) => s + r.tokens, 0)
@@ -312,7 +332,7 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent
       totalLlm, totalTools, totalToolErr, totalCost, cacheRatio,
       agentStats, t0: new Date(sub[0].createdAt).getTime(),
     }
-  }, [items, includeRoot])
+  }, [items, includeRoot, bridges])
 
   if (loading) {
     return <div className="rounded-lg border bg-card p-4 text-xs text-muted-foreground">加载中…</div>
@@ -449,13 +469,12 @@ function AxisLabels({ sub, x, barW, baseY, onJumpToSubagent, keyPrefix }: {
         const jump = onJumpToSubagent && r.agentSessionId
           ? () => onJumpToSubagent(r.agentSessionId!)
           : undefined
-        const name = r.subagentName ?? r.agentName ?? "—"
+        const name = r.subagentType ?? r.subagentName ?? r.agentName ?? "—"
         return (
           <g key={`${keyPrefix}${i}`} onClick={jump} style={jump ? { cursor: "pointer" } : undefined}>
-            <title>{`#${i + 1} ${name}（${r.agentName ?? "?"}）— 点击跳转 Turns`}</title>
-            <text x={x(i) + barW / 2} y={baseY + 18} textAnchor="middle" fontSize="8" className="fill-muted-foreground">{`#${i + 1}`}</text>
+            <title>{`${name}${r.dispatchContent ? `\n${r.dispatchContent}` : ""} — 点击跳转 Turns`}</title>
             {wrapAxisName(name).map((ln, li) => (
-              <text key={li} x={x(i) + barW / 2} y={baseY + 30 + li * 9} textAnchor="middle" fontSize="8" fontWeight="600" fill={agentColor(r.agentName)}>{ln}</text>
+              <text key={li} x={x(i) + barW / 2} y={baseY + 18 + li * 9} textAnchor="middle" fontSize="8" fontWeight="600" fill={AGENT_COLORS[name] ?? undefined} className="fill-foreground">{ln}</text>
             ))}
           </g>
         )
@@ -541,7 +560,7 @@ function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSu
                 : undefined
               return (
                 <g key={`d${i}`} onClick={jump} style={jump ? { cursor: "pointer" } : undefined}>
-                  <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"}（${r.agentName ?? "?"}）\n总耗时 ${fmtMs(wall[i] * 1000)} · tokens ${fmtTok(tokTot[i])}\n点击跳转 Turns 定位该 subagent`}</title>
+                  <title>{`#${i + 1} ${r.subagentType ?? r.subagentName ?? r.agentName ?? "?"}（${r.agentName ?? "?"}）\n总耗时 ${fmtMs(wall[i] * 1000)} · tokens ${fmtTok(tokTot[i])}\n点击跳转 Turns 定位该 subagent`}</title>
                   <rect x={x(i)} y={padT + chartH - llmH} width={barW} height={llmH} fill={DUR_LLM} />
                   {nonLlm[i] > 0 && (
                     <rect x={x(i)} y={topY} width={barW} height={nonLlmH} fill={DUR_NONLLM} />
@@ -606,7 +625,7 @@ function TripleChart({ model, onJumpToSubagent }: { model: PerfModel; onJumpToSu
                       : undefined
                     return (
                       <g key={`t${i}`} onClick={jump} style={jump ? { cursor: "pointer" } : undefined}>
-                        <title>{`#${i + 1} ${r.subagentName ?? r.agentName ?? "?"}（${r.agentName ?? "?"}）\ntokens ${fmtTok(tokTot[i])} · 总耗时 ${fmtMs(wall[i] * 1000)}\n点击跳转 Turns 定位该 subagent`}</title>
+                        <title>{`#${i + 1} ${r.subagentType ?? r.subagentName ?? r.agentName ?? "?"}（${r.agentName ?? "?"}）\ntokens ${fmtTok(tokTot[i])} · 总耗时 ${fmtMs(wall[i] * 1000)}\n点击跳转 Turns 定位该 subagent`}</title>
                         <rect x={xs} y={yT(tokIn[i])} width={barW} height={inH} fill={TOKEN_COLORS.input} />
                         <rect x={xs} y={yT(tokIn[i] + tokCr[i])} width={barW} height={crH} fill={TOKEN_COLORS.cacheRead} />
                         <rect x={xs} y={yT(tokIn[i] + tokCr[i] + tokCw[i])} width={barW} height={cwH} fill={TOKEN_COLORS.cacheWrite} />

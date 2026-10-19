@@ -20,6 +20,7 @@ import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 import { AgentCallGraph } from '@/components/observe/AgentCallGraph'
+import type { BridgeItem } from '../../src/components/observe/AgentCallGraph'
 
 let root: Root | null = null
 let container: HTMLElement | null = null
@@ -68,12 +69,16 @@ const T0 = '2026-09-15T21:34:48.000Z'
 const T = (offsetMs: number) => new Date(Date.parse(T0) + offsetMs).toISOString()
 const at = (offsetMs: number) => Date.parse(T0) + offsetMs
 
-async function renderGraph(agents: ReturnType<typeof mkAgent>[]) {
+async function renderGraph(
+  agents: ReturnType<typeof mkAgent>[],
+  bridges: Array<Partial<BridgeItem>> = [],
+  isProxy = false,
+) {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   await act(async () => {
-    root!.render(createElement(AgentCallGraph, { agents, bridges: [], onViewTurns: () => {} }))
+    root!.render(createElement(AgentCallGraph, { agents, bridges: bridges as BridgeItem[], isProxy, onViewTurns: () => {} }))
   })
   return container
 }
@@ -196,5 +201,44 @@ describe('AgentCallGraph 泳道分行（slots 布局）', () => {
     const tip2 = await hover('sub2')
     expect(tip2!.textContent).toContain('tiling 流水线')
     expect(tip2!.textContent).not.toContain('寄存器分配')
+  })
+
+  it('原生泛化名（全体 design）+ 桥类型：泳道按真类型分组、tooltip 显示类型（resolveSubagentIdentity 唯一入口）', async () => {
+    // 现场：ses_f13c4507 原生 opencode，agentName 全体 "design" → 泳道图例
+    // 只有一条 design；桥里才有真类型（design-step-reviewer / design-kernel-coder）
+    const agents = [
+      mkAgent({ executionId: 'root', createdAt: T0, latencyMs: 5_000, isSubagent: false, agentName: 'build' }),
+      mkAgent({ executionId: 'sub1', createdAt: T(10_000), latencyMs: 5_100, agentSessionId: 'ses_g1', agentName: 'design' }),
+      mkAgent({ executionId: 'sub2', createdAt: T(70_000), latencyMs: 3_000, agentSessionId: 'ses_g2', agentName: 'design' }),
+    ]
+    const bridges = [
+      { bridgeId: 'b1', subagentSessionId: 'ses_g1', subagentType: 'design-step-reviewer', subagentName: 'design', dispatchContent: 'R⑥ 门控审核', status: 'completed' },
+      { bridgeId: 'b2', subagentSessionId: 'ses_g2', subagentType: 'design-kernel-coder', subagentName: 'design', dispatchContent: '⑨ group kernel', status: 'completed' },
+    ]
+    const el = await renderGraph(agents, bridges)
+    // 图例 = 类型去重（不再全体 "design" 一项）：两类各一项
+    const legend = [...el.querySelectorAll('.text-xs .text-muted-foreground')].map(n => n.textContent)
+    expect(legend).toContain('design-step-reviewer')
+    expect(legend).toContain('design-kernel-coder')
+    expect(legend.filter(x => x === 'design')).toHaveLength(0)
+    // tooltip 标签 = 类型（不再是泛化 agentName）
+    const hit = el.querySelector<HTMLElement>('[data-bar="sub1"] .cursor-pointer')!
+    await act(async () => { hit.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+    const tip = el.querySelector<HTMLElement>('[data-tooltip]')
+    expect(tip!.textContent).toContain('design-step-reviewer')
+  })
+
+  it('proxy 形态：subagentName 即步骤、桥类型仍在——泳道按类型分组不受步骤文本影响', async () => {
+    const agents = [
+      mkAgent({ executionId: 'root', createdAt: T0, latencyMs: 5_000, isSubagent: false, agentName: 'build' }),
+      mkAgent({ executionId: 'sub1', createdAt: T(10_000), latencyMs: 5_100, agentSessionId: 'ses_g1', agentName: '⑦ group 同步' }),
+    ]
+    const bridges = [
+      { bridgeId: 'b1', subagentSessionId: 'ses_g1', subagentType: 'design-sync-planner', subagentName: 'design', dispatchContent: '⑦ group 同步', status: 'completed' },
+    ]
+    const el = await renderGraph(agents, bridges, true)
+    const legend = [...el.querySelectorAll('.text-xs .text-muted-foreground')].map(n => n.textContent)
+    expect(legend).toContain('design-sync-planner')
+    expect(legend.filter(x => x === '⑦ group 同步')).toHaveLength(0)
   })
 })

@@ -193,6 +193,7 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
             totalTokens: 12345,
             latencyMs: 45000,
             turnCount: 2,
+            background: false,
           },
           {
             bridgeId: "br-b",
@@ -205,6 +206,7 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
             totalTokens: 3000,
             latencyMs: 12000,
             turnCount: 1,
+            background: false,
           },
         ],
         ctx: {
@@ -246,6 +248,7 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
           totalTokens: 12345,
           latencyMs: 45000,
           turnCount: 2,
+          background: false,
         },
         ctx: {
           subagentBlocksByTurnId: new Map(),
@@ -276,6 +279,7 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
       totalTokens: 500,
       latencyMs: 8000,
       turnCount: 1,
+      background: false,
     }
     const html = renderToStaticMarkup(
       createElement(SubagentLaneView, {
@@ -290,6 +294,7 @@ describe("TurnTimeline 并行派发 lane 展示（chip 行 + 全宽展开）", (
           totalTokens: 12345,
           latencyMs: 45000,
           turnCount: 3,
+          background: false,
         },
         ctx: {
           subagentBlocksByTurnId: new Map([["t-636", [childLane]]]),

@@ -36,8 +36,8 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-opus-4-8": 1048576,
   "claude-opus-5": 1048576,
   "claude-haiku-4-5": 200000,
-  "glm-5": 200000,
-  "glm-5.1": 200000,
+  "glm-5": 1000000,
+  "glm-5.1": 1000000,
   "glm-5.2": 1000000,
   "glm-5.3": 1000000,
   "deepseek-v3": 131072,
@@ -61,7 +61,7 @@ const DEFAULT_CONTEXT_WINDOWS: Record<string, number> = {
   "mistral-medium": 32768,
 };
 
-const FALLBACK_DEFAULT = 200000;
+const FALLBACK_DEFAULT = 1000000;
 
 interface ContextWindowConfig {
   models?: Record<string, number>;

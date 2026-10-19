@@ -13,9 +13,9 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { CopyButton } from "@/components/observe/CopyButton"
-import { isClaudeFormatSession, isProxyVersion } from "@/lib/shared/session-format"
+import { isClaudeFormatSession, isProxyVersion, displayVersion } from '@/lib/shared/session-format'
 import { Button } from "@/components/ui/button"
-import { ArrowLeftIcon, LayoutDashboardIcon, MessageSquareIcon, SearchIcon, SparklesIcon, BarChart3Icon, FileSearchIcon, FileTextIcon, PlayIcon, CheckCircleIcon, RefreshCwIcon, WifiIcon, ShieldCheckIcon, GaugeIcon, GlobeIcon, AwardIcon, UploadIcon } from "lucide-react"
+import { ArrowLeftIcon, HomeIcon, LayoutDashboardIcon, MessageSquareIcon, SearchIcon, SparklesIcon, BarChart3Icon, FileSearchIcon, FileTextIcon, PlayIcon, CheckCircleIcon, RefreshCwIcon, WifiIcon, ShieldCheckIcon, GaugeIcon, GlobeIcon, AwardIcon, UploadIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { VERSION_DISPLAY } from "@/lib/version"
@@ -32,7 +32,7 @@ import { PerfPanorama } from "@/components/observe/PerfPanorama"
 import { TraceView } from "@/components/observe/TraceView"
 import { ContextTracker } from "@/components/observe/ContextTracker"
 import { FileReadAnalysis } from "@/components/observe/FileReadAnalysis"
-import { AgentCallGraph } from "@/components/observe/AgentCallGraph"
+import { AgentSwimlaneV2 } from "@/components/observe/AgentSwimlaneV2"
 import { ChatReplayView } from "@/components/observe/ChatReplayView"
 import { summarizeToolCallErrors } from "@/lib/tool-call-errors"
 import { dispatchOnlySkillNames } from "@/lib/sift-audit"
@@ -110,6 +110,9 @@ interface TurnRowItem {
   isSubagent: boolean
   subagentName: string | null
   subagentSessionId: string | null
+  /** resolveSubagentIdentity 产出（turns API 回填）：类型优先于泛化名展示 */
+  subagentType: string | null
+  dispatchStep: string | null
   parentExecutionId: string | null
   totalTokens: number
   inputTokens: number
@@ -143,6 +146,9 @@ interface TurnDetailData {
   contextWindowPct: number | null
   agentName: string | null
   subagentName: string | null
+  subagentSessionId: string | null
+  subagentType: string | null
+  dispatchStep: string | null
   isSubagent: boolean
   totalTokens: number
   inputTokens: number
@@ -232,6 +238,7 @@ interface BridgeItem {
   status: string
   subagentTokens: number
   subagentLatencyMs: number
+  dispatchBackground?: boolean | null
 }
 
 interface SkillEventForDetail {
@@ -538,6 +545,8 @@ export default function SessionDetailPage({
   const [turnDetailRefreshKey, setTurnDetailRefreshKey] = useState(0)
   const [executions, setExecutions] = useState<ExecutionItem[]>([])
   const [bridges, setBridges] = useState<BridgeItem[]>([])
+  const [swimlaneLanes, setSwimlaneLanes] = useState<string[]>([])
+  const [lanesInferred, setLanesInferred] = useState(false)
   const [allSkillEvents, setAllSkillEvents] = useState<SkillEventForDetail[]>([])
   // Audit 板块受控状态：子 tab（workflow|skill）+ Skill 子 tab 选中 {name, kind}。
   // Skills tab 的"对账 ↗"跳转时由 onAuditSkill 一并 set，跨 tab 一气呵成（无需 effect/外部 store）。
@@ -554,6 +563,10 @@ export default function SessionDetailPage({
   // 同名 subagent 统一编号（与 Context/Replay 同源）：身份 = subagentSessionId，
   // 序 = 同名首 turn 时间先后。Turns 时间线、Turn 详情、Context 面板、Error Turns 共用。
   const subagentNumbers = useMemo(() => buildSubagentNumbers(turns), [turns])
+  // 子代理展示基名（统一入口产出的类型优先；编号也按基名分组——原生形态
+  // 89 个 "design" 全同名靠 #N 消歧，换成类型后同类型才编号，#N 有意义）
+  const baseNameOf = useCallback((t: { subagentType?: string | null; subagentName?: string | null }): string =>
+    t.subagentType ?? t.subagentName ?? "subagent", [])
   const withSubagentNum = useCallback((base: string, sid: string | null): string => {
     const num = sid ? subagentNumbers.get(sid) : undefined
     return num !== undefined ? `${base} #${num}` : base
@@ -757,6 +770,19 @@ export default function SessionDetailPage({
       }
     }
 
+    async function fetchSwimlaneLanes() {
+      // 车道表：范式声明优先，本地会话走内容签名推断（source 标记来源）；
+      // 拿不到就空表，泳道回落贪心
+      try {
+        const res = await fetch(`/api/observe/session/lanes?taskId=${encodeURIComponent(taskId)}${frameworkParam}`)
+        if (res.ok) {
+          const data = await res.json()
+          setSwimlaneLanes(Array.isArray(data.lanes) ? data.lanes : [])
+          setLanesInferred(data.source === 'inferred')
+        }
+      } catch { /* 静默 */ }
+    }
+
     async function fetchSkillEvents() {
       try {
         // 带 framework 消歧：同 sid 双记录（capture/native）两行都在库时，
@@ -815,6 +841,7 @@ export default function SessionDetailPage({
       timed(fetchTurns()),
       timed(fetchExecutions()),
       timed(fetchBridges()),
+      timed(fetchSwimlaneLanes()),
       timed(fetchSkillEvents()),
     ]).finally(() => setLoading(false))
   }
@@ -1044,7 +1071,7 @@ export default function SessionDetailPage({
     )
     if (nextTurn?.contextWindowPct != null) return nextTurn.contextWindowPct
     if (turn.contextWindowPct != null && turn.outputTokens > 0) {
-      const deltaPct = turn.outputTokens / 200000 * 100
+      const deltaPct = turn.outputTokens / 1000000 * 100
       return turn.contextWindowPct + deltaPct
     }
     return null
@@ -1063,7 +1090,7 @@ export default function SessionDetailPage({
                   {s.framework === "opencode" ? "OpenCode" : s.framework === "claude-code" ? "Claude Code" : s.framework === "codex" ? "Codex" : s.framework ?? "N/A"}
                   {(() => {
                     // proxy 捕获的 version = '<agent版本>-<marker>'：版本号与 proxy 徽标都显示
-                    const ver = s.frameworkVersion?.replace(/-(claude|opencode)-proxy$/, "")
+                    const ver = displayVersion(s.frameworkVersion)
                     return (
                       <>
                         {ver ? <span className="text-muted-foreground">v{ver}</span> : null}
@@ -1211,12 +1238,17 @@ export default function SessionDetailPage({
         </div>
 
         <div className="space-y-4">
-          <AgentCallGraph agents={s.agents} bridges={bridges} onViewTurns={(agentSessionId) => {
-            const firstSubTurn = agentSessionId
-              ? turns.find(t => t.isSubagent && t.subagentSessionId === agentSessionId)
-              : undefined
-            navigate({ tab: "turns", turnId: firstSubTurn?.turnId, subagentHighlightId: agentSessionId ?? undefined })
-          }} />
+          <AgentSwimlaneV2 agents={s.agents} bridges={bridges} isProxy={isProxyVersion(s.frameworkVersion)} lanes={swimlaneLanes} lanesInferred={lanesInferred}
+              onViewTurns={(agentSessionId, sinceMs) => {
+                // 拆分条按各自派发时刻定位首回合（返工条跳返工起点，不跳会话头）
+                const subs = agentSessionId
+                  ? turns.filter(t => t.isSubagent && t.subagentSessionId === agentSessionId)
+                  : []
+                const firstSubTurn = sinceMs
+                  ? subs.find(t => t.createdAt && new Date(t.createdAt).getTime() >= sinceMs) ?? subs[0]
+                  : subs[0]
+                navigate({ tab: "turns", turnId: firstSubTurn?.turnId, subagentHighlightId: agentSessionId ?? undefined })
+              }} />
         </div>
 
         <Card size="sm">
@@ -1321,7 +1353,7 @@ export default function SessionDetailPage({
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="font-mono text-muted-foreground">#{t.turnIndex}</span>
                         <Badge variant="outline" className="text-xs">{t.role}</Badge>
-                        {t.isSubagent && t.subagentName && <Badge variant="orange" className="text-xs">🔗 {withSubagentNum(t.subagentName, t.subagentSessionId)}</Badge>}
+                        {t.isSubagent && t.subagentName && <Badge variant="orange" className="text-xs">🔗 {withSubagentNum(baseNameOf(t), t.subagentSessionId)}</Badge>}
                         {errors.cancelled > 0 && <Badge variant="orange" className="text-xs">{errors.cancelled} cancelled</Badge>}
                         {errors.failed > 0 && <Badge variant="red" className="text-xs">{errors.failed} failed</Badge>}
                         {errors.skillFail > 0 && <Badge variant="red" className="text-xs">{errors.skillFail} skill_fail</Badge>}
@@ -1374,6 +1406,8 @@ export default function SessionDetailPage({
       bridgeId: b.bridgeId,
       dispatchTurnId: b.dispatchTurnId,
       dispatchContent: b.dispatchContent,
+      dispatchTimestamp: b.dispatchTimestamp,
+      responseTimestamp: b.responseTimestamp,
       subagentSessionId: b.subagentSessionId,
       subagentType: b.subagentType,
       subagentName: b.subagentName,
@@ -1381,6 +1415,7 @@ export default function SessionDetailPage({
       status: b.status,
       subagentTokens: b.subagentTokens,
       subagentLatencyMs: b.subagentLatencyMs,
+      dispatchBackground: b.dispatchBackground,
     }))
 
     // Build context data for selected turn
@@ -1396,7 +1431,7 @@ export default function SessionDetailPage({
       inputMessagesTokens: selectedTurnDetail?.inputMessagesTokens ?? 0,
       contextWindowPct: selectedTurnDetail?.contextWindowPct ?? null,
       endContextWindowPct: computeEndPct(selectedTurnItem),
-      contextWindowLimit: selectedTurnDetail?.contextWindowLimit ?? 200000,
+      contextWindowLimit: selectedTurnDetail?.contextWindowLimit ?? 1000000,
       systemOverheadTokens: selectedTurnDetail?.systemOverheadTokens ?? 0,
       systemPrompt: selectedTurnDetail?.systemPrompt ?? null,
       fullContext: selectedTurnDetail?.fullContext ?? null,
@@ -1424,7 +1459,7 @@ export default function SessionDetailPage({
         inputMessagesTokens: rootTurn?.inputMessagesTokens ?? 0,
         contextWindowPct: rootTurn?.contextWindowPct ?? null,
         endContextWindowPct: computeEndPct(rootTurn ?? null),
-        contextWindowLimit: rootTurn?.contextWindowLimit ?? 200000,
+        contextWindowLimit: rootTurn?.contextWindowLimit ?? 1000000,
         systemOverheadTokens: 0,
         systemPrompt: null,
         fullContext: null,
@@ -1463,10 +1498,26 @@ export default function SessionDetailPage({
       const dispatchBridges = bridges.filter(b => b.dispatchTurnId === selectedTurnId)
       for (const bridge of dispatchBridges) {
         if (bridge.subagentSessionId) {
-          const subTurns = turns.filter(t => t.subagentSessionId === bridge.subagentSessionId)
+          // 复用会话：详情展开同样只取该派发窗口内的 turn（与时间线 lane 同口径），
+          // 上界钳到同 sid 下次派发时刻（completedAt 越过下次派发时不吞下窗 turn）
+          const dMs = bridge.dispatchTimestamp ? new Date(bridge.dispatchTimestamp).getTime() : null
+          let rMs = bridge.responseTimestamp ? new Date(bridge.responseTimestamp).getTime() : null
+          if (bridge.subagentSessionId && dMs !== null) {
+            const next = bridges
+              .map(x => x.subagentSessionId === bridge.subagentSessionId && x.dispatchTimestamp ? new Date(x.dispatchTimestamp).getTime() : null)
+              .filter((t): t is number => t !== null && t > dMs)
+              .sort((x, y) => x - y)[0]
+            if (next !== undefined && (rMs === null || rMs > next)) rMs = next
+          }
+          const subTurns = turns.filter(t => {
+            if (t.subagentSessionId !== bridge.subagentSessionId) return false
+            if (dMs === null || rMs === null) return true
+            const ts = t.createdAt ? new Date(t.createdAt).getTime() : NaN
+            return Number.isFinite(ts) && ts >= dMs && ts <= rMs
+          })
           const lastSubTurn = subTurns[subTurns.length - 1]
           subagentContexts.push({
-            label: withSubagentNum(bridge.subagentName ?? bridge.subagentType ?? "subagent", bridge.subagentSessionId),
+            label: withSubagentNum(bridge.subagentType ?? bridge.subagentName ?? "subagent", bridge.subagentSessionId),
             agentName: lastSubTurn?.agentName ?? null,
             model: lastSubTurn?.model ?? null,
             inputMessagesJson: null as string | null,
@@ -1474,7 +1525,7 @@ export default function SessionDetailPage({
             inputMessagesTokens: 0,
             contextWindowPct: lastSubTurn?.contextWindowPct ?? null,
             endContextWindowPct: computeEndPct(lastSubTurn ?? null),
-            contextWindowLimit: selectedTurnDetail?.contextWindowLimit ?? 200000,
+            contextWindowLimit: selectedTurnDetail?.contextWindowLimit ?? 1000000,
             systemOverheadTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
@@ -1487,7 +1538,7 @@ export default function SessionDetailPage({
       // Also: if selected turn IS a subagent turn, show its own context
       if (selectedTurnItem?.isSubagent && selectedTurnDetail) {
         subagentContexts.push({
-          label: withSubagentNum(selectedTurnItem.subagentName ?? "subagent", selectedTurnItem.subagentSessionId),
+          label: withSubagentNum(baseNameOf(selectedTurnItem), selectedTurnItem.subagentSessionId),
           agentName: selectedTurnItem.agentName ?? null,
           model: selectedTurnDetail.model ?? null,
           inputMessagesJson: null as string | null,
@@ -1495,7 +1546,7 @@ export default function SessionDetailPage({
           inputMessagesTokens: selectedTurnDetail.inputMessagesTokens ?? 0,
           contextWindowPct: selectedTurnDetail.contextWindowPct ?? null,
           endContextWindowPct: computeEndPct(selectedTurnItem),
-          contextWindowLimit: selectedTurnDetail.contextWindowLimit ?? 200000,
+          contextWindowLimit: selectedTurnDetail.contextWindowLimit ?? 1000000,
           systemOverheadTokens: selectedTurnDetail.systemOverheadTokens ?? 0,
           systemPrompt: selectedTurnDetail.systemPrompt ?? null,
           fullContext: selectedTurnDetail.fullContext ?? null,
@@ -1518,7 +1569,7 @@ export default function SessionDetailPage({
       }
       // Also update subagent context if selected turn is a subagent
       const selfSubCtx = selectedTurnItem.isSubagent
-        ? subagentContexts.find(c => c.label === withSubagentNum(selectedTurnItem.subagentName ?? "subagent", selectedTurnItem.subagentSessionId) && c.contextWindowPct === selectedTurnDetail.contextWindowPct)
+        ? subagentContexts.find(c => c.label === withSubagentNum(baseNameOf(selectedTurnItem), selectedTurnItem.subagentSessionId) && c.contextWindowPct === selectedTurnDetail.contextWindowPct)
         : null
       if (selfSubCtx) {
         selfSubCtx.inputMessagesJson = selectedTurnDetail.inputMessagesJson ?? null
@@ -1571,7 +1622,7 @@ export default function SessionDetailPage({
               highlight={traceHighlight}
               onRefresh={() => setTurnDetailRefreshKey(k => k + 1)}
               subagentLabel={selectedTurnItem?.isSubagent
-                ? withSubagentNum(selectedTurnDetail.subagentName ?? selectedTurnItem.subagentName ?? "subagent", selectedTurnItem.subagentSessionId)
+                ? withSubagentNum(selectedTurnDetail.subagentType ?? selectedTurnDetail.subagentName ?? baseNameOf(selectedTurnItem), selectedTurnItem.subagentSessionId)
                 : undefined}
             />
           ) : turnDetailLoading ? (
@@ -1786,6 +1837,10 @@ export default function SessionDetailPage({
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => router.back()}>
             <ArrowLeftIcon className="size-4" />
             Back
+          </Button>
+          <Button variant="ghost" size="sm" className="gap-1" onClick={() => router.push("/")}>
+            <HomeIcon className="size-4" />
+            首页
           </Button>
           <div className="flex items-center gap-1.5">
             <span className="text-2xl font-bold tracking-tight text-foreground">{BRAND_NAME}</span>

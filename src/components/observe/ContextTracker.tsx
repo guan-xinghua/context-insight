@@ -312,14 +312,14 @@ export function curvePath(pts: Array<{ x: number; y: number }>): string {
 export function ContextTracker({ turns, sessionModel, onNavigateToTurn }: ContextTrackerProps) {
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
-  const [contextWindowLimit, setContextWindowLimit] = useState(200000)
+  const [contextWindowLimit, setContextWindowLimit] = useState(1000000)
   const [showReplay, setShowReplay] = useState(false)
 
   useEffect(() => {
     fetch(`/api/config/context-windows?model=${encodeURIComponent(sessionModel ?? "")}`)
       .then(r => r.json())
-      .then(data => setContextWindowLimit(data.limit ?? 200000))
-      .catch(() => setContextWindowLimit(200000))
+      .then(data => setContextWindowLimit(data.limit ?? 1000000))
+      .catch(() => setContextWindowLimit(1000000))
   }, [sessionModel])
   const agentStats = useMemo(() => computeAgentStats(turns, contextWindowLimit), [turns, contextWindowLimit])
 
