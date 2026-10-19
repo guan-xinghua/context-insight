@@ -19,8 +19,8 @@ import type { PrismaClient } from '@prisma/client';
 import { importSession } from '@/lib/ingest/data-service';
 import { logInfo, logError } from '@/lib/logger';
 import { parseManifest, buildIndex, type RunIndex } from './reader';
-import type { RunManifest } from './model';
-import { saveRun, runsRoot, isSafeRunId } from './run-store';
+import { MANIFEST_FILENAMES, type RunManifest } from './model';
+import { saveRun, runsRoot, isSafeRunId, readRun } from './run-store';
 
 export interface BundleValidation {
   ok: boolean;
@@ -32,8 +32,6 @@ export interface BundleValidation {
   sessionsDir?: string;
   manifest?: RunManifest;
 }
-
-const MANIFEST_FILENAMES = ['workflow.json', 'manifest.json'];
 
 /** manifest 落盘时的统一命名（与 run-store 的 MANIFEST_FILE 对齐）。 */
 export function bundleManifestFile(dirPath: string): string {
@@ -250,6 +248,17 @@ export async function runImportJob(
   // validateBundleDir 已做过完整结构校验；此处重建索引供会话排序用
   const index: RunIndex = buildIndex(manifest);
   const manifestFile = bundleManifestFile(dirPath);
+  const rootDir = opts?.root ?? runsRoot();
+  const sessionsDir = path.join(dirPath, 'sessions');
+
+  // owned 会话行登记（Sessions 域隔离 + 删除级联依据）：种子 = 该 run 上一轮
+  // sidecar 已登记的行（重导入时 existing 行保持登记，不因覆盖写丢失），
+  // 导入循环中再按 sourcePath 收编新行。
+  const owned = new Map<string, { sid: string; framework: string | null }>();
+  const ownedKey = (sid: string, fw: string | null) => `${sid}\u0000${fw ?? ''}`;
+  for (const prev of readRun(manifest.id, rootDir)?.meta?.data.ownedSessions ?? []) {
+    owned.set(ownedKey(prev.sid, prev.framework), prev);
+  }
 
   // 1. store：manifest 先落盘（幂等覆盖；半途失败后 run 视图对缺正文成员
   //    渲染"正文缺失"，重新导入即补齐）
@@ -268,14 +277,14 @@ export async function runImportJob(
         sessions: { total: 0, imported: 0, existing: 0, missingFile: 0, failed: 0 },
         failures: [],
         warnings,
+        ownedSessions: [...owned.values()],
       },
     },
-    opts?.root ?? runsRoot(),
+    rootDir,
   );
 
   // 2. import：全量立即导入（用户决策 #2）
   state.step = 'import';
-  const sessionsDir = path.join(dirPath, 'sessions');
   const entries = enumerateBundleSessions(sessionsDir);
   const { ordered, unreferenced, missingOnDisk } = orderSessionsByManifest(entries, index);
   state.total = ordered.length;
@@ -303,6 +312,22 @@ export async function runImportJob(
         state.imported += 1;
       } else {
         state.existing += 1;
+      }
+      // owned 收编：该 sid 下 sourcePath 落在包 sessions/ 内的行归本 run
+      // （新导入行必然命中；重导入的既有行同样命中——但用户导入前自有的
+      // 同 sid 会话 sourcePath 在包外，不收编、不隔离、不被级联删除）
+      if (opts?.prisma) {
+        const rows = await opts.prisma.session.findMany({
+          where: { taskId: entry.sid },
+          select: { taskId: true, framework: true, sourcePath: true },
+        });
+        for (const row of rows) {
+          // 路径边界：`sessions/` 旁的同名前缀目录（sessions-export/ 等）不得误收编——
+          // 必须是 sessionsDir 自身或其直接子路径（startsWith 前缀匹配会漏掉分隔符边界）
+          if (row.sourcePath && (row.sourcePath === sessionsDir || row.sourcePath.startsWith(sessionsDir + path.sep))) {
+            owned.set(ownedKey(row.taskId, row.framework), { sid: row.taskId, framework: row.framework });
+          }
+        }
       }
     } catch (e) {
       state.failed += 1;
@@ -333,9 +358,10 @@ export async function runImportJob(
         },
         failures,
         warnings,
+        ownedSessions: [...owned.values()],
       },
     },
-    opts?.root ?? runsRoot(),
+    rootDir,
   );
   state.warnings = warnings;
   state.step = 'done';

@@ -25,6 +25,10 @@ import type {
   ApiTestProviderResponse,
   ApiAIProviderConfig,
   ApiUploadResponse,
+  ApiImportBundleJob,
+  ApiRunsResponse,
+  ApiRunDetailResponse,
+  ApiRunMembership,
 } from './types';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -180,6 +184,49 @@ export class InsightClient {
       source,
       filePath,
     });
+  }
+
+  // ── Run 观测域（workflow-bundle）────────────────────────────
+
+  /** 导入 workflow-bundle 目录：校验通过立即返回 jobId，会话在后台全量导入。 */
+  async importBundle(dirPath: string): Promise<{ ok: boolean; jobId: string; runId: string }> {
+    return this.request<{ ok: boolean; jobId: string; runId: string }>(
+      'POST',
+      '/api/ingest/import-bundle',
+      undefined,
+      { dirPath },
+    );
+  }
+
+  /** 导入 job 进度轮询（job 注册表进程内，完成态保留 10 分钟）。 */
+  async getImportBundleStatus(jobId: string): Promise<{ job: ApiImportBundleJob }> {
+    return this.request<{ job: ApiImportBundleJob }>(
+      'GET',
+      '/api/ingest/import-bundle/status',
+      { jobId },
+    );
+  }
+
+  async listRuns(): Promise<ApiRunsResponse> {
+    return this.request<ApiRunsResponse>('GET', '/api/observe/runs');
+  }
+
+  async getRun(runId: string): Promise<ApiRunDetailResponse> {
+    return this.request<ApiRunDetailResponse>('GET', `/api/observe/run/${encodeURIComponent(runId)}`);
+  }
+
+  async deleteRun(runId: string): Promise<{ ok: boolean; runId: string }> {
+    return this.request<{ ok: boolean; runId: string }>(
+      'DELETE',
+      `/api/observe/run/${encodeURIComponent(runId)}`,
+    );
+  }
+
+  async getRunBySession(taskId: string): Promise<{ taskId: string; memberships: ApiRunMembership[] }> {
+    return this.request<{ taskId: string; memberships: ApiRunMembership[] }>(
+      'GET',
+      `/api/observe/run/by-session/${encodeURIComponent(taskId)}`,
+    );
   }
 
   async deleteSession(taskId?: string, deleteAll?: boolean): Promise<ApiDeleteResponse> {

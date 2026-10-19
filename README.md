@@ -26,6 +26,8 @@ Import SQLite (opencode.db) or JSONL (native Claude Code / Codex `rollout-*.json
 
 The homepage Sessions list supports keyword / session-ID search; the import dialog offers one-click default paths.
 
+**Run Observation** — A top-level Runs domain (next to Sessions) for Opsbot graph runs: import a workflow-bundle directory (`workflow.json` + `sessions/`) via the web "导入 Bundle" entry (same dialog flow as Import Session: browse directories, bundle dirs containing `workflow.json`/`manifest.json` are highlighted and import on click) or `cbi import-bundle <dir>`; all member sessions are imported immediately through the standard pipeline — **run-imported sessions live only inside the run detail view, never in the Sessions list** (deleting a run also deletes the sessions it imported; sessions that existed before the import are untouched). The run page renders the multi-generation DAG (rollback generation bands, retry history, carried / not-yet-run placeholders, generator subgraphs) as pure SVG, with per-node attempt history (verification verdicts, Bash output) and click-through to member session turns; session pages show a run badge linking back to the run. `cbi runs` lists imported runs.
+
 **Run Logging** — Server-side process logs (import pipeline, lake sync, API errors) are written to `~/.cannbot-insight/logs/insight-<date>.log` (daily rolling) and optionally mirrored to the startup terminal. Level, file output and screen output switches are adjustable live in Settings → Run Logging (log location shown there; no restart); env vars (`CANNBOT_LOG` / `CANNBOT_LOG_LEVEL` / `CANNBOT_LOG_FILE` / `CANNBOT_LOG_STDOUT` / `CANNBOT_LOG_DIR`) take precedence over the settings page.
 
 ## Install & Usage

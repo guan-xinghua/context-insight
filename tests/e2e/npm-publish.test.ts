@@ -97,7 +97,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     expect(leaked, `以下文件不应进包: ${leaked.join(", ")}`).toEqual([])
   }, 120_000)
 
-  it("产物文件数哨兵：≤ 450（当前 ~370；暴涨说明构建垃圾混入——曾混入 E2E 泄漏的 home/ 构建树 29MB）", () => {
+  it("产物文件数哨兵：≤ 500（2026-10 源码自然增长至 ~480；暴涨说明构建垃圾混入——曾混入 E2E 泄漏的 home/ 构建树 29MB）", () => {
     const r = spawnSync("npm", ["pack", "--dry-run", "--json"], {
       cwd: PKG_DIR, encoding: "utf8", timeout: 120_000,
     })
@@ -105,7 +105,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     const parsed = parsePackJson(r.stdout as string)
     expect(parsed.length).toBe(1)
     expect(parsed[0].entryCount).toBeGreaterThan(300)
-    expect(parsed[0].entryCount).toBeLessThanOrEqual(450)
+    expect(parsed[0].entryCount).toBeLessThanOrEqual(500)
   }, 120_000)
 
   it("package.json 发布就绪：无 private、版本单轨、bin 与 postinstall 齐备", () => {

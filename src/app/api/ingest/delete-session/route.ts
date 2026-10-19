@@ -11,22 +11,13 @@ import { prisma } from '@/lib/db';
 import { withRouteLog } from '@/lib/api-route';
 import { logInfo, logWarn } from '@/lib/logger';
 import { invalidateCaches } from '@/app/lake_viewer/_lib/runs';
+import { cascadeDeleteSessionRows } from '@/lib/ingest/session-cascade';
 
 // Delete a session and ALL its child rows. SQLite foreign-key cascade is not
 // reliably enforced (PRAGMA state varies), so child rows are removed explicitly
-// in dependency order inside a transaction. Without this, turns/toolCalls/etc.
-// orphan and accumulate across delete cycles.
+// in dependency order inside a transaction (shared with run 域删除级联).
 async function cascadeDeleteSession(id: string): Promise<void> {
-  await prisma.$transaction([
-    prisma.executionSkill.deleteMany({ where: { execution: { sessionId: id } } }),
-    prisma.toolCall.deleteMany({ where: { turn: { sessionId: id } } }),
-    prisma.skillEvent.deleteMany({ where: { turn: { sessionId: id } } }),
-    prisma.execution.deleteMany({ where: { sessionId: id } }),
-    prisma.sessionSkill.deleteMany({ where: { sessionId: id } }),
-    prisma.interactionBridge.deleteMany({ where: { sessionId: id } }),
-    prisma.turn.deleteMany({ where: { sessionId: id } }),
-    prisma.session.delete({ where: { id } }),
-  ]);
+  await cascadeDeleteSessionRows(prisma, [id]);
 }
 
 export const DELETE = withRouteLog('ingest/delete-session', async (request: NextRequest) => {

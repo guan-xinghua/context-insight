@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sniffImportableFile } from '@/lib/ingest/adapters/registry';
 import { expandHome, checkImportablePath } from '@/lib/ingest/import-paths';
+import { MANIFEST_FILENAMES } from '@/lib/run/model';
 import fs from 'node:fs';
 import path from 'node:path';
 import { logError, logWarn } from '@/lib/logger';
@@ -74,6 +75,11 @@ export async function POST(request: NextRequest) {
         // 扩展名兜底（.db / .jsonl），codex 的 rollout-*.jsonl 不再误判成
         // claude 捕获件；压缩三形态（.jsonl.7z/.gz）由 claude 兜底覆盖
         const importableType = isDir ? null : sniffImportableFile(name);
+        // run 域展示提示（增量字段，读方按需消费）：目录内含 bundle 清单文件
+        // 即标记——BundleImport 浏览视图高亮可导入的 workflow-bundle 目录。
+        // 候选名与 import-service 共用 model.MANIFEST_FILENAMES（同一事实源）。
+        const isBundleDir = isDir
+          && MANIFEST_FILENAMES.some(n => fs.existsSync(path.join(full, n)));
         return {
           name,
           fullPath: full,
@@ -82,6 +88,7 @@ export async function POST(request: NextRequest) {
           mtime: s.mtimeMs,
           isImportableFile: importableType != null,
           importableType,
+          isBundleDir,
         };
       } catch (e) {
         logWarn('route:ingest/browse-directory', '目录项读取失败', { name, error: e instanceof Error ? e.message : String(e) });

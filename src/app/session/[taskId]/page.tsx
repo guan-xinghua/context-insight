@@ -37,6 +37,7 @@ import { ChatReplayView } from "@/components/observe/ChatReplayView"
 import { summarizeToolCallErrors } from "@/lib/tool-call-errors"
 import { dispatchOnlySkillNames } from "@/lib/sift-audit"
 import { TrajectoryScoring } from "@/components/scoring/TrajectoryScoring"
+import { RunBadge } from "@/components/run/RunBadge"
 
 import { useSessionView, isKnownTab, type TabKey } from "@/app/session/[taskId]/session-view"
 
@@ -1847,6 +1848,7 @@ export default function SessionDetailPage({
             <span className="text-xs text-muted-foreground">{VERSION_DISPLAY}</span>
           </div>
           <h1 className="text-xl font-bold truncate max-w-[400px]">Session: {s.label ?? s.query ?? taskId}</h1>
+          <RunBadge taskId={taskId} />
           <div className="flex items-center gap-1.5 text-sm">
             {refreshing ? (
               <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">

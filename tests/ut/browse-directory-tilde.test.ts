@@ -78,4 +78,42 @@ describe('POST /api/ingest/browse-directory — `~` 展开', () => {
     const errData = await missing.json();
     expect(errData.error).toContain(path.join(os.homedir(), `${FIXTURE}-no-such`));
   });
+
+  it('run 域标记（isBundleDir）：含 workflow.json 的目录 true，普通目录/文件 false', async () => {
+    // 夹具：父目录下放一个 bundle 目录（workflow.json + sessions/）、一个普通目录、一个散文件
+    const parent = path.join(os.homedir(), `${FIXTURE}-bundle`);
+    const bundleDir = path.join(parent, 'my-run');
+    fs.mkdirSync(path.join(bundleDir, 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, 'workflow.json'), '{}');
+    fs.mkdirSync(path.join(parent, 'plain'), { recursive: true });
+    fs.writeFileSync(path.join(parent, 'loose.jsonl'), '{}');
+    try {
+      const res = await POST(req(parent));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      const byName = new Map<string, { isDir: boolean; isBundleDir?: boolean }>(
+        (data.entries ?? []).map((e: { name: string; isDir: boolean; isBundleDir?: boolean }) => [e.name, e]),
+      );
+      expect(byName.get('my-run')).toMatchObject({ isDir: true, isBundleDir: true });
+      expect(byName.get('plain')).toMatchObject({ isDir: true, isBundleDir: false });
+      expect(byName.get('loose.jsonl')).toMatchObject({ isDir: false, isBundleDir: false });
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('manifest.json 别名同样标记 bundle（与 import-service 的双文件名一致）', async () => {
+    const parent = path.join(os.homedir(), `${FIXTURE}-bundle-alt`);
+    const bundleDir = path.join(parent, 'alt-run');
+    fs.mkdirSync(bundleDir, { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, 'manifest.json'), '{}');
+    try {
+      const res = await POST(req(parent));
+      const data = await res.json();
+      const alt = (data.entries ?? []).find((e: { name: string }) => e.name === 'alt-run');
+      expect(alt?.isBundleDir).toBe(true);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
 });

@@ -35,6 +35,11 @@ export interface RunImportMeta {
     };
     failures: { sid: string; error: string }[];
     warnings: string[];
+    /** 本 run 导入时实际创建/收编的会话行（(taskId, framework) 精确对）：
+     *  Sessions 域隔离（首页排除）与 run 删除级联的唯一依据。收编规则 =
+     *  行的 sourcePath 落在包 sessions/ 目录内（重导入时既有行也归 run，
+     *  用户自有会话不受影响）。可选字段：旧版 sidecar 无此字段 = 空。 */
+    ownedSessions?: { sid: string; framework: string | null }[];
   };
 }
 

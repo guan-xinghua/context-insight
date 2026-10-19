@@ -27,6 +27,7 @@ import { exportCommand } from './commands/export';
 import { exportMdCommand } from './commands/export-md';
 import { uploadCommand } from './commands/upload';
 import { authCommand } from './commands/auth';
+import { importBundleCommand, runsCommand } from './commands/run';
 import { InsightError } from './errors';
 
 export function createProgram(): Command {
@@ -64,6 +65,8 @@ export function createProgram(): Command {
   program.addCommand(exportMdCommand());
   program.addCommand(uploadCommand());
   program.addCommand(authCommand());
+  program.addCommand(importBundleCommand());
+  program.addCommand(runsCommand());
 
   return program;
 }

@@ -126,6 +126,9 @@
   }
   html {
     @apply font-sans;
+    /* 滚动条占位稳定：内容长短不同的页面（如 Sessions 长列表 vs Runs 短页）
+       共享同一可视宽度——居中容器与品牌块不随滚动条出现/消失横向跳动 */
+    scrollbar-gutter: stable;
   }
 }
 

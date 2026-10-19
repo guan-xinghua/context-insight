@@ -23,6 +23,7 @@ import Home from '../../src/app/page'
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, refresh: () => {} }),
   useSearchParams: () => new URLSearchParams(''),
+  usePathname: () => '/',
 }))
 
 const prisma = new PrismaClient()

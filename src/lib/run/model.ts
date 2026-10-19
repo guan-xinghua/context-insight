@@ -15,6 +15,11 @@
 export const BUNDLE_SCHEMA = 'cannbot.workflow-bundle' as const;
 export const BUNDLE_VERSION = 1 as const;
 
+/** workflow-bundle 清单文件在包目录内的候选名（workflow.json 优先，manifest.json
+ * 兼容旧导出件）。browse 高亮（ingest/browse-directory）与 import 接受
+ * （run/import-service）共用这一真身，避免两处硬编码静默分叉。 */
+export const MANIFEST_FILENAMES = ['workflow.json', 'manifest.json'] as const;
+
 export type MemberKind = 'process' | 'session' | 'workflow';
 export type MemberRole = 'execute' | 'verify';
 

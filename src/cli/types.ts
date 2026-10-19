@@ -426,3 +426,72 @@ export interface ApiTestProviderResponse {
   success: boolean;
   message: string;
 }
+
+// ── Run 观测域（workflow-bundle）─────────────────────────────
+
+export interface ApiRunListItem {
+  runId: string;
+  name: string | null;
+  status: string;
+  exportDataComplete: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  importedAt: string | null;
+  generations: number[];
+  nodeCount: number;
+  memberCount: number;
+  sessionMemberCount: number;
+  rollbackCount: number;
+  subgraphCount: number;
+  warnings: string[];
+}
+
+export interface ApiRunsResponse {
+  runs: ApiRunListItem[];
+  warnings: string[];
+}
+
+/** 与 lib/run/import-service 的 ImportJobState 对齐（CLI 只消费展示字段）。 */
+export interface ApiImportBundleJob {
+  jobId: string;
+  runId: string;
+  step: 'validate' | 'store' | 'import' | 'done' | 'error';
+  total: number;
+  imported: number;
+  existing: number;
+  missingFile: number;
+  failed: number;
+  currentSid: string | null;
+  error: string | null;
+  warnings: string[];
+}
+
+export interface ApiRunMembership {
+  runId: string;
+  runName: string | null;
+  nodeId: string;
+  generation: number;
+  attempt: number;
+  role: 'execute' | 'verify';
+  memberName: string | null;
+  kind: 'process' | 'session' | 'workflow';
+}
+
+/** run 详情响应的顶层数据形状（viewModel 字段 CLI 端只透传，不强类型化）。 */
+export interface ApiRunDetailResponse {
+  run: {
+    runId: string;
+    name: string | null;
+    status: string;
+    exportDataComplete: boolean;
+    startedAt: string | null;
+    finishedAt: string | null;
+    import: {
+      importedAt: string;
+      sourceDir: string;
+      sessions: { total: number; imported: number; existing: number; missingFile: number; failed: number };
+      warnings: string[];
+    } | null;
+  };
+  viewModel: unknown;
+}

@@ -46,6 +46,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { sortDirEntries, type DirEntry } from "@/components/ingest/browse"
+
+// 兼容存量 IT 导入（local-import-dir-time-sort / local-import-browse-filter）
+export { sortDirEntries }
+export type { DirEntry }
 
 interface SessionPreview {
   id: string
@@ -77,30 +82,6 @@ interface ImportStatus {
   message?: string
   framework?: string | null
   version?: string | null
-}
-
-interface DirEntry {
-  name: string
-  fullPath: string
-  isDir: boolean
-  size: number
-  mtime?: number | null
-  isImportableFile: boolean
-  importableType: string | null
-}
-
-/** 目录浏览排序：目录置顶（导航优先），组内按修改时间升/降序（默认降序=最新
- *  在前，方便按时间找会话捕获文件；asc=false 降序 / asc=true 升序）。mtime
- *  缺失（旧后端响应）按 0 兜底——降序排尾 / 升序排头（紧跟目录）。导出供
- *  IT 直接验证两个方向。 */
-export function sortDirEntries(entries: DirEntry[], asc: boolean): DirEntry[] {
-  return entries.slice().sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-    const am = a.mtime ?? 0
-    const bm = b.mtime ?? 0
-    if (am === bm) return a.name.localeCompare(b.name)
-    return asc ? am - bm : bm - am
-  })
 }
 
 interface LakeSession {

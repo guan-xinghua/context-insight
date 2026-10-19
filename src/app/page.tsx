@@ -10,9 +10,11 @@ import { MetricCards } from '@/components/MetricCards';
 import { SessionList } from '@/components/SessionList';
 import { LocalFileImport } from '@/components/LocalFileImport';
 import { ImportHistory } from '@/components/ImportHistory';
-import { VERSION_DISPLAY } from '@/lib/version';
-import { BRAND_NAME, BAY_VIEWER_NAME } from '@/lib/branding';
+import { AppHeader } from '@/components/layout/AppHeader';
+import { BAY_VIEWER_NAME } from '@/lib/branding';
 import { prisma } from '@/lib/db';
+import { excludedSessionIds } from '@/lib/run/session-scope';
+import { runsRoot } from '@/lib/run/run-store';
 import { sessionDurationMs } from '@/lib/session-duration';
 import { getActiveSplitMap } from '@/lib/active-time-map';
 import { getLlmActiveMsMap } from '@/lib/llm-active-map';
@@ -30,19 +32,27 @@ export default async function Home({
   // 会话搜索（keyword / sessionID）：taskId / query / label 任一子串命中
   const q = params.q?.trim() ?? '';
 
-  const totalSessions = await prisma.session.count();
+  // run 域会话隔离：bundle 导入的成员行不进 Sessions 视图（design 决策）。
+  // 空 run 集 = 零开销短路（where 不变，行为与之前逐字节一致）。
+  const excludedIds = await excludedSessionIds(prisma, runsRoot());
+  const scope = excludedIds.length > 0 ? { id: { notIn: excludedIds } } : null;
+
+  const totalSessions = await prisma.session.count(scope ? { where: scope } : undefined);
   const aggregates = await prisma.session.aggregate({
+    ...(scope ? { where: scope } : {}),
     _sum: { totalTokens: true, totalCost: true, totalLatencyMs: true },
     _avg: { totalLatencyMs: true },
   });
   // Avg Duration 墙钟口径：Σ(endTime-startTime)÷N（endTime 缺失回落 totalLatencyMs）
   const wallRows = await prisma.session.findMany({
+    ...(scope ? { where: scope } : {}),
     select: { startTime: true, endTime: true, totalLatencyMs: true },
   });
   const totalDurationMs = wallRows.reduce((sum, s) => sum + sessionDurationMs(s.startTime, s.endTime, s.totalLatencyMs), 0);
   const avgDurationMs = wallRows.length > 0 ? totalDurationMs / wallRows.length : 0;
 
   const conditions: Record<string, unknown>[] = [];
+  if (scope) conditions.push(scope);
   if (params.user) conditions.push({ user: params.user });
   if (q) conditions.push({ OR: [{ taskId: { contains: q } }, { query: { contains: q } }, { label: { contains: q } }] });
   const where: Record<string, unknown> = conditions.length > 0 ? { AND: conditions } : {};
@@ -154,25 +164,21 @@ export default async function Home({
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <main className="flex w-full max-w-7xl flex-col gap-6 px-6 py-8 mx-auto">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {BRAND_NAME}
-            </h1>
-            <span className="text-xs text-muted-foreground">{VERSION_DISPLAY}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <LocalFileImport />
-            <a href="/lake_viewer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
-              <EyeIcon className="size-4 text-cyan-500" />
-              {BAY_VIEWER_NAME}
-            </a>
-            <a href="/settings" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
-              <SettingsIcon className="size-4 text-muted-foreground" />
-              设置
-            </a>
-          </div>
-        </div>
+        <AppHeader
+          actions={
+            <>
+              <LocalFileImport />
+              <a href="/lake_viewer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
+                <EyeIcon className="size-4 text-cyan-500" />
+                {BAY_VIEWER_NAME}
+              </a>
+              <a href="/settings" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
+                <SettingsIcon className="size-4 text-muted-foreground" />
+                设置
+              </a>
+            </>
+          }
+        />
         <MetricCards
           totalSessions={totalSessions}
           totalTokens={aggregates._sum.totalTokens ?? 0}
