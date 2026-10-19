@@ -13,6 +13,7 @@
 - 【DSH 原生会话导入】`~/.dsh/sessions/**/session.v4.jsonl(.zstd)` 与 dsh-export 导出根可直接导入：多帧 zstd 解压 → 事件转义为会话轮次 → 子代理按 `header.parentSession` 并入主会话时间线（DSH 徽标）
 
 ### Fixed
+- 【DB 导出再导入的会话类型保持】导出的会话数据库（.db）再导入时保持原会话类型与版本（此前误标为 CANNBot-Insight 且版本丢失），同实例重导入按原记录类幂等合并、不再产生重复行；导入预览新增 Type 列显示每个会话的真实类型
 - 【opencode 会话 Files 分析与技能名】opencode 旧版 read 的 `path` 参数键读取纳入 Files 分析（此前整页不可见）；skill 工具新版 `id` 参数键识别出真技能名（此前显示为字面量 "skill"），存量会话重导入后自动订正且不产生重复记录
 - 【opencode 2.x 会话内容恢复】v2 会话的工具结果（内容块数组，含湖导出的嵌套壳形态）归一为文本——read 行级解析、文件还原、skill 内容恢复全链可用；存量会话重导入自动解包订正
 - 【shell 命令安全面与隐式读】bash / shell（opencode 2.x）/ exec_command（codex）统一纳入 Files 隐式文件读采集与 D2 安全评分（破坏性命令 / 密钥外发检测此前在这两类会话整块盲区）

@@ -18,6 +18,7 @@ import { parseSubmitInfo } from '@/lib/lake/notes';
 import type { LakeSession } from '@/lib/lake/mirror';
 import { normalizeScore } from './format';
 import { agentFrameworkOf } from '@/lib/shared/session-format';
+import { sessionHref } from '@/lib/shared/session-link';
 
 export interface ParadigmSummary {
   name: string;
@@ -58,7 +59,11 @@ export interface RunItem {
   scoreSource: 'local' | 'lake-note' | null;
   dimensions: Array<{ dimensionId: string; name: string; score: number | null }>;
   baselineDelta: number | null;
-  insightUrl: string;
+  /** 会话详情深链（@/lib/shared/session-link 契约：framework = 行记录类）。
+   *  仅已导入行给出（行级 framework 消歧后构建）；未导入为 null——记录类在
+   *  导入分类前不可知（lake meta 的 agent 裸名 ≠ 入库的 -proxy 形态），预拼
+   *  必然 404，导入后跳转一律用导入响应回带的权威深链 */
+  insightUrl: string | null;
   /** 消歧后 insight DB 行的真实 framework（-proxy 形态）——评分卡/活跃时长取数用；
    * lake meta 命名归一后是裸 agent 名，与 native 行同名，直取会错行 */
   insightFramework: string | null;
@@ -86,13 +91,6 @@ export interface RunsResult {
   insightReachable: boolean;
   facets: { frameworks: string[]; ccVersions: string[] };
   items: RunItem[];
-}
-
-// 站内相对路径：viewer 已并入 insight，会话详情页同源同窗口可达（返回键回到
-// viewer，URL 记住范式与筛选状态）
-export function insightSessionUrl(sid: string, framework: string | null): string {
-  const fw = framework ? `?framework=${encodeURIComponent(framework)}` : '';
-  return `/session/${encodeURIComponent(sid)}${fw}`;
 }
 
 // ── TTL 缓存 ───────────────────────────────────────────────────────────
@@ -359,7 +357,7 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         baselineDelta: null,
         // 深链用 insight 行的真实框架（lake meta 的 agent 名与 DB 行的 -proxy 形态
         // 可能不同——用 meta 名会被详情页 framework 过滤挡成 404）
-        insightUrl: insightSessionUrl(s.sid, insight.framework ?? s.framework),
+        insightUrl: sessionHref(s.sid, insight.framework ?? s.framework),
         insightFramework: insight.framework ?? null,
       });
     } else {
@@ -392,7 +390,9 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
         scoreSource: null,
         dimensions: [],
         baselineDelta: null,
-        insightUrl: insightSessionUrl(s.sid, s.framework),
+        // 未导入不伪造深链（RunItem.insightUrl 契约）：导入完成后的跳转用
+        // 导入响应回带的权威 URL（framework = 刚落库行的记录类）
+        insightUrl: null,
         insightFramework: null,
       });
     }

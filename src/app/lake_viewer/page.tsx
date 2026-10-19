@@ -19,6 +19,7 @@ import { OpgenProgress } from '@/app/lake_viewer/_components/OpgenProgress';
 import { LakeProgressView } from '@/app/lake_viewer/_components/LakeProgressView';
 import { VERSION_DISPLAY } from '@/lib/version';
 import { BAY_VIEWER_NAME } from '@/lib/branding';
+import { sessionHref } from '@/lib/shared/session-link';
 
 interface RunsResponse {
   paradigm: string;
@@ -120,7 +121,9 @@ function ViewerPage() {
     return () => { cancelled = true; };
   }, [query, refreshKey]);
 
-  const importRun = async (sid: string, recording: 'capture' | 'native'): Promise<string | null> => {
+  // 导入结果：成功回带服务端构建的权威深链（framework = 刚落库行的记录类），
+  // 失败回带错误文案——深链身份只能来自导入响应，不用导入前的渲染行
+  const importRun = async (sid: string, recording: 'capture' | 'native'): Promise<{ insightUrl: string } | { error: string }> => {
     try {
       const res = await fetch('/lake_viewer/api/runs/import', {
         method: 'POST',
@@ -129,12 +132,13 @@ function ViewerPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
-        return data.error ?? `HTTP ${res.status}`;
+        return { error: data.error ?? `HTTP ${res.status}` };
       }
+      const data = await res.json() as { insightUrl?: string };
       setRefreshKey(k => k + 1);
-      return null;
+      return { insightUrl: data.insightUrl ?? sessionHref(sid) };
     } catch (e) {
-      return e instanceof Error ? e.message : String(e);
+      return { error: e instanceof Error ? e.message : String(e) };
     }
   };
 

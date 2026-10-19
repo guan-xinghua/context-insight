@@ -91,6 +91,9 @@ export async function POST(request: NextRequest) {
         model: s.modelName,
         totalTokens: s.totalTokens ?? null,
         source: m.sourceType,
+        // 会话级身份声明（容器导出件逐会话不同；单框架源缺省 null——
+        // 上传/预览消费方按"有值用值，无值走源级映射"兜底）
+        framework: s.framework ?? null,
       })));
     }
 

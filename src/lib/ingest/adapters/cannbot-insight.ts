@@ -9,12 +9,16 @@
 import Database from 'better-sqlite3';
 import { peekSqliteTables } from '../sqlite-detect';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
+import type { SessionSourceMeta } from './contract';
 
-// 内容级识别（SourceDescriptor.detectContent 能力）：Prisma 大写表 "Session"
-// 存在即认领（导出库 schema）；其余可读库明确不认领（false）；读不出 → null。
+// 内容级识别（SourceDescriptor.detectContent 能力，格式轴）：ExportMeta
+// 格式头（producer 声明表）是强信号；存量旧件无此表回落 Prisma 大写表
+// "Session" 启发式（导出库 schema）；其余可读库明确不认领（false）；读不出
+// → null。
 export function detectContent(filePath: string): boolean | null {
   const tables = peekSqliteTables(filePath);
   if (tables == null) return null;
+  if (tables.has('ExportMeta')) return true;
   return tables.has('Session');
 }
 
@@ -34,13 +38,23 @@ export function listSessions(dbPath: string): SessionListItem[] {
       startTime: string; endTime: string | null; totalLlmCallCount: number; totalTokens: number | null;
     }[];
 
-    let versionBySession: Map<string, string | null> = new Map();
+    // 逐列容错而非合并查询：version/framework 列分属不同代际的导出件
+    // （version 先落、framework 后落），合并 SELECT 会在缺任一列的旧件上
+    // 整体失败，把另一列也带丢
+    const versionBySession: Map<string, string | null> = new Map();
     try {
       const versionRows = db.prepare(
         'SELECT taskId, version FROM "Session"'
       ).all() as { taskId: string; version: string | null }[];
       for (const r of versionRows) versionBySession.set(r.taskId, r.version);
     } catch { /* column may not exist in older exports */ }
+    const frameworkBySession: Map<string, string | null> = new Map();
+    try {
+      const frameworkRows = db.prepare(
+        'SELECT taskId, framework FROM "Session"'
+      ).all() as { taskId: string; framework: string | null }[];
+      for (const r of frameworkRows) frameworkBySession.set(r.taskId, r.framework);
+    } catch { /* framework column may not exist in older exports */ }
 
     return sessions.map(s => ({
       id: s.taskId,
@@ -51,7 +65,40 @@ export function listSessions(dbPath: string): SessionListItem[] {
       modelName: s.model,
       totalTokens: s.totalTokens ?? 0,
       version: versionBySession.get(s.taskId) ?? null,
+      framework: frameworkBySession.get(s.taskId) ?? null,
     }));
+  } finally {
+    db.close();
+  }
+}
+
+// 会话级身份声明（SourceDescriptor.readSessionMeta 能力，身份轴）：容器
+// 导出件里的会话身份在 Session 行（framework 可能带 -proxy 记录类后缀，
+// 导出时已定型——透传不重拼）。SELECT * 而非点名列（与 opencode 同款
+// 纪律）：导出件 schema 演进加列不炸旧读方，字段防御读取兜底。
+export function readSessionMeta(dbPath: string, sessionId: string): SessionSourceMeta | null {
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch {
+    return null;
+  }
+
+  try {
+    const row = db.prepare(
+      'SELECT * FROM "Session" WHERE taskId = ?'
+    ).get(sessionId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+
+    return {
+      framework: typeof row.framework === 'string' ? row.framework : undefined,
+      version: typeof row.version === 'string' ? row.version : null,
+      parentId: typeof row.parentId === 'string' && row.parentId !== '' ? row.parentId : null,
+      title: typeof row.label === 'string' ? row.label : null,
+      directory: typeof row.directory === 'string' ? row.directory : null,
+    };
+  } catch {
+    return null;
   } finally {
     db.close();
   }

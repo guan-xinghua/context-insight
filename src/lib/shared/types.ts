@@ -15,6 +15,10 @@ export interface SessionListItem {
   modelName: string | null;
   totalTokens?: number | null;
   version?: string | null;
+  /** 会话级身份声明（身份归会话、格式归文件）：容器型源（insight 导出件）
+   *  必填——件内每个会话的 agent 框架可以互不相同；单框架源可缺省
+   *  （文件本身就是该框架的存储，身份由源级声明兜底） */
+  framework?: string | null;
 }
 
 export interface RawInteraction {

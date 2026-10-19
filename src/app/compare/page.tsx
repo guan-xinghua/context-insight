@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { VERSION_DISPLAY } from "@/lib/version"
+import { sessionQuery } from "@/lib/shared/session-link"
 import { CompareOverviewCards } from "@/components/compare/CompareOverviewCards"
 import { CompareTokenChart } from "@/components/compare/CompareTokenChart"
 import { CompareToolTable } from "@/components/compare/CompareToolTable"
@@ -159,8 +160,8 @@ function ComparePageContent() {
     async function fetchTurns() {
       setTurnsLoading(true)
       try {
-        const qA = sessionA ? `taskId=${encodeURIComponent(sessionA.taskId)}&framework=${encodeURIComponent(sessionA.framework ?? 'unknown')}` : `taskId=${parsedIds[0]}`
-        const qB = sessionB ? `taskId=${encodeURIComponent(sessionB.taskId)}&framework=${encodeURIComponent(sessionB.framework ?? 'unknown')}` : `taskId=${parsedIds[1]}`
+        const qA = sessionA ? sessionQuery(sessionA.taskId, sessionA.framework ?? 'unknown') : sessionQuery(parsedIds[0])
+        const qB = sessionB ? sessionQuery(sessionB.taskId, sessionB.framework ?? 'unknown') : sessionQuery(parsedIds[1])
         const [turnsResA, turnsResB] = await Promise.all([
           fetch(`/api/observe/session/turns?${qA}&includeContent=true&skipOverhead=true&maxContentLen=0`),
           fetch(`/api/observe/session/turns?${qB}&includeContent=true&skipOverhead=true&maxContentLen=0`),

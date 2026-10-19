@@ -68,7 +68,7 @@ describe('export-service INSERT column/placeholder parity', () => {
   });
 
   it('all INSERT prepared statements should have equal column count and placeholder count', () => {
-    expect(inserts.length).toBe(8);
+    expect(inserts.length).toBe(9);
     for (const { table, columns, placeholders } of inserts) {
       expect(columns.length, `${table}: column count (${columns.length}) must match ? count (${placeholders})`).toBe(placeholders);
     }
@@ -79,7 +79,7 @@ describe('export-service INSERT column/placeholder parity', () => {
     db.exec(ddl);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => (r as any).name);
-    const expectedTables = ['Execution', 'ExecutionSkill', 'InteractionBridge', 'Session', 'SessionSkill', 'SkillEvent', 'ToolCall', 'Turn'];
+    const expectedTables = ['Execution', 'ExecutionSkill', 'ExportMeta', 'InteractionBridge', 'Session', 'SessionSkill', 'SkillEvent', 'ToolCall', 'Turn'];
     expect(tables).toEqual(expectedTables);
 
     const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(r => (r as any).name);

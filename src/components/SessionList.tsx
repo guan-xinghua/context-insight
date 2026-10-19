@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BRAND_NAME, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
 import { isProxyVersion, agentFrameworkOf } from '@/lib/shared/session-format'
+import { sessionHref } from '@/lib/shared/session-link'
 import { useRouter } from 'next/navigation';
 import {
   Table,
@@ -495,7 +496,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                   </TableCell>
                   <TableCell className="max-w-[300px] truncate text-xs">
                     <Link
-                      href={`/session/${item.taskId}?framework=${item.framework ?? 'unknown'}`}
+                      href={sessionHref(item.taskId, item.framework ?? 'unknown')}
                       className="text-primary hover:underline"
                     >
                       {item.query ?? item.taskId}

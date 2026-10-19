@@ -386,6 +386,8 @@ export interface ApiImportableSession {
   firstQuery: string | null;
   turnCount: number;
   model: string | null;
+  /** 会话级身份声明（容器导出件逐会话不同；单框架源缺省 null） */
+  framework?: string | null;
 }
 
 export interface ApiImportResponse {

@@ -377,12 +377,15 @@ describe('listRuns（同 sid 双记录 DB 消歧）', () => {
   });
 });
 
-describe('insightSessionUrl', () => {
-  it('站内相对路径：sid 编码、framework 缺省无参', async () => {
-    const { insightSessionUrl } = await import('../../../src/app/lake_viewer/_lib/runs');
-    expect(insightSessionUrl('abc 123', 'claude-code'))
+describe('sessionHref / sessionQuery（深链单点契约）', () => {
+  it('站内相对路径与 API 查询串：taskId 编码、framework 缺省无参', async () => {
+    const { sessionHref, sessionQuery } = await import('../../../src/lib/shared/session-link');
+    expect(sessionHref('abc 123', 'claude-code'))
       .toBe('/session/abc%20123?framework=claude-code');
-    expect(insightSessionUrl('xyz', null)).toBe('/session/xyz');
+    expect(sessionHref('xyz', null)).toBe('/session/xyz');
+    expect(sessionQuery('abc 123', 'opencode-proxy'))
+      .toBe('taskId=abc%20123&framework=opencode-proxy');
+    expect(sessionQuery('xyz', null)).toBe('taskId=xyz');
   });
 });
 

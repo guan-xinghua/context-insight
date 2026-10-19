@@ -12,8 +12,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { isSafeTaskId } from '@/lib/task-id';
+import { VERSION } from '@/lib/version';
+
+// ExportMeta = 导出格式的 magic header（与 lake JSONL 导出的 meta.json
+// producer 声明对称）：producer 让件自报产源（内容级识别的强信号，不再
+// 只靠 Session 表名启发式），schemaVersion 为导出 schema 演进留版本门。
+// 它只描述文件格式（格式轴），不携带会话身份——身份在 Session 行（身份轴）。
+const EXPORT_SCHEMA_VERSION = '1';
 
 const DDL = `
+CREATE TABLE "ExportMeta" (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    "value" TEXT
+);
+
 CREATE TABLE "Session" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "taskId" TEXT NOT NULL,
@@ -257,6 +269,10 @@ export async function exportSession(
     const db = new Database(outPath);
     db.exec(DDL);
 
+    const insertExportMeta = db.prepare(`
+      INSERT INTO "ExportMeta" ("key", "value") VALUES (?, ?)
+    `);
+
     const insertSession = db.prepare(`
       INSERT INTO "Session" (
         "id", "taskId", "label", "query", "framework", "model",
@@ -352,6 +368,11 @@ export async function exportSession(
 
     // Write all data in a single transaction
     db.transaction(() => {
+      insertExportMeta.run('producer', 'insight-export');
+      insertExportMeta.run('schemaVersion', EXPORT_SCHEMA_VERSION);
+      insertExportMeta.run('exportedAt', new Date().toISOString());
+      insertExportMeta.run('insightVersion', VERSION);
+
       insertSession.run(
         session.id, session.taskId, session.label, session.query, session.framework, session.model,
         toISO(session.startTime), toISO(session.endTime),

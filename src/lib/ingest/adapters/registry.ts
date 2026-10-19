@@ -8,7 +8,12 @@
 
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import type { SourceDescriptor } from './contract';
-import { listSessions as opencodeDbListSessions, readSession as opencodeDbReadSession, detectContent as detectOpencodeDbContent } from './opencode-db';
+import {
+  listSessions as opencodeDbListSessions,
+  readSession as opencodeDbReadSession,
+  readSessionMetaByPath as opencodeDbReadSessionMeta,
+  detectContent as detectOpencodeDbContent,
+} from './opencode-db';
 import {
   listSessions as claudeJsonlListSessions,
   readSession as claudeJsonlReadSession,
@@ -27,7 +32,7 @@ import {
   deriveSessionIdFromPath as deriveCodexSessionId,
 } from './codex-jsonl';
 import { isRolloutFileName } from './codex-naming';
-import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession, detectContent as detectCannbotContent } from './cannbot-insight';
+import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession, readSessionMeta as cannbotInsightReadSessionMeta, detectContent as detectCannbotContent } from './cannbot-insight';
 import {
   listSessions as dshNativeListSessions,
   readSession as dshNativeReadSession,
@@ -61,6 +66,9 @@ const opencodeDbSource: SourceDescriptor = {
   framework: 'opencode',
   listSessions: opencodeDbListSessions,
   readSession: opencodeDbReadSession,
+  // 会话级声明（身份轴）：session/session_v2 表的标题/目录/版本——此前是
+  // data-service 里的 opencode 特判分支，收编为契约能力
+  readSessionMeta: opencodeDbReadSessionMeta,
   sniffFile: (fileName) => isSqliteName(fileName),
   detectContent: detectOpencodeDbContent,
 };
@@ -109,11 +117,16 @@ const claudeJsonlSource: SourceDescriptor = {
   deriveSessionId: deriveClaudeSessionId,
 };
 
+// 容器型源（格式即搬运，身份轴无源级缺省）：cannbot-insight 导出件是
+// insight 序列化既有会话的容器，不是会话的生产者——不声明 framework
+// （曾用容器身份冒充 agent 身份落库，framework='cannbot-insight' 误标史），
+// 每个会话的身份（framework/version，可带 -proxy 记录类）从件内 Session
+// 行经 readSessionMeta 会话级声明读取
 const cannbotInsightSource: SourceDescriptor = {
   sourceType: BRAND_SOURCE_TYPE,
-  framework: BRAND_SOURCE_TYPE,
   listSessions: cannbotInsightListSessions,
   readSession: cannbotInsightReadSession,
+  readSessionMeta: cannbotInsightReadSessionMeta,
   sniffFile: (fileName) => isSqliteName(fileName) && fileName.startsWith('cannbot_session_'),
   detectContent: detectCannbotContent,
 };
@@ -167,14 +180,19 @@ export function isKnownSource(sourceType: string): boolean {
   return isUmbrellaSource(sourceType) || getSource(sourceType) != null;
 }
 
-/** sourceType → framework（写进 Session.framework 的值）。
+/** sourceType → framework（源级身份缺省，仅单框架源有）。容器源
+ *  （cannbot-insight 导出件）返回 null——会话身份是会话级数据，走
+ *  readSessionMeta 件内声明，调用方不得用格式身份兜底会话身份。
  *  带 -proxy 后缀的不在这里处理（那是 cpx 捕获，由 data-service 加上后缀）。 */
 export function frameworkOfSource(sourceType: string): string | null {
   return getSource(sourceType)?.framework ?? null;
 }
 
-/** framework → sourceType 的反查（deltaRefresh 用）。只认不带后缀的原生值；
- *  带 -proxy 后缀的要调用方先去掉后缀（cpx 抓下来的文件固定是 claude 格式）。 */
+/** framework → sourceType 的反查（deltaRefresh 等处的文件缺失兜底）。
+ *  只认不带后缀的原生值；带 -proxy 后缀的要调用方先去掉后缀（cpx 抓
+ *  下来的文件固定是 claude 格式）。容器源 framework 无源级声明 → null；
+ *  存量 cannbot-insight 误标行由调用方的 `?? framework` 自身值兜底
+ *  （该值恰为 sourceType）。 */
 export function sourceOfFramework(framework: string): string | null {
   return SOURCES.find(s => s.framework === framework)?.sourceType ?? null;
 }
@@ -184,6 +202,21 @@ export function sourceOfFramework(framework: string): string | null {
 export function sniffImportableFile(fileName: string): string | null {
   for (const source of SOURCES) {
     if (source.sniffFile?.(fileName)) return source.sourceType;
+  }
+  return null;
+}
+
+/** 按文件内容探测所属源（deltaRefresh 的适配器路由，格式轴单点）。
+ *  格式是文件的属性：容器导出件里的 claude 会话，framework 是
+ *  claude-code 而文件是 insight 导出 db——按 framework 反查会路由到
+ *  claude-jsonl 去解析 sqlite。SOURCES 声明序即优先级，与
+ *  sniffImportableFile（文件名级）同一模式的内容级对偶；探测失败视同
+ *  不认领（调用方回落 framework 反查兜底）。 */
+export function detectSourceByContent(filePath: string): string | null {
+  for (const source of SOURCES) {
+    try {
+      if (source.detectContent?.(filePath) === true) return source.sourceType;
+    } catch { /* best-effort：单源探测异常不阻断其余源认领 */ }
   }
   return null;
 }

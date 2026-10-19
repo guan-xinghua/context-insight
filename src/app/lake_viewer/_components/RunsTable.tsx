@@ -38,7 +38,8 @@ export interface RunItemView {
   scoreSource: 'local' | 'lake-note' | null;
   dimensions: Array<{ dimensionId: string; name: string; score: number | null }>;
   baselineDelta: number | null;
-  insightUrl: string;
+  /** 仅已导入行有值；未导入为 null（记录类导入前不可知，见 RunItem 契约） */
+  insightUrl: string | null;
 }
 
 type SortKey = 'startTime' | 'durationMs' | 'totalTokens' | 'totalScore';
@@ -83,7 +84,7 @@ export function RunsTable({
   onImport,
 }: {
   items: RunItemView[];
-  onImport: (sid: string, recording: 'capture' | 'native') => Promise<string | null>;
+  onImport: (sid: string, recording: 'capture' | 'native') => Promise<{ insightUrl: string } | { error: string }>;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('startTime');
   const [sortDesc, setSortDesc] = useState(true);
@@ -97,13 +98,15 @@ export function RunsTable({
     const k = rowKey(r);
     setImporting(prev => new Set(prev).add(k));
     setImportErrors(prev => { const m = new Map(prev); m.delete(k); return m; });
-    const error = await onImport(r.sid, r.recording);
+    const outcome = await onImport(r.sid, r.recording);
     setImporting(prev => { const s = new Set(prev); s.delete(k); return s; });
-    if (error == null) {
-      window.location.href = r.insightUrl;
+    if ('error' in outcome) {
+      setImportErrors(prev => new Map(prev).set(k, outcome.error));
+      toast.error('导入失败', { description: outcome.error });
     } else {
-      setImportErrors(prev => new Map(prev).set(k, error));
-      toast.error('导入失败', { description: error });
+      // 跳转只认导入响应回带的权威深链（framework = 刚落库行的记录类）；
+      // 渲染行里的 insightUrl 是导入前的陈旧值（未导入行本就为 null）
+      window.location.href = outcome.insightUrl;
     }
   };
 
@@ -157,8 +160,8 @@ export function RunsTable({
             const busy = importing.has(rowKey(r));
             const rowAction = () => {
               if (busy) return;
-              if (r.imported) window.location.href = r.insightUrl;
-              else void importAndOpen(r);
+              if (r.imported && r.insightUrl) window.location.href = r.insightUrl;
+              else if (!r.imported) void importAndOpen(r);
             };
             return (
             <tr
@@ -272,12 +275,14 @@ export function RunsTable({
                     重试导入
                   </button>
                 ) : r.imported ? (
-                  <a
-                    href={r.insightUrl}
-                    className="rounded border border-neutral-300 px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-100"
-                  >
-                    查看详情
-                  </a>
+                  r.insightUrl ? (
+                    <a
+                      href={r.insightUrl}
+                      className="rounded border border-neutral-300 px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-100"
+                    >
+                      查看详情
+                    </a>
+                  ) : null
                 ) : (
                   <button
                     type="button"

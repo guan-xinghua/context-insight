@@ -1018,3 +1018,19 @@ export function readSessionMeta(db: Database.Database, sessionId: string): Sessi
     summaryFiles: row.summary_files ?? 0,
   };
 }
+
+// 契约能力形态（SourceDescriptor.readSessionMeta，身份轴）：注册表以
+// (dbPath, sessionId) 签名消费，这里是既有连接形态 readSessionMeta 的薄
+// 包装——开 readonly 连接调用后即关（importSession 每会话一次，sqlite
+// 只读 open 为亚毫秒级，sharedDb 连接复用留给 readSession/子代理路径）。
+export function readSessionMetaByPath(dbPath: string, sessionId: string): SessionMeta | null {
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    return readSessionMeta(db, sessionId);
+  } catch {
+    return null;
+  } finally {
+    try { db?.close(); } catch { /* best-effort */ }
+  }
+}

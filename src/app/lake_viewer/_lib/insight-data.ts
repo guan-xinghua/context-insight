@@ -162,11 +162,13 @@ export async function getScorecard(taskId: string, framework?: string | null, re
 }
 
 // 一键导入：lake 导入编排（物化 + 写库 + x_cannbay 补列），大会话可达数分钟。
-// recording 定位仓内记录位：native = <sid>.native/（原生会话），capture = 裸 <sid>/
-export async function importSession(sid: string, recording: 'capture' | 'native' = 'capture'): Promise<{ ok: boolean; error?: string }> {
+// recording 定位仓内记录位：native = <sid>.native/（原生会话），capture = 裸 <sid>/。
+// 返回行级回读的 framework/version（importLakeSession 按 result.sessionId 取行，
+// 同 sid 双行不串行）——导入后跳转深链的唯一权威身份来源
+export async function importSession(sid: string, recording: 'capture' | 'native' = 'capture'): Promise<{ ok: true; framework: string | null; version: string | null } | { ok: false; error?: string }> {
   try {
-    await importLakeSession(sid, prisma, undefined, recording);
-    return { ok: true };
+    const { framework, version } = await importLakeSession(sid, prisma, undefined, recording);
+    return { ok: true, framework: framework ?? null, version: version ?? null };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

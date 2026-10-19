@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { listSessions } from '../../../src/lib/ingest/adapters/cannbot-insight.ts';
+import { listSessions, readSessionMeta } from '../../../src/lib/ingest/adapters/cannbot-insight.ts';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,6 +43,27 @@ function buildDb(dbPath: string) {
   db.close();
 }
 
+/** 契约全列形态（导出件 DDL 的身份相关列） */
+function buildMetaDb(dbPath: string) {
+  const db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE "Session" (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      label TEXT,
+      framework TEXT NOT NULL DEFAULT 'unknown',
+      version TEXT,
+      parentId TEXT,
+      directory TEXT
+    );
+  `);
+  db.prepare(
+    `INSERT INTO "Session" (id, taskId, label, framework, version, parentId, directory)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run('s1', 'T-PROXY', 'captured session', 'claude-code-proxy', '2.1.278-proxy', 'parent-1', '/work/proj');
+  db.close();
+}
+
 describe('cannbot-insight adapter listSessions', () => {
   beforeEach(() => {
     tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cannbot-insight-')), 'sample.db');
@@ -72,5 +93,39 @@ describe('cannbot-insight adapter listSessions', () => {
 
   it('returns empty list for nonexistent path', () => {
     expect(listSessions('/nonexistent/path/nope.db')).toEqual([]);
+  });
+});
+
+describe('cannbot-insight adapter readSessionMeta（会话级身份声明）', () => {
+  beforeEach(() => {
+    tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cannbot-meta-')), 'meta.db');
+  });
+
+  afterEach(() => {
+    fs.rmSync(path.dirname(tmpFile), { recursive: true, force: true });
+  });
+
+  it('declares identity from the Session row (framework 透传含 -proxy 记录类)', () => {
+    buildMetaDb(tmpFile);
+    const meta = readSessionMeta(tmpFile, 'T-PROXY');
+    expect(meta?.framework).toBe('claude-code-proxy');
+    expect(meta?.version).toBe('2.1.278-proxy');
+    expect(meta?.parentId).toBe('parent-1');
+    expect(meta?.title).toBe('captured session');
+    expect(meta?.directory).toBe('/work/proj');
+  });
+
+  it('returns null for missing session / unreadable path', () => {
+    buildMetaDb(tmpFile);
+    expect(readSessionMeta(tmpFile, 'T-NONE')).toBeNull();
+    expect(readSessionMeta('/nonexistent/path/nope.db', 'T-PROXY')).toBeNull();
+  });
+
+  it('tolerates older exports without identity columns (framework 缺列不炸)', () => {
+    buildDb(tmpFile);
+    const meta = readSessionMeta(tmpFile, 'T-001');
+    // 无 framework 列 → 不声明（落库链退 'unknown' 防御底），version 照常
+    expect(meta?.framework).toBeUndefined();
+    expect(meta?.version).toBe('1.15.7');
   });
 });

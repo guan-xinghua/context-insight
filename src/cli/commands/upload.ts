@@ -342,9 +342,10 @@ export function uploadCommand(): Command {
             }
           }
 
-          // sourceType → framework 走注册表单点（frameworkOfSource），与
-          // data-service 落库口径一致
-          const resolvedFramework = frameworkOfSource(source) ?? source;
+          // framework 优先取会话级声明（容器导出件 Session 行的真实身份），
+          // 源级映射只兜底（容器源已不声明源级框架，frameworkOfSource 返回
+          // null）——与 data-service 落库口径一致：身份归会话、格式归文件
+          const resolvedFramework = target.framework ?? frameworkOfSource(source) ?? source;
 
           if (needInteractive) {
             description = await collectDescription({

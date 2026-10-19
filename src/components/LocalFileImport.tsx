@@ -59,6 +59,9 @@ interface SessionPreview {
   firstQuery: string | null
   turnCount: number
   totalTokens: number | null
+  /** 会话级身份声明（容器导出件逐会话不同，如 claude-code-proxy；单框架源
+   *  null——文件格式由导入入口的源选择表达，Type 列只显示会话身份） */
+  framework?: string | null
 }
 
 interface ImportStatus {
@@ -982,6 +985,7 @@ export function LocalFileImport() {
                   <TableRow>
                     <TableHead className="w-[40px]"></TableHead>
                     <TableHead className="w-[120px]">Session ID</TableHead>
+                    <TableHead className="w-[110px]">Type</TableHead>
                     <TableHead>Start Time</TableHead>
                     <TableHead>End Time</TableHead>
                     <TableHead className="max-w-[160px]">First Query</TableHead>
@@ -992,7 +996,7 @@ export function LocalFileImport() {
                 <TableBody>
                   {filteredSessions.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-4">
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-4">
                         {sessionQuery ? "No sessions match your search" : "No sessions found"}
                       </TableCell>
                     </TableRow>
@@ -1015,6 +1019,15 @@ export function LocalFileImport() {
                           }}
                         >
                           {s.id}
+                        </span>
+                      </TableCell>
+                      <TableCell className="w-[110px]">
+                        {/* 会话级身份（容器导出件逐会话不同）；无声明源显示 — */}
+                        <span
+                          className="block text-xs text-muted-foreground truncate"
+                          title={s.framework ?? ""}
+                        >
+                          {s.framework ?? "—"}
                         </span>
                       </TableCell>
                       <TableCell className="text-xs whitespace-nowrap">{formatTime(s.createdAt)}</TableCell>

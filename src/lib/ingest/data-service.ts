@@ -10,7 +10,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import { BRAND_SOURCE_TYPE } from '@/lib/branding';
-import { getSource, sourceOfFramework } from './adapters/registry';
+import { getSource, sourceOfFramework, detectSourceByContent } from './adapters/registry';
 import { listSubagentSessionsWithDb, readSessionWithDb, readSessionMeta } from './adapters/opencode-db';
 import { extractVersion as extractClaudeVersion } from './adapters/claude-jsonl';
 import { classifyProxyCapture, readCcSessionMeta, proxyRecordingFrameworkFromVersion } from './proxy-classify';
@@ -35,8 +35,10 @@ function toDate(v: string | null): Date | null {
 
 /** 行的记录类（framework 身份，方案一：同 sid 原生/proxy 各一行）：
  * - proxy 行（version 带 marker）按 version 推导——映射与分类器同源，
- *   framework 误标史不参与判定；insight 导出行（cannbot-insight，可能带
- *   -proxy version——导出自捕获会话）保持导出身份，不参与双类拆分
+ *   framework 误标史不参与判定；存量误标行（容器身份冒充期落库的
+ *   cannbot-insight，可能带 -proxy version——导出自捕获会话）保持原值
+ *   （legacy shim：身份在目标库已丢失，重导出件即正确，此分支只护存量
+ *   显示；导入链已改走 readSessionMeta 会话级声明，新行不再产生该值）
  * - 非 proxy 行原样 framework */
 function recordingClassOfSessionRow(row: { framework: string; version: string | null }): string {
   if (isProxyVersion(row.version)) {
@@ -506,18 +508,20 @@ async function importSessionInner(
     // 统一分类器结果（meta > 行级 source > wire 指纹，见 proxy-classify.ts）：
     // framework 是 agent 归属（opencode / claude-code / codex），marker 进 version。
     let proxyClass: ReturnType<typeof classifyProxyCapture> | null = null;
-    // insight-export meta 的 framework 声明（DB 导出件）：导出的是既有会话的
-    // 再记录，记录类用声明值——重导入并回原生行（如 opencode），而不是按
-    // claude-jsonl 缺省新建 claude-code 重复行（(taskId, framework) 唯一索引
-    // 下还会让 patchXLakeColumns 的 meta 恢复撞唯一键）
-    let exportDeclaredFramework: string | null = null;
-    if (srcType === 'opencode-db' && sharedDb) {
-      sessionMeta = readSessionMeta(sharedDb, sessionId);
-    } else if (srcType === 'claude-jsonl') {
+    // 载体声明的会话框架（身份轴，Session.framework 落库优先级之一）：容器
+    // 导出件（cannbot-insight 的 Session 行 / lake meta.json producer 声明）
+    // 在此声明"这个会话是谁"——身份属于会话不属于文件格式。容器件重导入
+    // 并回既有记录类行（如 claude-code-proxy），而不是按源缺省新建重复行
+    // （(taskId, framework) 唯一索引下还会让 patchXLakeColumns 的 meta 恢复
+    // 撞唯一键）
+    let declaredFramework: string | null = null;
+    if (srcType === 'claude-jsonl') {
+      // wire 身份管线（身份是推导出来的）：ccMeta 载体声明 + 线上分类 +
+      // version marker 组装，claude 布局是通用捕获入口，逻辑自持于此
       const ccMeta = readCcSessionMeta(dbPath);
       const metaCcVersion = ccMeta?.ccVersion ?? null;
       if (ccMeta?.producer === 'insight-export' && ccMeta.framework) {
-        exportDeclaredFramework = ccMeta.framework;
+        declaredFramework = ccMeta.framework;
       }
       proxyClass = classifyProxyCapture(dbPath);
       proxyVersionMarker = proxyClass.marker;
@@ -529,20 +533,37 @@ async function importSessionInner(
           ? (agentVersion.endsWith(`-${proxyVersionMarker}`) ? agentVersion : `${agentVersion}-${proxyVersionMarker}`)
           : proxyVersionMarker)
         : agentVersion;
-    } else if (descriptor.extractVersion) {
-      // 注册表能力路径（codex 等新源）：version 从源文件提取（cli_version），
-      // claude/opencode 分支已各自填充不进此路径。sessionId 一并传入——
-      // dbPath 可能是 sessions 根目录（UI 列表导入流程），适配器按 id 解析文件
-      sessionMeta.version = descriptor.extractVersion(dbPath, sessionId);
+    } else {
+      // 声明式身份管线（身份是读出来的，能力驱动）：readSessionMeta 会话级
+      // 声明（容器导出件的 Session 行 / opencode session 表——此前 opencode
+      // 是此处的特判分支，已收编为契约能力）。无声明能力的源走 extractVersion
+      // 兜底（codex 等新源：version 从源文件提取，dbPath 可能是 sessions
+      // 根目录，适配器按 id 解析文件）
+      const declared = descriptor.readSessionMeta?.(dbPath, sessionId) ?? null;
+      if (declared) {
+        declaredFramework = declared.framework ?? null;
+        sessionMeta = {
+          parentId: declared.parentId ?? null,
+          title: declared.title ?? null,
+          version: declared.version ?? null,
+          directory: declared.directory ?? null,
+          summaryAdditions: declared.summaryAdditions ?? 0,
+          summaryDeletions: declared.summaryDeletions ?? 0,
+          summaryFiles: declared.summaryFiles ?? 0,
+        };
+      } else if (descriptor.extractVersion) {
+        sessionMeta.version = descriptor.extractVersion(dbPath, sessionId);
+      }
     }
-    // framework 是 agent 归属：proxy 捕获装饰（-proxy 记录后缀，方案一同 sid
-    // 原生/捕获双行）优先于导出件声明，原生落库值走注册表 descriptor.framework
-    // 单点（此前 sourceType→framework 映射内联于此，与刷新侧反向映射人肉同步）。
+    // framework 落库链（身份轴优先级）：wire 分类（proxy 捕获的 -proxy 记录
+    // 类装饰，方案一同 sid 原生/捕获双行）> 载体声明（容器件 Session 行 /
+    // lake meta）> 源级缺省（仅「格式即生产者」的单框架源声明；容器源不
+    // 声明）> 'unknown'（容器件缺声明的防御底，与导出 DDL 缺省一致）。
     // incomingRecordingClass（空文件占位与正常导入共用的匹配身份）与
     // frameworkForCapture 语义相同，统一为一个值。
     const frameworkForCapture = proxyClass?.isProxy && proxyClass.framework
       ? `${proxyClass.framework}-proxy`
-      : (exportDeclaredFramework ?? descriptor.framework);
+      : (declaredFramework ?? descriptor.framework ?? 'unknown');
     const incomingRecordingClass = frameworkForCapture;
 
     if (rawInteractions.length === 0) {
@@ -981,12 +1002,18 @@ export async function deltaRefreshSession(
     throw new Error(`Session not found or no sourcePath: "${sessionId}"`);
   }
 
-  // sourceType 推断：proxy 捕获（claude / opencode / codex，version 带 -proxy
-  // 后缀）都是 claude 格式 jsonl 变体 → claude-jsonl adapter；原生 framework →
-  // sourceType 反向映射走注册表单点（sourceOfFramework），不再内联三元链
-  const sourceType = isProxyVersion(session.version) || session.framework?.endsWith('-proxy')
-    ? 'claude-jsonl'
-    : (session.framework != null ? (sourceOfFramework(session.framework) ?? session.framework) : null);
+  // sourceType 推断（适配器路由，格式轴）：格式是文件的属性——sourcePath
+  // 内容探测优先（detectSourceByContent 单点）。容器导出件里的 claude 会话：
+  // framework 是 claude-code 而 sourcePath 是 insight 导出 db，按 framework
+  // 反查会路由到 claude-jsonl 去解析 sqlite（静默读 0 条）。文件缺失/不认领
+  // 才回落 framework 反查兜底：proxy 捕获（claude / opencode / codex，
+  // version 带 -proxy 后缀）都是 claude 格式 jsonl 变体 → claude-jsonl
+  // adapter；原生 framework → sourceOfFramework 单点反查
+  const fromFile = detectSourceByContent(session.sourcePath);
+  const sourceType = fromFile
+    ?? (isProxyVersion(session.version) || session.framework?.endsWith('-proxy')
+      ? 'claude-jsonl'
+      : (session.framework != null ? (sourceOfFramework(session.framework) ?? session.framework) : null));
   if (!sourceType) {
     throw new Error(`No adapter for: "${session.framework}"`);
   }

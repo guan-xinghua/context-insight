@@ -73,7 +73,12 @@ describe('agent-source-framework 注册表：身份映射与文件嗅探单点',
     expect(sourceOfFramework('opencode')).toBe('opencode-db');
     expect(frameworkOfSource('claude-jsonl')).toBe('claude-code');
     expect(sourceOfFramework('claude-code')).toBe('claude-jsonl');
-    expect(frameworkOfSource(BRAND_SOURCE_TYPE)).toBe(BRAND_SOURCE_TYPE);
+    // 容器源（insight 导出件 = 序列化搬运格式，非会话生产者）不声明源级
+    // framework——会话身份走 readSessionMeta 件内声明（曾用容器身份冒充
+    // agent 身份：framework='cannbot-insight' 误标史）。反查同样不命中，
+    // 存量误标行由调用方 `?? framework` 自身值兜底路由
+    expect(frameworkOfSource(BRAND_SOURCE_TYPE)).toBeNull();
+    expect(sourceOfFramework(BRAND_SOURCE_TYPE)).toBeNull();
     // 未知值
     expect(frameworkOfSource('nope')).toBeNull();
     expect(sourceOfFramework('nope')).toBeNull();
