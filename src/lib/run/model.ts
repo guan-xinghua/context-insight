@@ -1,0 +1,101 @@
+// Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
+// This program is free software: you can redistribute it and/or modify it under the terms and conditions of
+// CANN Open Software License Agreement Version 2.0 (the "License").
+// You may refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+
+// Run 域领域类型（workflow-bundle manifest 的内部模型）。
+// 契约源头：docs/design/run-observation/design.md §4.1 + 格式手册
+// workflow-bundle-format.md（草案 v1，schema "cannbot.workflow-bundle"）。
+// 信封冻结原则（对齐 cannbay-schema-spec）：(schema, version) 声明式分发；
+// 未知字段一律透传（索引签名），加可选字段不升版，改语义必升版。
+
+export const BUNDLE_SCHEMA = 'cannbot.workflow-bundle' as const;
+export const BUNDLE_VERSION = 1 as const;
+
+export type MemberKind = 'process' | 'session' | 'workflow';
+export type MemberRole = 'execute' | 'verify';
+
+/** graph 插件注解（annotation.graph）：五键定位 + 尝试/验收结论。
+ * 字段语义见格式手册 §7；这里只收观测需要的稳定字段，其余透传。 */
+export interface RunGraphAnnotation {
+  nodeId: string;
+  generation: number;          // 回滚代，0 起
+  attempt: number;             // 本代尝试号；0 = 未运行空占位
+  role: MemberRole;
+  attemptResult?: 'succeeded' | 'failed';
+  verification?: { type?: string; status?: string; reason?: string } & Record<string, unknown>;
+  retryPolicy?: { maxRetries?: number; onExhaust?: string; rollbackToNodeId?: string } & Record<string, unknown>;
+  runOnFailure?: boolean;
+  executionState?: 'executed' | 'not_run' | 'carried';
+  resultFromGeneration?: number;
+  [k: string]: unknown;        // 未知字段透传，不丢数据
+}
+
+export interface RunMember {
+  id: string;                  // 整棵成员树唯一
+  kind: MemberKind;
+  name?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  sessionId?: string | null;   // session 成员指向会话正文（源身份，非 DB 行 id）
+  location?: string | null;    // 会话目录相对包根的 POSIX 路径
+  output?: { text?: string } | null;
+  annotation?: { note?: string; graph?: RunGraphAnnotation } & Record<string, unknown>;
+  data?: RunWorkflowData;      // workflow 成员递归（子图）
+  [k: string]: unknown;
+}
+
+export interface RunRelation {
+  from: string;                // 成员 id（可跨层级）
+  to: string;
+  /** type: depends_on/rollback；gen-sub-graph 双形态（手册 kind=，真实导出件 type=） */
+  annotation?: { type?: 'depends_on' | 'rollback' | 'gen-sub-graph'; kind?: 'gen-sub-graph'; note?: string; graph?: Record<string, unknown> } & Record<string, unknown>;
+  [k: string]: unknown;
+}
+
+export interface RunWorkflowData {
+  exportDataComplete?: boolean;
+  members: RunMember[];
+  relations: RunRelation[];
+  [k: string]: unknown;
+}
+
+export interface RunManifest {
+  schema: typeof BUNDLE_SCHEMA;
+  version: number;
+  id: string;                  // runId（存储目录名）
+  kind: string;
+  name?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  data: RunWorkflowData;
+  [k: string]: unknown;
+}
+
+/** 五键定位：成员 → 图位置的唯一寻址（根 workflow id 由 runId 承载）。 */
+export interface MemberFiveKey {
+  nodeId: string;
+  generation: number;
+  attempt: number;
+  role: MemberRole;
+}
+
+/** 五键的稳定字符串形式（Map 键 / API 查询参数共用）。 */
+export function fiveKeyOf(key: MemberFiveKey): string {
+  return `${key.nodeId}|${key.generation}|${key.attempt}|${key.role}`;
+}
+
+/** 成员会话与 Prisma Session 行的 join 结果（session-link 生产；view-model
+ * 的成员引用携带可选字段保持纯函数，API 层组装时注入）。 */
+export interface SessionRef {
+  taskId: string;              // 即成员 sessionId（源身份）
+  framework: string;           // 落库行归属（消歧后）
+  rowId: string;               // Prisma Session.id
+  turns: number;
+  totalTokens: number;
+  durationMs: number | null;
+  label: string | null;
+}

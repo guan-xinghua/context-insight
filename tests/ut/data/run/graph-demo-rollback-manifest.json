@@ -1,0 +1,2117 @@
+{
+  "schema": "cannbot.workflow-bundle",
+  "version": 1,
+  "id": "WC7D09351F7D2B9E0",
+  "kind": "workflow",
+  "name": "graph-demo",
+  "data": {
+    "exportDataComplete": true,
+    "members": [
+      {
+        "id": "M3343149DECF45325",
+        "kind": "process",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "init",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：init 第 0 代第 1 次执行，passed"
+        },
+        "name": "init：第 0 代第 1 次执行"
+      },
+      {
+        "id": "ME816ABEDE0ECF274",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "init",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "init：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "S2BB26D62E3566801",
+        "kind": "session",
+        "sessionId": "S2BB26D62E3566801",
+        "location": "sessions/S2BB26D62E3566801.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-a",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-a：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:12Z",
+        "finishedAt": "2026-10-10T02:00:17Z"
+      },
+      {
+        "id": "M9E510CA9121CDA73",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-a",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "step-a：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "SC33BBCAC4227F98E",
+        "kind": "session",
+        "sessionId": "SC33BBCAC4227F98E",
+        "location": "sessions/SC33BBCAC4227F98E.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-a",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-a：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:00Z",
+        "finishedAt": "2026-10-10T02:02:05Z"
+      },
+      {
+        "id": "M50590C64A18BE7E3",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-a",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "step-a：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M31F6BB191D9B81AF",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-b",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：step-b 第 0 代第 1 次执行，passed"
+        },
+        "name": "step-b：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:18Z",
+        "finishedAt": "2026-10-10T02:00:23Z"
+      },
+      {
+        "id": "M0202BC8FD9401156",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-b",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "step-b：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "MD721B6AABF1D6A17",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-b",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：step-b 第 2 代第 1 次执行，passed"
+        },
+        "name": "step-b：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:06Z",
+        "finishedAt": "2026-10-10T02:02:11Z"
+      },
+      {
+        "id": "M552463A83EC22EE8",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-b",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "step-b：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "S24CBB86DAE396078",
+        "kind": "session",
+        "sessionId": "S24CBB86DAE396078",
+        "location": "sessions/S24CBB86DAE396078.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-c",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-c：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:24Z",
+        "finishedAt": "2026-10-10T02:00:29Z"
+      },
+      {
+        "id": "ME7143002595A8FEA",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-c",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "step-c：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "S76E5D5638AE697D7",
+        "kind": "session",
+        "sessionId": "S76E5D5638AE697D7",
+        "location": "sessions/S76E5D5638AE697D7.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-c",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-c：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:12Z",
+        "finishedAt": "2026-10-10T02:02:17Z"
+      },
+      {
+        "id": "MD836C37D503A3ECE",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-c",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "step-c：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "S7C9C932313AD2D8D",
+        "kind": "session",
+        "sessionId": "S7C9C932313AD2D8D",
+        "location": "sessions/S7C9C932313AD2D8D.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-d",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-d：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:30Z",
+        "finishedAt": "2026-10-10T02:00:35Z"
+      },
+      {
+        "id": "M627E28858BC380F3",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-d",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "step-d：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "SF914A388D2E13C04",
+        "kind": "session",
+        "sessionId": "SF914A388D2E13C04",
+        "location": "sessions/SF914A388D2E13C04.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-d",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-d：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:18Z",
+        "finishedAt": "2026-10-10T02:02:23Z"
+      },
+      {
+        "id": "M6DCCE8E64F88360F",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-d",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "step-d：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "SF7195596F4196B4E",
+        "kind": "session",
+        "sessionId": "SF7195596F4196B4E",
+        "location": "sessions/SF7195596F4196B4E.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-e",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-e：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:36Z",
+        "finishedAt": "2026-10-10T02:00:41Z"
+      },
+      {
+        "id": "M488CE9E1848EEDB7",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-e",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "step-e：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "S37D840AC57C044A9",
+        "kind": "session",
+        "sessionId": "S37D840AC57C044A9",
+        "location": "sessions/S37D840AC57C044A9.native",
+        "annotation": {
+          "note": "执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "step-e",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "step-e：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:24Z",
+        "finishedAt": "2026-10-10T02:02:29Z"
+      },
+      {
+        "id": "M732106C16E5F1C9B",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "step-e",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "step-e：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "MDAA1AE34E22B7F0E",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "flaky-step",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "failed",
+            "retryPolicy": {
+              "maxRetries": 3,
+              "onExhaust": "stop"
+            }
+          }
+        },
+        "output": {
+          "text": "示例：flaky-step 第 0 代第 1 次执行，failed"
+        },
+        "name": "flaky-step：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:42Z",
+        "finishedAt": "2026-10-10T02:00:47Z"
+      },
+      {
+        "id": "M9B45FA61C6AF480E",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "failed",
+              "reason": "acceptance exit 1"
+            },
+            "role": "verify",
+            "nodeId": "flaky-step",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "flaky-step：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M7839AAE94230D9D9",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "flaky-step",
+            "generation": 0,
+            "attempt": 2,
+            "attemptResult": "failed"
+          }
+        },
+        "output": {
+          "text": "示例：flaky-step 第 0 代第 2 次执行，failed"
+        },
+        "name": "flaky-step：第 0 代第 2 次执行",
+        "startedAt": "2026-10-10T02:00:48Z",
+        "finishedAt": "2026-10-10T02:00:53Z"
+      },
+      {
+        "id": "M8E14F9DBA58EEDBF",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "failed",
+              "reason": "acceptance exit 1"
+            },
+            "role": "verify",
+            "nodeId": "flaky-step",
+            "generation": 0,
+            "attempt": 2
+          }
+        },
+        "name": "flaky-step：第 0 代第 2 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M7730043DAFF24597",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "flaky-step",
+            "generation": 0,
+            "attempt": 3,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：flaky-step 第 0 代第 3 次执行，passed"
+        },
+        "name": "flaky-step：第 0 代第 3 次执行",
+        "startedAt": "2026-10-10T02:00:54Z",
+        "finishedAt": "2026-10-10T02:00:59Z"
+      },
+      {
+        "id": "M3804C9841D78138D",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "flaky-step",
+            "generation": 0,
+            "attempt": 3
+          }
+        },
+        "name": "flaky-step：第 0 代第 3 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M1CBE462720E2A35F",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "flaky-step",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：flaky-step 第 2 代第 1 次执行，passed"
+        },
+        "name": "flaky-step：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:30Z",
+        "finishedAt": "2026-10-10T02:02:35Z"
+      },
+      {
+        "id": "M39B396E49BE2C2AA",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "flaky-step",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "flaky-step：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M632AA35B5AA88678",
+        "kind": "process",
+        "annotation": {
+          "note": "生成子图脚本",
+          "graph": {
+            "role": "execute",
+            "nodeId": "gen-sub",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：gen-sub 第 0 代第 1 次执行，passed"
+        },
+        "name": "gen-sub：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:01:00Z",
+        "finishedAt": "2026-10-10T02:01:05Z"
+      },
+      {
+        "id": "M9612CAAFC42A2EBD",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "gen-sub",
+            "generation": 0,
+            "attempt": 1
+          }
+        },
+        "name": "gen-sub：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "MF87A768E0BC68EB6",
+        "kind": "process",
+        "name": "gen-sub：第 1 代未执行（沿用第 0 代结果）",
+        "annotation": {
+          "note": "沿用先前代的子图结果，本代没有重新执行",
+          "graph": {
+            "nodeId": "gen-sub",
+            "generation": 1,
+            "attempt": 0,
+            "role": "execute",
+            "executionState": "carried",
+            "resultFromGeneration": 0
+          }
+        },
+        "sessionId": null,
+        "location": null,
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M2F9EA9122660F4D5",
+        "kind": "process",
+        "annotation": {
+          "note": "生成子图脚本",
+          "graph": {
+            "role": "execute",
+            "nodeId": "gen-sub",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：gen-sub 第 2 代第 1 次执行，passed"
+        },
+        "name": "gen-sub：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:02:36Z",
+        "finishedAt": "2026-10-10T02:02:41Z"
+      },
+      {
+        "id": "M3DF204F0A7907E21",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "gen-sub",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "gen-sub：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "MAC41B7669DBB2BD6",
+        "kind": "workflow",
+        "name": "gen-sub 生成的子图",
+        "annotation": {},
+        "data": {
+          "members": [
+            {
+              "id": "M1C5CA77E71ABBD88",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-init",
+                  "generation": 0,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-init 第 0 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-init：第 0 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:06Z",
+              "finishedAt": "2026-10-10T02:01:11Z"
+            },
+            {
+              "id": "MEBB3FA79C3A95DFC",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-init",
+                  "generation": 0,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-init：第 0 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "MB72648C2CB201547",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-init",
+                  "generation": 1,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-init 第 1 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-init：第 1 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:18Z",
+              "finishedAt": "2026-10-10T02:01:23Z"
+            },
+            {
+              "id": "M9D5E237D32B30DAF",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-init",
+                  "generation": 1,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-init：第 1 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M68239455AC66D3F6",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-init",
+                  "generation": 2,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-init 第 2 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-init：第 2 代第 1 次执行",
+              "startedAt": "2026-10-10T02:02:42Z",
+              "finishedAt": "2026-10-10T02:02:47Z"
+            },
+            {
+              "id": "M7267E1C9B800B394",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-init",
+                  "generation": 2,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-init：第 2 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M783715348D52D3D5",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-flaky",
+                  "generation": 0,
+                  "attempt": 1,
+                  "attemptResult": "failed",
+                  "retryPolicy": {
+                    "maxRetries": 0,
+                    "onExhaust": "rollback",
+                    "rollbackToNodeId": "gen-sub:sub-init"
+                  }
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-flaky 第 0 代第 1 次执行，failed"
+              },
+              "name": "gen-sub:sub-flaky：第 0 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:12Z",
+              "finishedAt": "2026-10-10T02:01:17Z"
+            },
+            {
+              "id": "MF3E555157ADB0B18",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "failed",
+                    "reason": "acceptance exit 1"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-flaky",
+                  "generation": 0,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-flaky：第 0 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "MCCE60F345B414CC4",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-flaky",
+                  "generation": 1,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-flaky 第 1 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-flaky：第 1 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:24Z",
+              "finishedAt": "2026-10-10T02:01:29Z"
+            },
+            {
+              "id": "M4F42EA0A5F0377E0",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-flaky",
+                  "generation": 1,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-flaky：第 1 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M1A159DF6E4EBD8A4",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-flaky",
+                  "generation": 2,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-flaky 第 2 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-flaky：第 2 代第 1 次执行",
+              "startedAt": "2026-10-10T02:02:48Z",
+              "finishedAt": "2026-10-10T02:02:53Z"
+            },
+            {
+              "id": "M667EB7FAA76FB3C2",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-flaky",
+                  "generation": 2,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-flaky：第 2 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M830E7E4BE0661450",
+              "kind": "session",
+              "name": "gen-sub:sub-agent-a：第 0 代待执行",
+              "sessionId": null,
+              "location": null,
+              "annotation": {
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-agent-a",
+                  "generation": 0,
+                  "attempt": 0
+                }
+              },
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "S5082A31602EE15ED",
+              "kind": "session",
+              "sessionId": "S5082A31602EE15ED",
+              "location": "sessions/S5082A31602EE15ED.native",
+              "annotation": {
+                "note": "执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-agent-a",
+                  "generation": 1,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "name": "gen-sub:sub-agent-a：第 1 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:30Z",
+              "finishedAt": "2026-10-10T02:01:35Z"
+            },
+            {
+              "id": "M7759937C6615DCB0",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-agent-a",
+                  "generation": 1,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-agent-a：第 1 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "S05EBC82CCCEC940F",
+              "kind": "session",
+              "sessionId": "S05EBC82CCCEC940F",
+              "location": "sessions/S05EBC82CCCEC940F.native",
+              "annotation": {
+                "note": "执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-agent-a",
+                  "generation": 2,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "name": "gen-sub:sub-agent-a：第 2 代第 1 次执行",
+              "startedAt": "2026-10-10T02:02:54Z",
+              "finishedAt": "2026-10-10T02:02:59Z"
+            },
+            {
+              "id": "M7C41A23D3B118EA0",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-agent-a",
+                  "generation": 2,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-agent-a：第 2 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M63C18B930B471330",
+              "kind": "session",
+              "name": "gen-sub:sub-agent-b：第 0 代待执行",
+              "sessionId": null,
+              "location": null,
+              "annotation": {
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-agent-b",
+                  "generation": 0,
+                  "attempt": 0
+                }
+              },
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "S1E640E2BCAB96B59",
+              "kind": "session",
+              "sessionId": "S1E640E2BCAB96B59",
+              "location": "sessions/S1E640E2BCAB96B59.native",
+              "annotation": {
+                "note": "执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-agent-b",
+                  "generation": 1,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "name": "gen-sub:sub-agent-b：第 1 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:36Z",
+              "finishedAt": "2026-10-10T02:01:41Z"
+            },
+            {
+              "id": "M4E38B747E753BEEA",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-agent-b",
+                  "generation": 1,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-agent-b：第 1 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "SB6BED5C9E11B358F",
+              "kind": "session",
+              "sessionId": "SB6BED5C9E11B358F",
+              "location": "sessions/SB6BED5C9E11B358F.native",
+              "annotation": {
+                "note": "执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-agent-b",
+                  "generation": 2,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "name": "gen-sub:sub-agent-b：第 2 代第 1 次执行",
+              "startedAt": "2026-10-10T02:03:00Z",
+              "finishedAt": "2026-10-10T02:03:05Z"
+            },
+            {
+              "id": "MFF91ECE0984B3D0A",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-agent-b",
+                  "generation": 2,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-agent-b：第 2 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M0F18D2B515860759",
+              "kind": "process",
+              "name": "gen-sub:sub-verify：第 0 代待执行",
+              "annotation": {
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-verify",
+                  "generation": 0,
+                  "attempt": 0
+                }
+              },
+              "startedAt": null,
+              "finishedAt": null,
+              "sessionId": null,
+              "location": null
+            },
+            {
+              "id": "M36FB18F8B0F498B9",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-verify",
+                  "generation": 1,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-verify 第 1 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-verify：第 1 代第 1 次执行",
+              "startedAt": "2026-10-10T02:01:42Z",
+              "finishedAt": "2026-10-10T02:01:47Z"
+            },
+            {
+              "id": "M7217A95AD1A97C75",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-verify",
+                  "generation": 1,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-verify：第 1 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            },
+            {
+              "id": "M7537BA03CF583916",
+              "kind": "process",
+              "annotation": {
+                "note": "Bash 执行",
+                "graph": {
+                  "role": "execute",
+                  "nodeId": "gen-sub:sub-verify",
+                  "generation": 2,
+                  "attempt": 1,
+                  "attemptResult": "succeeded"
+                }
+              },
+              "output": {
+                "text": "示例：gen-sub:sub-verify 第 2 代第 1 次执行，passed"
+              },
+              "name": "gen-sub:sub-verify：第 2 代第 1 次执行",
+              "startedAt": "2026-10-10T02:03:06Z",
+              "finishedAt": "2026-10-10T02:03:11Z"
+            },
+            {
+              "id": "M3D0787431EC03EB4",
+              "kind": "process",
+              "annotation": {
+                "note": "脚本验收",
+                "graph": {
+                  "verification": {
+                    "type": "script",
+                    "status": "passed",
+                    "reason": "exit 0"
+                  },
+                  "role": "verify",
+                  "nodeId": "gen-sub:sub-verify",
+                  "generation": 2,
+                  "attempt": 1
+                }
+              },
+              "name": "gen-sub:sub-verify：第 2 代第 1 次验收",
+              "startedAt": null,
+              "finishedAt": null
+            }
+          ],
+          "relations": [
+            {
+              "from": "M1C5CA77E71ABBD88",
+              "to": "MEBB3FA79C3A95DFC",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "MB72648C2CB201547",
+              "to": "M9D5E237D32B30DAF",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M68239455AC66D3F6",
+              "to": "M7267E1C9B800B394",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M632AA35B5AA88678",
+              "to": "M1C5CA77E71ABBD88",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "MF87A768E0BC68EB6",
+              "to": "MB72648C2CB201547",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M2F9EA9122660F4D5",
+              "to": "M68239455AC66D3F6",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M783715348D52D3D5",
+              "to": "MF3E555157ADB0B18",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "MCCE60F345B414CC4",
+              "to": "M4F42EA0A5F0377E0",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M1A159DF6E4EBD8A4",
+              "to": "M667EB7FAA76FB3C2",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M1C5CA77E71ABBD88",
+              "to": "M783715348D52D3D5",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "MB72648C2CB201547",
+              "to": "MCCE60F345B414CC4",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M68239455AC66D3F6",
+              "to": "M1A159DF6E4EBD8A4",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "S5082A31602EE15ED",
+              "to": "M7759937C6615DCB0",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "S05EBC82CCCEC940F",
+              "to": "M7C41A23D3B118EA0",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M783715348D52D3D5",
+              "to": "M830E7E4BE0661450",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "MCCE60F345B414CC4",
+              "to": "S5082A31602EE15ED",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M1A159DF6E4EBD8A4",
+              "to": "S05EBC82CCCEC940F",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "S1E640E2BCAB96B59",
+              "to": "M4E38B747E753BEEA",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "SB6BED5C9E11B358F",
+              "to": "MFF91ECE0984B3D0A",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M830E7E4BE0661450",
+              "to": "M63C18B930B471330",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "S5082A31602EE15ED",
+              "to": "S1E640E2BCAB96B59",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "S05EBC82CCCEC940F",
+              "to": "SB6BED5C9E11B358F",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M36FB18F8B0F498B9",
+              "to": "M7217A95AD1A97C75",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M7537BA03CF583916",
+              "to": "M3D0787431EC03EB4",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "M63C18B930B471330",
+              "to": "M0F18D2B515860759",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "S1E640E2BCAB96B59",
+              "to": "M36FB18F8B0F498B9",
+              "annotation": {
+                "type": "depends_on"
+              }
+            },
+            {
+              "from": "SB6BED5C9E11B358F",
+              "to": "M7537BA03CF583916",
+              "annotation": {
+                "type": "depends_on"
+              }
+            }
+          ]
+        },
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M3492180D7BB0F41F",
+        "kind": "process",
+        "name": "bad-node：第 0 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "bad-node",
+            "generation": 0,
+            "attempt": 0,
+            "retryPolicy": {
+              "maxRetries": 1,
+              "onExhaust": "rollback",
+              "rollbackToNodeId": "step-a"
+            }
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      },
+      {
+        "id": "MEA68698399DABECF",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "bad-node",
+            "generation": 1,
+            "attempt": 1,
+            "attemptResult": "failed"
+          }
+        },
+        "output": {
+          "text": "示例：bad-node 第 1 代第 1 次执行，failed"
+        },
+        "name": "bad-node：第 1 代第 1 次执行",
+        "startedAt": "2026-10-10T02:01:48Z",
+        "finishedAt": "2026-10-10T02:01:53Z"
+      },
+      {
+        "id": "M5F1853BEC92F626B",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "failed",
+              "reason": "acceptance exit 1"
+            },
+            "role": "verify",
+            "nodeId": "bad-node",
+            "generation": 1,
+            "attempt": 1
+          }
+        },
+        "name": "bad-node：第 1 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "MFE162C6EE09C2595",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "bad-node",
+            "generation": 1,
+            "attempt": 2,
+            "attemptResult": "failed"
+          }
+        },
+        "output": {
+          "text": "示例：bad-node 第 1 代第 2 次执行，failed"
+        },
+        "name": "bad-node：第 1 代第 2 次执行",
+        "startedAt": "2026-10-10T02:01:54Z",
+        "finishedAt": "2026-10-10T02:01:59Z"
+      },
+      {
+        "id": "M2AEBF505CC20372F",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "failed",
+              "reason": "acceptance exit 1"
+            },
+            "role": "verify",
+            "nodeId": "bad-node",
+            "generation": 1,
+            "attempt": 2
+          }
+        },
+        "name": "bad-node：第 1 代第 2 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "M78ED3766C024E889",
+        "kind": "process",
+        "annotation": {
+          "note": "Bash 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "bad-node",
+            "generation": 2,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "output": {
+          "text": "示例：bad-node 第 2 代第 1 次执行，passed"
+        },
+        "name": "bad-node：第 2 代第 1 次执行",
+        "startedAt": "2026-10-10T02:03:12Z",
+        "finishedAt": "2026-10-10T02:03:17Z"
+      },
+      {
+        "id": "M6007F26CB87F416F",
+        "kind": "process",
+        "annotation": {
+          "note": "脚本验收",
+          "graph": {
+            "verification": {
+              "type": "script",
+              "status": "passed",
+              "reason": "exit 0"
+            },
+            "role": "verify",
+            "nodeId": "bad-node",
+            "generation": 2,
+            "attempt": 1
+          }
+        },
+        "name": "bad-node：第 2 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null
+      },
+      {
+        "id": "MF766AF36F231501A",
+        "kind": "process",
+        "name": "always-fail：第 0 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "always-fail",
+            "generation": 0,
+            "attempt": 0
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      },
+      {
+        "id": "MFAEDD55867B6537C",
+        "kind": "process",
+        "name": "always-fail：第 1 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "always-fail",
+            "generation": 1,
+            "attempt": 0
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      },
+      {
+        "id": "M42F2A0F3E4EADF7D",
+        "kind": "process",
+        "name": "always-fail：第 2 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "always-fail",
+            "generation": 2,
+            "attempt": 0
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      },
+      {
+        "id": "M3A48D2A101B54735",
+        "kind": "process",
+        "name": "final-report：第 0 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "final-report",
+            "generation": 0,
+            "attempt": 0,
+            "runOnFailure": true
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      },
+      {
+        "id": "MB0FE9E693B18F205",
+        "kind": "process",
+        "name": "final-report：第 1 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "final-report",
+            "generation": 1,
+            "attempt": 0
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      },
+      {
+        "id": "M4629C68B5D4C7427",
+        "kind": "process",
+        "name": "final-report：第 2 代待执行",
+        "annotation": {
+          "graph": {
+            "role": "execute",
+            "nodeId": "final-report",
+            "generation": 2,
+            "attempt": 0
+          }
+        },
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": null,
+        "location": null
+      }
+    ],
+    "relations": [
+      {
+        "from": "M3343149DECF45325",
+        "to": "ME816ABEDE0ECF274",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S2BB26D62E3566801",
+        "to": "M9E510CA9121CDA73",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SC33BBCAC4227F98E",
+        "to": "M50590C64A18BE7E3",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M3343149DECF45325",
+        "to": "S2BB26D62E3566801",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M3343149DECF45325",
+        "to": "SC33BBCAC4227F98E",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M31F6BB191D9B81AF",
+        "to": "M0202BC8FD9401156",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MD721B6AABF1D6A17",
+        "to": "M552463A83EC22EE8",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S2BB26D62E3566801",
+        "to": "M31F6BB191D9B81AF",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SC33BBCAC4227F98E",
+        "to": "MD721B6AABF1D6A17",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S24CBB86DAE396078",
+        "to": "ME7143002595A8FEA",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S76E5D5638AE697D7",
+        "to": "MD836C37D503A3ECE",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S2BB26D62E3566801",
+        "to": "S24CBB86DAE396078",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SC33BBCAC4227F98E",
+        "to": "S76E5D5638AE697D7",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S7C9C932313AD2D8D",
+        "to": "M627E28858BC380F3",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SF914A388D2E13C04",
+        "to": "M6DCCE8E64F88360F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M31F6BB191D9B81AF",
+        "to": "S7C9C932313AD2D8D",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S24CBB86DAE396078",
+        "to": "S7C9C932313AD2D8D",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MD721B6AABF1D6A17",
+        "to": "SF914A388D2E13C04",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S76E5D5638AE697D7",
+        "to": "SF914A388D2E13C04",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SF7195596F4196B4E",
+        "to": "M488CE9E1848EEDB7",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S37D840AC57C044A9",
+        "to": "M732106C16E5F1C9B",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M31F6BB191D9B81AF",
+        "to": "SF7195596F4196B4E",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S24CBB86DAE396078",
+        "to": "SF7195596F4196B4E",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MD721B6AABF1D6A17",
+        "to": "S37D840AC57C044A9",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S76E5D5638AE697D7",
+        "to": "S37D840AC57C044A9",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MDAA1AE34E22B7F0E",
+        "to": "M9B45FA61C6AF480E",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M7839AAE94230D9D9",
+        "to": "M8E14F9DBA58EEDBF",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M7730043DAFF24597",
+        "to": "M3804C9841D78138D",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M1CBE462720E2A35F",
+        "to": "M39B396E49BE2C2AA",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S7C9C932313AD2D8D",
+        "to": "M7730043DAFF24597",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SF7195596F4196B4E",
+        "to": "M7730043DAFF24597",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "SF914A388D2E13C04",
+        "to": "M1CBE462720E2A35F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "S37D840AC57C044A9",
+        "to": "M1CBE462720E2A35F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M632AA35B5AA88678",
+        "to": "M9612CAAFC42A2EBD",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M2F9EA9122660F4D5",
+        "to": "M3DF204F0A7907E21",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M7730043DAFF24597",
+        "to": "M632AA35B5AA88678",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M7730043DAFF24597",
+        "to": "MF87A768E0BC68EB6",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M1CBE462720E2A35F",
+        "to": "M2F9EA9122660F4D5",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MEA68698399DABECF",
+        "to": "M5F1853BEC92F626B",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MFE162C6EE09C2595",
+        "to": "M2AEBF505CC20372F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M78ED3766C024E889",
+        "to": "M6007F26CB87F416F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0F18D2B515860759",
+        "to": "M3492180D7BB0F41F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M36FB18F8B0F498B9",
+        "to": "MFE162C6EE09C2595",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M7537BA03CF583916",
+        "to": "M78ED3766C024E889",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M3492180D7BB0F41F",
+        "to": "MF766AF36F231501A",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MFE162C6EE09C2595",
+        "to": "MFAEDD55867B6537C",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M78ED3766C024E889",
+        "to": "M42F2A0F3E4EADF7D",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MF766AF36F231501A",
+        "to": "M3A48D2A101B54735",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MFAEDD55867B6537C",
+        "to": "MB0FE9E693B18F205",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M42F2A0F3E4EADF7D",
+        "to": "M4629C68B5D4C7427",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "MF3E555157ADB0B18",
+        "to": "MB72648C2CB201547",
+        "annotation": {
+          "note": "回滚后重新执行",
+          "graph": {
+            "targetAttempt": 1
+          },
+          "type": "rollback"
+        }
+      },
+      {
+        "from": "M2AEBF505CC20372F",
+        "to": "SC33BBCAC4227F98E",
+        "annotation": {
+          "note": "回滚后重新执行",
+          "graph": {
+            "targetAttempt": 1
+          },
+          "type": "rollback"
+        }
+      },
+      {
+        "from": "M632AA35B5AA88678",
+        "to": "MAC41B7669DBB2BD6",
+        "annotation": {
+          "kind": "gen-sub-graph"
+        }
+      },
+      {
+        "from": "MF87A768E0BC68EB6",
+        "to": "MAC41B7669DBB2BD6",
+        "annotation": {
+          "kind": "gen-sub-graph"
+        }
+      },
+      {
+        "from": "M2F9EA9122660F4D5",
+        "to": "MAC41B7669DBB2BD6",
+        "annotation": {
+          "kind": "gen-sub-graph"
+        }
+      }
+    ]
+  },
+  "startedAt": null,
+  "finishedAt": null
+}
