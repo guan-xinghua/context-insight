@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MaximizeIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { RunGraph } from "./RunGraph";
 import type { NodeInstance, RunView } from "@/lib/run/view-model";
+import type { LensKey } from "@/lib/run/run-metrics";
 
 // 画布容器：点阵画布（缩放 0.25–2.5、Ctrl/⌘+滚轮以光标为锚缩放、左键拖拽
 // 平移）+ 浮动缩放工具条。选中语义由外部控制（selectedKey 受控）：
@@ -23,6 +24,7 @@ export function RunCanvas({
   onSelectNode,
   onOpenSubgraph,
   fitKey,
+  lens,
   className = "",
 }: {
   view: RunView;
@@ -31,6 +33,7 @@ export function RunCanvas({
   onSelectNode: (key: string | null) => void;
   onOpenSubgraph?: (key: string) => void;
   fitKey?: string;
+  lens?: LensKey;
   className?: string;
 }) {
   const [zoom, setZoomState] = useState(1);
@@ -145,6 +148,7 @@ export function RunCanvas({
                 onSelectNode(selectedKey === key ? null : key);
               }}
               onOpenSubgraph={onOpenSubgraph}
+              lens={lens}
             />
           </div>
         </div>

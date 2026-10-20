@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { RunNodeDetail } from "./RunNodeDetail";
 import { bandLabel } from "./run-theme";
 import { RunCanvas } from "./RunCanvas";
+import type { LensKey } from "@/lib/run/run-metrics";
 import type { NodeInstance, RollbackRecord, RunView } from "@/lib/run/view-model";
 
 // 子图弹窗：主图中点击生成器节点的「子图 ▸」入口打开（不再割裂为顶层视图）。
@@ -26,6 +27,7 @@ export function RunSubgraphDialog({
   nodesByKey,
   rollbacks,
   entryKey,
+  lens,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +35,7 @@ export function RunSubgraphDialog({
   nodesByKey: Map<string, NodeInstance>;
   rollbacks: RollbackRecord[];
   entryKey: string | null;
+  lens?: LensKey;
 }) {
   const entry = entryKey !== null ? nodesByKey.get(entryKey) ?? null : null;
   // 锁定入口代：只取该代生成器节点的子图视图
@@ -67,6 +70,7 @@ export function RunSubgraphDialog({
               selectedKey={selectedKey}
               onSelectNode={selectInDialog}
               fitKey={view.id}
+              lens={lens}
               className="m-3"
             />
           </div>

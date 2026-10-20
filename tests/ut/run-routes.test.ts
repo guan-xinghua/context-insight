@@ -18,8 +18,8 @@ import path from 'node:path';
 
 const fakePrisma = {
   session: { findMany: vi.fn(), deleteMany: vi.fn(), delete: vi.fn() },
-  turn: { groupBy: vi.fn(), deleteMany: vi.fn() },
-  toolCall: { deleteMany: vi.fn() },
+  turn: { groupBy: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+  toolCall: { findMany: vi.fn(), deleteMany: vi.fn() },
   skillEvent: { deleteMany: vi.fn() },
   execution: { deleteMany: vi.fn() },
   executionSkill: { deleteMany: vi.fn() },
@@ -66,6 +66,8 @@ beforeEach(() => {
   fakePrisma.session.deleteMany.mockReset();
   fakePrisma.session.delete.mockReset();
   fakePrisma.turn.groupBy.mockReset().mockResolvedValue([]);
+  fakePrisma.turn.findMany.mockReset().mockResolvedValue([]);
+  fakePrisma.toolCall.findMany.mockReset().mockResolvedValue([]);
   fakePrisma.$transaction.mockReset().mockResolvedValue([]);
   // 预置 mini run（graph-demo 结构断言走 reader/view-model IT，这里覆盖链路）
   saveRun(miniManifest, null, path.join(tmpHome, 'runs'));
@@ -118,22 +120,66 @@ describe('GET /api/observe/run/[runId]', () => {
         totalTokens: 15, totalLatencyMs: 5000,
       },
     ]);
-    fakePrisma.turn.groupBy.mockResolvedValue([{ sessionId: 'row_a', _count: { _all: 1 } }]);
+    fakePrisma.turn.groupBy.mockResolvedValue([{ sessionId: 'row_a', _count: { _all: 1 }, _max: { contextWindowPct: 72.5 } }]);
 
     const res = await runDetailGET(get('/api/observe/run/minidemo01'), await paramsOf(Promise.resolve({ runId: 'minidemo01' })));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.run.runId).toBe('minidemo01');
     expect(data.viewModel.nodes.length).toBeGreaterThan(0);
-    // join 注入：build g0 执行成员的 session 引用带 turns/framework
+    // join 注入：build g0 执行成员的 session 引用带 turns/framework/上下文峰值水位
     const build0 = data.viewModel.nodes.find(
       (n: { nodeId: string; generation: number }) => n.nodeId === 'build' && n.generation === 0,
     );
     expect(build0.attempts[0].executeMember.session).toMatchObject({
-      taskId: 'ses_mini_a', framework: 'opencode', turns: 1,
+      taskId: 'ses_mini_a', framework: 'opencode', turns: 1, contextPeakPct: 72.5,
     });
     // 缺正文成员（mock 只返回一行）：verify 成员 session=null
     expect(build0.attempts[0].verifyMember.session).toBeNull();
+  });
+
+  it('详情：会话评分融合——turns+toolCalls 批量采集后 ruleScores 注入成员引用', async () => {
+    fakePrisma.session.findMany.mockResolvedValue([
+      {
+        id: 'row_a', taskId: 'ses_mini_a', framework: 'opencode', label: null,
+        startTime: new Date('2026-10-13T02:00:12Z'), endTime: new Date('2026-10-13T02:00:17Z'),
+        totalTokens: 15, totalLatencyMs: 5000,
+      },
+    ]);
+    fakePrisma.turn.groupBy.mockResolvedValue([{ sessionId: 'row_a', _count: { _all: 1 }, _max: { contextWindowPct: null } }]);
+    const turnRow = (i: number) => ({
+      sessionId: 'row_a', id: `t${i}`, turnIndex: i, role: 'assistant', agentName: null,
+      isSubagent: false, subagentSessionId: null, contentSummary: null, content: null,
+      totalTokens: 100, inputTokens: 100, inputMessagesTokens: 100, latencyMs: 10,
+      createdAt: null, createdAt_ts: null, model: null,
+    });
+    const callRow = (i: number, args: string) => ({
+      id: `c${i}`, toolName: 'Bash', argsJson: args, resultJson: null, state: 'ok',
+      errorType: null, durationMs: 0, startedAt: null, completedAt: null, errorMessage: null,
+      turn: { sessionId: 'row_a', turnIndex: 0, isSubagent: false, agentName: null },
+    });
+    fakePrisma.turn.findMany.mockResolvedValue([turnRow(0), turnRow(1)]);
+    // 3 连发同参数（原样重复）+ 3 个互异调用 → 冗余分 <1、findings 浮出 D5.repeat
+    fakePrisma.toolCall.findMany.mockResolvedValue([
+      callRow(0, '{"cmd":"git status"}'),
+      callRow(1, '{"cmd":"git status"}'),
+      callRow(2, '{"cmd":"git status"}'),
+      callRow(3, '{"cmd":"make"}'),
+      callRow(4, '{"cmd":"ls"}'),
+      callRow(5, '{"cmd":"pwd"}'),
+    ]);
+
+    const res = await runDetailGET(get('/api/observe/run/minidemo01'), await paramsOf(Promise.resolve({ runId: 'minidemo01' })));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    const build0 = data.viewModel.nodes.find(
+      (n: { nodeId: string; generation: number }) => n.nodeId === 'build' && n.generation === 0,
+    );
+    const scores = build0.attempts[0].executeMember.session.ruleScores;
+    expect(scores.d5).toBeLessThan(1);
+    expect(scores.findings.some((f: { itemId: string }) => f.itemId === 'D5.repeat')).toBe(true);
+    // 采集走了批量 in 查询（按落库行 id，非源 sid）
+    expect(fakePrisma.toolCall.findMany.mock.calls[0][0].where).toEqual({ turn: { sessionId: { in: ['row_a'] } } });
   });
 
   it('未知 run → 404；非法 runId → 404（不炸）', async () => {

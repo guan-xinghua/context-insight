@@ -19,12 +19,62 @@
 // 交叉处做 PCB 式半圆跳线（水平段跳过垂直段），表达「交叉不相连」。
 
 import type { NodeInstance, RunView } from "@/lib/run/view-model";
-import { RUN_COLORS, flowColor, statusColor } from "@/components/run/run-theme";
+import { RUN_COLORS, METRIC_EMPTY, NODE_STROKE_WIDTH, NODE_STROKE_WIDTH_SELECTED, STATUS_TINT_OPACITY, WATER_BAND_OPACITY, WATER_COLOR, WATER_CRITICAL_PCT, flowColor, metricColor, metricTintOpacity, redundancyColor, redundancyTint, statusColor } from "@/components/run/run-theme";
+import { lensBoundaries, lensFixedBoundaries, lensRank, lensValue, lensValueText, nodeUsageOf, type LensKey } from "@/lib/run/run-metrics";
 
 export { bandLabel } from "@/components/run/run-theme";
 
 const NODE_W = 168;
 const NODE_H = 48;
+
+/** 水位透镜的「容器注水」：节点盒即容器，上下文峰值即水深。水面微波荡漾
+ *  （SMIL 位移，相位按节点错开避免整齐划一的机械感），80% 红色警戒线常显，
+ *  水漫过线即逼限。纯 SVG；clip 到盒内，波幅不会溢出圆角。 */
+function NodeWater({ pct, phase, clipId }: { pct: number; phase: number; clipId: string }) {
+  const clamped = Math.max(Math.min(pct, 100), 1);
+  const surfaceY = NODE_H * (1 - clamped / 100);
+  const opacity = clamped >= WATER_CRITICAL_PCT
+    ? WATER_BAND_OPACITY.deep
+    : clamped >= 50 ? WATER_BAND_OPACITY.mid : WATER_BAND_OPACITY.shallow;
+  const a = 1.6;
+  const wave = `M 0 ${surfaceY} C ${NODE_W * 0.25} ${surfaceY - a} ${NODE_W * 0.25} ${surfaceY - a} ${NODE_W / 2} ${surfaceY} C ${NODE_W * 0.75} ${surfaceY + a} ${NODE_W * 0.75} ${surfaceY + a} ${NODE_W} ${surfaceY}`;
+  const body = `${wave} L ${NODE_W} ${NODE_H + 2} L 0 ${NODE_H + 2} Z`;
+  return (
+    <g clipPath={`url(#${clipId})`}>
+      <defs>
+        <clipPath id={clipId}>
+          <rect width={NODE_W} height={NODE_H} rx={7} />
+        </clipPath>
+      </defs>
+      <g className="run-node-water">
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0; 0 1.3; 0 0"
+          keyTimes="0; 0.5; 1"
+          calcMode="spline"
+          keySplines="0.45 0 0.55 1; 0.45 0 0.55 1"
+          dur="3.8s"
+          begin={`${phase}s`}
+          repeatCount="indefinite"
+        />
+        <path d={body} fill={WATER_COLOR} fillOpacity={opacity} />
+        <path d={wave} fill="none" stroke={WATER_COLOR} strokeOpacity={0.7} strokeWidth={1.1} />
+      </g>
+      <line
+        className="run-water-line"
+        x1={0}
+        x2={NODE_W}
+        y1={NODE_H * (1 - WATER_CRITICAL_PCT / 100)}
+        y2={NODE_H * (1 - WATER_CRITICAL_PCT / 100)}
+        stroke="#cf222e"
+        strokeOpacity={0.5}
+        strokeWidth={1}
+        strokeDasharray="3 2.5"
+      />
+    </g>
+  );
+}
 
 const TASK_TYPE_LABEL: Record<NodeInstance["taskType"], string> = {
   agent: "agent",
@@ -168,16 +218,33 @@ export function RunGraph({
   selectedKey,
   onSelectNode,
   onOpenSubgraph,
+  lens = "status",
 }: {
   view: RunView;
   nodesByKey: Map<string, NodeInstance>;
   selectedKey: string | null;
   onSelectNode: (key: string) => void;
   onOpenSubgraph?: (key: string) => void;
+  /** 指标透镜：status = 状态着色（默认）；其余按节点会话用量分位着色 */
+  lens?: LensKey;
 }) {
   const { layout } = view;
   const nodes = view.nodeKeys.map(k => nodesByKey.get(k)).filter((n): n is NodeInstance => n !== undefined);
   const hasSel = selectedKey !== null;
+
+  // 指标透镜：节点用量 → 边界 → 逐节点取色。水位走绝对阈值（50/80——健康
+  // 区间与分布无关），其余按全图分位。无会话数据节点灰描边（状态仍由左侧
+  // 圆点表达，不丢信息）
+  const metricLens = lens !== "status";
+  const usageByKey = new Map(nodes.map(n => [n.key, nodeUsageOf(n)]));
+  const fixed = lensFixedBoundaries(lens);
+  const boundaries = metricLens
+    ? fixed ?? lensBoundaries(nodes.flatMap(n => {
+        const u = usageByKey.get(n.key) ?? null;
+        const v = u !== null ? lensValue(lens, u) : null;
+        return v === null ? [] : [v];
+      }))
+    : [];
 
   // 边折线（依赖 + 回滚）先统一计算，再收集 PCB 交叉跳线，最后渲染——
   // 跳线在 base 与流光叠加层共享同一条 d
@@ -339,14 +406,34 @@ export function RunGraph({
         );
       })}
 
-      {/* 节点：暗底卡 + 状态描边/圆点 + 主/次两行文本 */}
-      {nodes.map(node => {
+      {/* 节点：暗底卡 + 状态描边/圆点 + 主/次两行文本。指标透镜下描边改为用量
+          分位着色（无数据灰描边），副标第二段换成用量缩写，状态圆点保留 */}
+      {nodes.map((node, idx) => {
         const pos = layout.positions[node.key];
         if (!pos) return null;
-        const color = statusColor(node.status);
+        const usage = metricLens ? usageByKey.get(node.key) ?? null : null;
+        const metricVal = usage !== null ? lensValue(lens, usage) : null;
+        // 冗余透镜走独立三档色（绿/琥珀/红，低分警示）——与用量透镜的「越深
+        // 越多」蓝阶方向相反，复用 metricColor 会把「最糙」染成最浅色
+        const color = !metricLens
+          ? statusColor(node.status)
+          : metricVal === null ? METRIC_EMPTY
+          : lens === "redundancy" ? redundancyColor(metricVal)
+          : metricColor(lensRank(boundaries, metricVal), boundaries.length);
+        // 面积信号：程度靠染色面积传达（细描边肉眼难分档）。水位透镜例外——
+        // 水体本身就是面积信号，盒底保持中性；无数据节点不染色
+        const tint = !metricLens
+          ? { opacity: STATUS_TINT_OPACITY }
+          : metricVal === null || lens === "context" ? null
+          : lens === "redundancy"
+            ? { opacity: redundancyTint(metricVal) }
+            : { opacity: metricTintOpacity(lensRank(boundaries, metricVal), boundaries.length) };
         const selected = selectedKey === node.key;
         const retries = Math.max(node.attempts.length - 1, 0);
         const carried = node.executionState === "carried";
+        const subText = metricLens && usage !== null && metricVal !== null
+          ? `${TASK_TYPE_LABEL[node.taskType]} · ${lensValueText(lens, usage)}`
+          : `${TASK_TYPE_LABEL[node.taskType]}${retries > 0 ? ` · 重试 ${retries}` : ""}${carried ? " · 承接" : ""}`;
         return (
           <g
             key={node.key}
@@ -362,20 +449,22 @@ export function RunGraph({
               width={NODE_W}
               height={NODE_H}
               rx={7}
-              fill={RUN_COLORS.nodeFill}
+              fill={tint !== null ? color : RUN_COLORS.nodeFill}
+              fillOpacity={tint !== null ? tint.opacity : undefined}
               stroke={color}
-              strokeOpacity={selected ? 1 : 0.55}
-              strokeWidth={selected ? 1.6 : 1}
+              strokeOpacity={selected ? 1 : 0.9}
+              strokeWidth={selected ? NODE_STROKE_WIDTH_SELECTED : NODE_STROKE_WIDTH}
               strokeDasharray={carried ? "4 3" : undefined}
             />
-            <circle cx={14} cy={17.5} r={3.5} fill={color} />
+            {lens === "context" && metricVal !== null ? (
+              <NodeWater pct={metricVal} phase={(idx % 5) * 0.75} clipId={`water-${node.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`} />
+            ) : null}
+            <circle cx={14} cy={17.5} r={3.5} fill={statusColor(node.status)} />
             <text x={24} y={21.5} fontSize={12.5} fontWeight={600} fill={RUN_COLORS.textPrimary}>
               {truncate(node.label, 17)}
             </text>
             <text x={24} y={37.5} fontSize={10.5} fill={RUN_COLORS.textMuted} letterSpacing="0.01em">
-              {TASK_TYPE_LABEL[node.taskType]}
-              {retries > 0 ? ` · 重试 ${retries}` : ""}
-              {carried ? " · 承接" : ""}
+              {subText}
             </text>
             {/* 子图入口：生成器节点右上角（未提供入口回调时不渲染——子图弹窗内画布无嵌套入口） */}
             {node.hasSubgraph && onOpenSubgraph ? (

@@ -39,6 +39,7 @@ function mkNode(totalTokens: number): NodeInstance {
     label: null,
     startTime: '2026-10-10T02:01:30Z',
     endTime: '2026-10-10T02:01:35Z',
+    cacheReadTokens: 0,
   };
   const attempt: AttemptRecord = {
     ordinal: 1,

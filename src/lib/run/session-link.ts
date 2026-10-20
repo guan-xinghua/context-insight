@@ -50,18 +50,26 @@ export async function joinSessionRefs(
     select: {
       id: true, taskId: true, framework: true, label: true,
       startTime: true, endTime: true, totalTokens: true, totalLatencyMs: true,
+      totalCacheReadTokens: true,
     },
   });
 
-  // turns 计数：Turn 外键是 Session.id（cuid），按 rowId 一次 groupBy
+  // turns 计数 + 上下文峰值水位（turn 级 contextWindowPct 的最大值，导入时已
+  //  按 inputTokens÷窗口上限 计算并单调化）：Turn 外键是 Session.id（cuid），
+  //  按 rowId 一次 groupBy 拿齐
   const turnsByRow = new Map<string, number>();
+  const contextPeakByRow = new Map<string, number | null>();
   if (rows.length > 0) {
     const turnGroups = await prisma.turn.groupBy({
       by: ['sessionId'],
       where: { sessionId: { in: rows.map(r => r.id) } },
       _count: { _all: true },
+      _max: { contextWindowPct: true },
     });
-    for (const g of turnGroups) turnsByRow.set(g.sessionId, g._count._all);
+    for (const g of turnGroups) {
+      turnsByRow.set(g.sessionId, g._count._all);
+      contextPeakByRow.set(g.sessionId, g._max.contextWindowPct);
+    }
   }
 
   const byTaskId = new Map<string, typeof rows>();
@@ -93,6 +101,8 @@ export async function joinSessionRefs(
       label: chosen.label,
       startTime: chosen.startTime ? chosen.startTime.toISOString() : null,
       endTime: chosen.endTime ? chosen.endTime.toISOString() : null,
+      cacheReadTokens: chosen.totalCacheReadTokens,
+      contextPeakPct: contextPeakByRow.get(chosen.id) ?? null,
     });
   }
   return result;

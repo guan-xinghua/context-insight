@@ -105,4 +105,34 @@ export interface SessionRef {
   label: string | null;
   startTime: string | null;    // 会话起止（ISO）：成员 manifest 常缺时间戳，展示层用会话行起止兜底
   endTime: string | null;
+  cacheReadTokens: number | null; // 指标透镜（缓存命中占比）
+  /** 上下文峰值水位（0-100）：该会话全部 turn 的 contextWindowPct 最大值。
+   *  可选——旧响应/测试 fixture 可缺省，消费方按无数据处理。 */
+  contextPeakPct?: number | null;
+  /** 评分卡规则层融合（第六刀）：会话内行为质量的确定性评分——D4 效率/D5
+   *  冗余的规则子项加权分（子集归一，非整卡维度分），findings 只保留异常
+   *  信号（满分项不占版面）。可选——缺省按无评分数据处理。 */
+  ruleScores?: SessionRuleScores | null;
+}
+
+/** 评分卡规则层的一条异常信号（评分 <1 的子项；D4.parallel 除外——串行 0.8
+ *  即持平，是事实不是缺陷）。evidence 只带轮次与标签，不带原文引用；
+ *  value 是评分器的原始计数值（次数 / "白干数/总数"），展示层据此说白话。 */
+export interface RuleFinding {
+  itemId: string;
+  label: string;
+  score: number;
+  value: number | string | null;
+  formula: string | null;
+  note: string | null;
+  evidence: Array<{ turnIndex: number | null; label: string }>;
+}
+
+/** 会话规则分：null = 规则层不可评（无工具调用等，聚合后无 ok 项）。 */
+export interface SessionRuleScores {
+  /** D4 效率规则分（并行度+压缩，子集归一） */
+  d4: number | null;
+  /** D5 冗余规则分（重派+原样重复+白干错误，子集归一）——「冗余」透镜的值源 */
+  d5: number | null;
+  findings: RuleFinding[];
 }

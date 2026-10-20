@@ -21,8 +21,11 @@ import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { RunCanvas } from "@/components/run/RunCanvas";
 import { RunNodeDetail } from "@/components/run/RunNodeDetail";
+import { RunRetryLedger } from "@/components/run/RunRetryLedger";
 import { RunSubgraphDialog } from "@/components/run/RunSubgraphDialog";
-import { RUN_COLORS, RUN_STATUS_META, bandLabel } from "@/components/run/run-theme";
+import { RunTrace } from "@/components/run/RunTrace";
+import { METRIC_EMPTY, METRIC_SCALE, REDUNDANCY_BANDS, RUN_COLORS, RUN_STATUS_META, WATER_CRITICAL_PCT, bandLabel } from "@/components/run/run-theme";
+import { LENS_META, type LensKey } from "@/lib/run/run-metrics";
 import { Badge } from "@/components/ui/badge";
 import { Loader2Icon, ArrowLeftIcon } from "lucide-react";
 import type { RunViewModel } from "@/lib/run/view-model";
@@ -132,6 +135,9 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // 子图弹窗：点击生成器节点「子图 ▸」入口打开（entryKey = 该代生成器节点）
   const [subgraphKey, setSubgraphKey] = useState<string | null>(null);
+  // 系统级观测：视图模式（结构图 / 时间轴 / 重试账本）与指标透镜（结构图着色维度）
+  const [mode, setMode] = useState<"graph" | "trace" | "ledger">("graph");
+  const [lens, setLens] = useState<LensKey>("status");
 
   useEffect(() => {
     let cancelled = false;
@@ -232,45 +238,181 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           </div>
         ) : null}
 
-        {/* 工作台（铺满页宽）：toolbar（视图标题/图例）+ 点阵画布 + 侧栏；子图经
-            生成器节点「子图 ▸」入口以弹窗展开，不再是割裂的顶层视图 */}
+        {/* 工作台（铺满页宽）：toolbar（视图标题 / 模式与透镜 / 图例）+ 画布（结构
+            图或时间轴）+ 侧栏；子图经生成器节点「子图 ▸」入口以弹窗展开 */}
         <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
-          <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-black/[0.08] bg-black/[0.015] px-3">
-            <span className="truncate px-1 text-xs font-medium text-[#57606a]" title={view.title}>
-              {view.title}
-            </span>
-            <div className="hidden items-center gap-3.5 text-[11px] text-[#8c959f] lg:flex" aria-label="图例">
-              {LEGEND_STATUSES.map(s => (
-                <span key={s} className="inline-flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ backgroundColor: RUN_STATUS_META[s].color }} aria-hidden />
-                  {RUN_STATUS_META[s].label}
-                </span>
-              ))}
-              <span className="h-3.5 w-px bg-black/10" aria-hidden />
-              <span className="inline-flex items-center gap-1.5">
-                <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden>
-                  <path d="M1 4 H17" stroke={RUN_COLORS.edge} strokeWidth="1.25" />
-                </svg>
-                依赖
+          <div className="flex h-12 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-black/[0.08] bg-black/[0.015] px-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="truncate px-1 text-xs font-medium text-[#57606a]" title={view.title}>
+                {view.title}
               </span>
-              <span className="inline-flex items-center gap-1.5">
-                <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden>
-                  <path d="M1 4 H17" stroke={RUN_COLORS.rollback} strokeWidth="1.25" strokeDasharray="4 3" />
-                </svg>
-                回滚
-              </span>
+              {/* 视图模式：结构图（DAG）/ 时间轴（Trace 泳道）/ 账本（重试浪费）——共用选中与侧栏 */}
+              <div className="flex items-center rounded-md border border-black/10 bg-white p-0.5" role="group" aria-label="视图模式">
+                {([["graph", "结构"], ["trace", "时间轴"], ["ledger", "账本"]] as const).map(([k, t]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={mode === k}
+                    onClick={() => setMode(k)}
+                    className={`rounded px-2 py-0.5 text-[11px] leading-5 transition-colors ${
+                      mode === k ? "bg-black/[0.07] font-medium text-[#1f2328]" : "text-[#57606a] hover:text-[#1f2328]"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              {/* 指标透镜（结构图模式）：切换节点着色维度——状态 / Token / 时长 / 轮次 / 缓存 */}
+              {mode === "graph" ? (
+                <div className="flex items-center rounded-md border border-black/10 bg-white p-0.5" role="group" aria-label="指标透镜">
+                  {LENS_META.map(l => (
+                    <button
+                      key={l.key}
+                      type="button"
+                      aria-pressed={lens === l.key}
+                      onClick={() => setLens(l.key)}
+                      className={`rounded px-1.5 py-0.5 text-[11px] leading-5 transition-colors ${
+                        lens === l.key ? "bg-black/[0.07] font-medium text-[#1f2328]" : "text-[#57606a] hover:text-[#1f2328]"
+                      }`}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
+
+            {mode === "graph" && lens === "status" ? (
+              <div className="hidden items-center gap-3.5 text-[11px] text-[#8c959f] lg:flex" aria-label="图例">
+                {LEGEND_STATUSES.map(s => (
+                  <span key={s} className="inline-flex items-center gap-1.5">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: RUN_STATUS_META[s].color }} aria-hidden />
+                    {RUN_STATUS_META[s].label}
+                  </span>
+                ))}
+                <span className="h-3.5 w-px bg-black/10" aria-hidden />
+                <span className="inline-flex items-center gap-1.5">
+                  <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden>
+                    <path d="M1 4 H17" stroke={RUN_COLORS.edge} strokeWidth="1.25" />
+                  </svg>
+                  依赖
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden>
+                    <path d="M1 4 H17" stroke={RUN_COLORS.rollback} strokeWidth="1.25" strokeDasharray="4 3" />
+                  </svg>
+                  回滚
+                </span>
+              </div>
+            ) : mode === "graph" ? (
+              <div className="hidden items-center gap-2 text-[11px] text-[#8c959f] lg:flex" aria-label="图例">
+                <span>{LENS_META.find(l => l.key === lens)?.legend}</span>
+                {lens === "context" ? (
+                  // 水位透镜：节点是容器、上下文是水——图例直接给容器示意与警戒线
+                  <>
+                    <span className="inline-flex items-center gap-1.5">
+                      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                        <rect x="0.5" y="0.5" width="13" height="13" rx="3.5" fill="#ffffff" stroke="#d0d7de" strokeWidth="1" />
+                        <rect x="1.5" y={14 - 12 * 0.6} width="11" height={12 * 0.6} fill="#4a93da" fillOpacity="0.32" />
+                        <line x1="1.5" x2="12.5" y1={14 - 12 * 0.8} y2={14 - 12 * 0.8} stroke="#cf222e" strokeWidth="1" strokeDasharray="2 1.5" strokeOpacity="0.6" />
+                      </svg>
+                      水深 = 峰值水位
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden>
+                        <line x1="1" y1="4" x2="15" y2="4" stroke="#cf222e" strokeWidth="1.2" strokeDasharray="3 2.5" strokeOpacity="0.6" />
+                      </svg>
+                      {WATER_CRITICAL_PCT}% 警戒线
+                    </span>
+                  </>
+                ) : lens === "redundancy" ? (
+                  // 冗余透镜：绝对阈值三档（评分卡同款 0.6/0.8），低分才警示
+                  <>
+                    {REDUNDANCY_BANDS.map(b => (
+                      <span
+                        key={b.label}
+                        className="inline-flex items-center gap-1.5"
+                        title={b.label}
+                      >
+                        <span
+                          className="size-2.5 rounded-sm border"
+                          style={{ borderColor: b.color, backgroundColor: `${b.color}30` }}
+                          aria-hidden
+                        />
+                        {b.label}
+                      </span>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <span>低</span>
+                    {METRIC_SCALE.map(c => (
+                      <span
+                        key={c}
+                        className="size-2.5 rounded-sm border"
+                        style={{ borderColor: c, backgroundColor: `${c}30` }}
+                        aria-hidden
+                      />
+                    ))}
+                    <span>高</span>
+                  </>
+                )}
+                <span className="h-3.5 w-px bg-black/10" aria-hidden />
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm border" style={{ borderColor: METRIC_EMPTY }} aria-hidden />
+                  无会话数据
+                </span>
+              </div>
+            ) : mode === "trace" ? (
+              <div className="hidden items-center gap-3.5 text-[11px] text-[#8c959f] lg:flex" aria-label="图例">
+                <span className="inline-flex items-center gap-1.5">
+                  <svg width="20" height="10" viewBox="0 0 20 10" aria-hidden>
+                    <rect width="20" height="8" rx="2" fill={RUN_STATUS_META.passed.color} fillOpacity="0.82" />
+                  </svg>
+                  执行
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <svg width="20" height="10" viewBox="0 0 20 10" aria-hidden>
+                    <rect y="0.5" width="20" height="6" rx="2" fill={RUN_STATUS_META.passed.color} fillOpacity="0.22" stroke={RUN_STATUS_META.passed.color} strokeWidth="0.8" />
+                  </svg>
+                  验收
+                </span>
+                <span className="h-3.5 w-px bg-black/10" aria-hidden />
+                {(["passed", "failed"] as const).map(s => (
+                  <span key={s} className="inline-flex items-center gap-1.5">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: RUN_STATUS_META[s].color }} aria-hidden />
+                    {RUN_STATUS_META[s].label}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1">
-              <RunCanvas
-                view={view}
-                nodesByKey={nodesByKey}
-                selectedKey={selectedKey}
-                onSelectNode={setSelectedKey}
-                onOpenSubgraph={key => setSubgraphKey(key)}
-              />
+              {mode === "graph" ? (
+                <RunCanvas
+                  view={view}
+                  nodesByKey={nodesByKey}
+                  selectedKey={selectedKey}
+                  onSelectNode={setSelectedKey}
+                  onOpenSubgraph={key => setSubgraphKey(key)}
+                  lens={lens}
+                />
+              ) : mode === "trace" ? (
+                <RunTrace
+                  view={view}
+                  nodesByKey={nodesByKey}
+                  selectedKey={selectedKey}
+                  onSelectNode={setSelectedKey}
+                />
+              ) : (
+                <RunRetryLedger
+                  vm={viewModel}
+                  selectedKey={selectedKey}
+                  onSelectNode={setSelectedKey}
+                />
+              )}
             </div>
             <aside className="w-[360px] shrink-0 overflow-y-auto border-l border-black/[0.08] bg-black/[0.012]">
               {selectedNode ? (
@@ -295,6 +437,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           nodesByKey={nodesByKey}
           rollbacks={viewModel.rollbacks}
           entryKey={subgraphKey}
+          lens={lens}
         />
       </main>
     </div>

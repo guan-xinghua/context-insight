@@ -256,6 +256,144 @@ function detectRedactionEvents(sourcePath: string | null): RedactionEvent[] {
   return events;
 }
 
+// ── 行映射（口径单点）：单会话采集（collectForScoring）与 Run 批量采集
+// （collectRuleInputs）共用同一套 Turn/ToolCall → ScoreTurn/ScoreToolCall
+// 映射——两条路对同一行必须产出逐字段相同的结果，评分口径才有唯一解释 ──
+
+interface TurnRowLike {
+  id: string;
+  turnIndex: number;
+  role: string;
+  agentName: string | null;
+  isSubagent: boolean;
+  subagentSessionId: string | null;
+  contentSummary: string | null;
+  content: string | null;
+  totalTokens: number;
+  inputTokens: number;
+  inputMessagesTokens: number;
+  latencyMs: number;
+  createdAt: Date | null;
+  createdAt_ts: Date | null;
+  model: string | null;
+}
+
+interface ToolCallRowLike {
+  id: string;
+  toolName: string;
+  argsJson: string | null;
+  resultJson: string | null;
+  state: string;
+  errorType: string | null;
+  durationMs: number;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  errorMessage: string | null;
+  turn: { turnIndex: number; isSubagent: boolean; agentName: string | null };
+}
+
+function toScoreTurn(t: TurnRowLike): ScoreTurn {
+  return {
+    id: t.id,
+    turnIndex: t.turnIndex,
+    role: t.role,
+    agentName: t.agentName,
+    isSubagent: t.isSubagent,
+    subagentSessionId: t.subagentSessionId,
+    contentSummary: t.contentSummary,
+    content: t.content,
+    totalTokens: t.totalTokens,
+    inputTokens: t.inputTokens,
+    inputMessagesTokens: t.inputMessagesTokens,
+    latencyMs: t.latencyMs,
+    createdAtISO: t.createdAt ? t.createdAt.toISOString() : null,
+    createdAtTsISO: t.createdAt_ts ? t.createdAt_ts.toISOString() : null,
+    model: t.model,
+  };
+}
+
+function toScoreToolCall(tc: ToolCallRowLike): ScoreToolCall {
+  return {
+    id: tc.id,
+    toolName: tc.toolName,
+    argsJson: tc.argsJson,
+    resultJson: tc.resultJson,
+    state: tc.state,
+    errorType: tc.errorType,
+    errorMessage: tc.errorMessage,
+    // durationMs 采集侧未回填（全库 0），从起止时间戳推导；时间戳供并行度算区间并集
+    durationMs: tc.durationMs > 0
+      ? tc.durationMs
+      : tc.startedAt && tc.completedAt ? Math.max(0, tc.completedAt.getTime() - tc.startedAt.getTime()) : 0,
+    startedAtMs: tc.startedAt?.getTime() ?? null,
+    completedAtMs: tc.completedAt?.getTime() ?? null,
+    turnIndex: tc.turn.turnIndex,
+    isSubagent: tc.turn.isSubagent,
+    agentName: tc.turn.agentName,
+    seq: 0,
+  };
+}
+
+/** 会话内排序定型：轮次升序，同轮工具调用按 id 稳定；seq 按定型序回填。 */
+function finalizeCalls(turns: ScoreTurn[], toolCalls: ScoreToolCall[]): { turns: ScoreTurn[]; toolCalls: ScoreToolCall[] } {
+  const sortedTurns = [...turns].sort((a, b) => a.turnIndex - b.turnIndex);
+  const sortedCalls = [...toolCalls].sort((a, b) => a.turnIndex - b.turnIndex || a.id.localeCompare(b.id));
+  sortedCalls.forEach((tc, i) => { tc.seq = i; });
+  return { turns: sortedTurns, toolCalls: sortedCalls };
+}
+
+/** Run 观测台评分融合的批量采集：一次 in 查询拿多个会话的 turns+toolCalls，
+ *  不读捕获文件（wire/fullContext 不取——规则评分器不声明它们）。映射与排序
+ *  与 collectForScoring 完全同源（共享 toScoreTurn/toScoreToolCall）。 */
+export interface RuleInputs {
+  turns: ScoreTurn[];
+  toolCalls: ScoreToolCall[];
+}
+
+export async function collectRuleInputs(
+  prisma: PrismaClient,
+  rowIds: string[],
+): Promise<Map<string, RuleInputs>> {
+  const result = new Map<string, RuleInputs>();
+  if (rowIds.length === 0) return result;
+
+  const turnRows = await prisma.turn.findMany({
+    where: { sessionId: { in: rowIds } },
+    select: {
+      sessionId: true,
+      id: true, turnIndex: true, role: true, agentName: true, isSubagent: true, subagentSessionId: true,
+      contentSummary: true, content: true, totalTokens: true, inputTokens: true, inputMessagesTokens: true,
+      latencyMs: true, createdAt: true, createdAt_ts: true, model: true,
+    },
+  });
+  const toolCallRows = await prisma.toolCall.findMany({
+    where: { turn: { sessionId: { in: rowIds } } },
+    select: {
+      id: true, toolName: true, argsJson: true, resultJson: true, state: true, errorType: true,
+      durationMs: true, startedAt: true, completedAt: true, errorMessage: true,
+      turn: { select: { sessionId: true, turnIndex: true, isSubagent: true, agentName: true } },
+    },
+  });
+
+  const turnsBySid = new Map<string, ScoreTurn[]>();
+  for (const row of turnRows) {
+    const list = turnsBySid.get(row.sessionId) ?? [];
+    list.push(toScoreTurn(row));
+    turnsBySid.set(row.sessionId, list);
+  }
+  const callsBySid = new Map<string, ScoreToolCall[]>();
+  for (const row of toolCallRows) {
+    const sid = row.turn.sessionId;
+    const list = callsBySid.get(sid) ?? [];
+    list.push(toScoreToolCall(row));
+    callsBySid.set(sid, list);
+  }
+  for (const sid of rowIds) {
+    result.set(sid, finalizeCalls(turnsBySid.get(sid) ?? [], callsBySid.get(sid) ?? []));
+  }
+  return result;
+}
+
 export async function collectForScoring(taskId: string, prisma: PrismaClient, framework?: string): Promise<CollectedData | null> {
   const session = await prisma.session.findFirst({
     where: { taskId, ...(framework ? { framework } : {}) },
@@ -297,48 +435,9 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
     },
   });
 
-  const turns: ScoreTurn[] = turnRows
-    .map(t => ({
-      id: t.id,
-      turnIndex: t.turnIndex,
-      role: t.role,
-      agentName: t.agentName,
-      isSubagent: t.isSubagent,
-      subagentSessionId: t.subagentSessionId,
-      contentSummary: t.contentSummary,
-      content: t.content,
-      totalTokens: t.totalTokens,
-      inputTokens: t.inputTokens,
-      inputMessagesTokens: t.inputMessagesTokens,
-      latencyMs: t.latencyMs,
-      createdAtISO: t.createdAt ? t.createdAt.toISOString() : null,
-      createdAtTsISO: t.createdAt_ts ? t.createdAt_ts.toISOString() : null,
-      model: t.model,
-    }))
-    .sort((a, b) => a.turnIndex - b.turnIndex);
-
-  const toolCalls: ScoreToolCall[] = toolCallRows
-    .map(tc => ({
-      id: tc.id,
-      toolName: tc.toolName,
-      argsJson: tc.argsJson,
-      resultJson: tc.resultJson,
-      state: tc.state,
-      errorType: tc.errorType,
-      errorMessage: tc.errorMessage,
-      // durationMs 采集侧未回填（全库 0），从起止时间戳推导；时间戳供并行度算区间并集
-      durationMs: tc.durationMs > 0
-        ? tc.durationMs
-        : tc.startedAt && tc.completedAt ? Math.max(0, tc.completedAt.getTime() - tc.startedAt.getTime()) : 0,
-      startedAtMs: tc.startedAt?.getTime() ?? null,
-      completedAtMs: tc.completedAt?.getTime() ?? null,
-      turnIndex: tc.turn.turnIndex,
-      isSubagent: tc.turn.isSubagent,
-      agentName: tc.turn.agentName,
-      seq: 0,
-    }))
-    .sort((a, b) => a.turnIndex - b.turnIndex || a.id.localeCompare(b.id));
-  toolCalls.forEach((tc, i) => { tc.seq = i; });
+  const turnsRaw: ScoreTurn[] = turnRows.map(toScoreTurn);
+  const toolCallsRaw: ScoreToolCall[] = toolCallRows.map(toScoreToolCall);
+  const { turns, toolCalls } = finalizeCalls(turnsRaw, toolCallsRaw);
 
   const claudeFormat = session.sourcePath != null && isClaudeFormatSession(session.framework, session.version);
   const sourcePath = claudeFormat ? session.sourcePath : null;

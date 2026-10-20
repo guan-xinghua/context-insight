@@ -17,6 +17,7 @@ import { deleteRun, readRun, runsRoot } from '@/lib/run/run-store';
 import { deleteOwnedSessionRows } from '@/lib/run/session-scope';
 import { buildViewModel } from '@/lib/run/view-model';
 import { attachSessionRefs, joinSessionRefs } from '@/lib/run/session-link';
+import { attachSessionScores } from '@/lib/run/session-score';
 
 export const GET = withRouteLog(
   'observe/run/[runId]',
@@ -28,8 +29,10 @@ export const GET = withRouteLog(
         return NextResponse.json({ error: `Run not found: ${runId}`, reason: 'run-not-found' }, { status: 404 });
       }
       const vm = buildViewModel(stored.index);
-      // 成员 ↔ Prisma 会话 join（缺正文成员 session=null，视图容忍渲染）
+      // 成员 ↔ Prisma 会话 join（缺正文成员 session=null，视图容忍渲染）+
+      // 评分卡规则层装配（D4/D5 规则分，批量一次算齐）
       const lookup = await joinSessionRefs(stored.index, prisma);
+      await attachSessionScores(lookup, prisma);
       attachSessionRefs(vm, lookup);
       return NextResponse.json({
         run: {

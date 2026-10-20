@@ -16,6 +16,7 @@ import { logError } from '@/lib/logger';
 import { readRun } from '@/lib/run/run-store';
 import { buildViewModel, findNodeInstance } from '@/lib/run/view-model';
 import { attachSessionRefs, joinSessionRefs } from '@/lib/run/session-link';
+import { attachSessionScores } from '@/lib/run/session-score';
 
 export const GET = withRouteLog(
   'observe/run/[runId]/member',
@@ -44,6 +45,7 @@ export const GET = withRouteLog(
         );
       }
       const lookup = await joinSessionRefs(stored.index, prisma);
+      await attachSessionScores(lookup, prisma);
       attachSessionRefs(vm, lookup);
       // 同逻辑节点跨代全景（侧栏「出现在第 N 代」导航）
       const peers = vm.nodes

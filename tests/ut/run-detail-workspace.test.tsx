@@ -28,7 +28,7 @@ import { buildViewModel } from '@/lib/run/view-model';
 import { attachSessionRefs } from '@/lib/run/session-link';
 import type { NodeInstance, RunView } from '@/lib/run/view-model';
 import { RunGraph } from '@/components/run/RunGraph';
-import { RUN_COLORS, flowColor, statusColor } from '@/components/run/run-theme';
+import { METRIC_EMPTY, RUN_COLORS, flowColor, statusColor } from '@/components/run/run-theme';
 import type { RunImportMeta } from '@/lib/run/run-store';
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -265,6 +265,7 @@ describe('子图弹窗（gen-sub 三代，回滚 fixture）', () => {
       label: 'gen-sub:sub-agent-a',
       startTime: '2026-10-10T02:01:30Z',
       endTime: '2026-10-10T02:01:35Z',
+      cacheReadTokens: 400,
     }],
   ]));
   // 会话时间兜底：manifest 成员时间戳缺失（session 成员常见）→ 用会话行起止组合范围
@@ -378,6 +379,11 @@ describe('子图弹窗（gen-sub 三代，回滚 fixture）', () => {
     expect(memberRow.textContent).toContain('3 turns · 1.2k');
     expect(memberRow.querySelector('span[title]')?.getAttribute('title')).toBe('3 turns · 1234 tokens');
     expect((dialog!.textContent ?? '')).toContain('5.0s');
+    // 时间块零值构成不展示：单次通过 + 脚本验收（无验收会话）→ 只有执行段
+    expect((dialog!.textContent ?? '')).toContain('执行 5.0s');
+    expect((dialog!.textContent ?? '')).not.toContain('0ms');
+    expect((dialog!.textContent ?? '')).not.toContain('重试等待');
+    expect(dialog!.querySelectorAll('.usage-compose-bar > span').length).toBe(1);
 
     // 关闭弹窗回到主图：弹窗卸载，主图画布保留
     await act(async () => {
@@ -553,3 +559,572 @@ describe('RunGraph 走线几何（PCB 交叉跳线 + 选中点亮）', () => {
     act(() => r.unmount())
   })
 })
+
+describe('系统级观测：指标透镜 + Run Trace 时间轴', () => {
+  // 独立 viewModel（mini-bundle + 会话 join）：build g0（执行 90k/48s + 验收 30k/1.8min
+  // 失败后同代重试一次：+30s 等待 +30s 执行仍失败）与 build g1（执行 1k/30s，回滚后
+  // 成功）——透镜分位与时间轴摘要的口径样本
+  const obsVm = buildViewModel(parseAndIndex(fixture));
+  attachSessionRefs(obsVm, new Map([
+    ['ses_mini_a', {
+      taskId: 'ses_mini_a', framework: 'opencode', rowId: 'r-a', turns: 4, totalTokens: 90_000,
+      durationMs: 48_000, label: null,
+      startTime: '2026-10-13T02:00:12Z', endTime: '2026-10-13T02:01:00Z',
+      cacheReadTokens: 60_000, contextPeakPct: 86.3,
+      ruleScores: {
+        d4: 0.86,
+        d5: 0.52,
+        findings: [
+          {
+            itemId: 'D5.redispatch', label: 'subagent 重派', score: 0.3, value: 1,
+            formula: '重派 1 次 ×50 当量 ÷ 总调用 60 = 0.83 ×10 线性扣 → 0.30',
+            note: '重派一次记 50 当量：一次重派背后是十几 turn、M 级 token 的完整子会话',
+            evidence: [{ turnIndex: 6, label: 'reviewer ×2：复审模块 Task12 的实现 / 复审模块 Task12 的实现' }],
+          },
+          {
+            itemId: 'D4.compaction', label: '上下文水位', score: 0.8, value: 1,
+            formula: '压缩 1 次 ×0.2 线性扣 → 0.8',
+            note: '触发压缩 = 上下文水位失控；重算成本已在 D4.tokens 罚过，此处只罚信号',
+            evidence: [{ turnIndex: 3, label: '[compact] 主链自动压缩' }],
+          },
+        ],
+      },
+    }],
+    ['ses_mini_b', {
+      taskId: 'ses_mini_b', framework: 'opencode', rowId: 'r-b', turns: 2, totalTokens: 30_000,
+      durationMs: 110_000, label: null,
+      startTime: '2026-10-13T02:01:10Z', endTime: '2026-10-13T02:03:00Z',
+      cacheReadTokens: 0,
+    }],
+    ['ses_mini_c', {
+      taskId: 'ses_mini_c', framework: 'opencode', rowId: 'r-c', turns: 1, totalTokens: 1_000,
+      durationMs: 30_000, label: null,
+      startTime: '2026-10-13T02:02:00Z', endTime: '2026-10-13T02:02:30Z',
+      cacheReadTokens: 0, contextPeakPct: 30,
+      ruleScores: { d4: 1, d5: 1, findings: [] },
+    }],
+  ]));
+  // build g0 注入第 2 次失败尝试（同代重试样本）：尝试间等待 30s（02:03:00 →
+  // 02:03:30）+ 执行 30s——节点时长 = 168 + 30(等待) + 30 = 228s（节点墙钟）
+  const buildG0 = obsVm.nodes.find(n => n.nodeId === 'build' && n.generation === 0)!;
+  buildG0.attempts.push({
+    ordinal: 2,
+    status: 'failed',
+    startedAt: null,
+    finishedAt: null,
+    outputText: null,
+    verification: { type: 'script', status: 'failed', reason: 'exit 1' },
+    executeMember: {
+      memberId: 'm-mini-d', kind: 'session', role: 'execute', name: null, note: null,
+      sessionId: 'ses_mini_d', location: null, startedAt: null, finishedAt: null,
+      session: {
+        taskId: 'ses_mini_d', framework: 'opencode', rowId: 'r-d', turns: 0, totalTokens: 0,
+        durationMs: 30_000, label: null,
+        startTime: '2026-10-13T02:03:30Z', endTime: '2026-10-13T02:04:00Z',
+        cacheReadTokens: 0,
+      },
+    },
+    verifyMember: null,
+  });
+  const obsBody = {
+    run: {
+      runId: 'minidemo01',
+      name: index.manifest.name ?? null,
+      status: obsVm.status,
+      exportDataComplete: obsVm.exportDataComplete,
+      startedAt: obsVm.startedAt,
+      finishedAt: obsVm.finishedAt,
+      import: importMeta,
+    },
+    viewModel: obsVm,
+  };
+
+  async function renderObsPage() {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => obsBody,
+    })));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        createElement(
+          Suspense,
+          { fallback: null },
+          createElement(RunDetailPage, { params: Promise.resolve({ runId: 'minidemo01' }) }),
+        ),
+      );
+    });
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0));
+    });
+  }
+
+  function clickToolbarButton(groupLabel: string, text: string) {
+    const group = document.querySelector(`[aria-label="${groupLabel}"]`)!;
+    const btn = Array.from(group.querySelectorAll('button')).find(b => b.textContent === text);
+    expect(btn, `工具栏 ${groupLabel} 应有「${text}」按钮`).toBeTruthy();
+    btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+
+  it('指标透镜：节点副标显示用量、描边按分位着色（无数据灰），状态圆点保留', async () => {
+    await renderObsPage();
+    // 默认状态透镜：副标无用量缩写
+    expect(document.body.textContent ?? '').not.toContain('120k');
+
+    // 切 Token 透镜：build g0（120k = 90k + 30k）最深色，build g1（1.0k）最浅
+    await act(async () => { clickToolbarButton('指标透镜', 'Token'); });
+    const nodeWith = (t: string) =>
+      Array.from(document.querySelectorAll('.run-node')).find(n => n.textContent?.includes(t))!;
+    expect(nodeWith('120k')).toBeTruthy();
+    expect(nodeWith('1.0k')).toBeTruthy();
+    expect(nodeWith('120k').querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#155fae');
+    expect(nodeWith('1.0k').querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#edf1f6');
+    // 无会话节点（init 为 process 成员）灰描边，但状态圆点仍是状态色
+    const initNode = nodeWith('init');
+    expect(initNode.querySelector('.run-node-box')?.getAttribute('stroke')).toBe(METRIC_EMPTY);
+    const initStatus = obsVm.nodes.find(n => n.nodeId === 'init')!.status;
+    expect(initNode.querySelector('circle')?.getAttribute('fill')).toBe(statusColor(initStatus));
+    // 图例切换为分位色阶
+    expect((document.querySelector('[aria-label="图例"]')?.textContent ?? '')).toContain('Token 消耗');
+    expect((document.querySelector('[aria-label="图例"]')?.textContent ?? '')).toContain('无会话数据');
+
+    // 缓存透镜：build g0 缓存命中 60k/120k = 50%
+    await act(async () => { clickToolbarButton('指标透镜', '缓存'); });
+    expect(nodeWith('50%')).toBeTruthy();
+    // 0 缓存命中是真实值（0% 命中率），不是「无会话数据」：build g1 有会话成员
+    // 但 cacheReadTokens=0，应被染成最低档并显式标出 0%，而非灰描边掉成无数据
+    expect(nodeWith('· 0%').querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#edf1f6');
+    // init（process 成员，无会话）仍是无数据灰描边——与「有会话但 0 命中」一眼可分
+    expect(nodeWith('init').querySelector('.run-node-box')?.getAttribute('stroke')).toBe(METRIC_EMPTY);
+
+    // 时长透镜：节点时长 = Σ尝试跨度 + 尝试间等待（含等待的完整墙钟口径）
+    // build g0 = 168 + 30(等待) + 30 = 228s，build g1 = 30s
+    await act(async () => { clickToolbarButton('指标透镜', '时长'); });
+    expect(nodeWith('3.8min')).toBeTruthy();
+    expect(nodeWith('30.0s')).toBeTruthy();
+
+    // 切回状态透镜：副标恢复 taskType + 重试，描边恢复状态色
+    await act(async () => { clickToolbarButton('指标透镜', '状态'); });
+    expect(document.body.textContent ?? '').not.toContain('120k');
+    const buildBoxes = Array.from(document.querySelectorAll('.run-node')).filter(n => n.textContent?.includes('build'));
+    expect(buildBoxes.some(n => n.querySelector('.run-node-box')?.getAttribute('stroke') === statusColor('failed'))).toBe(true);
+  });
+
+  it('水位透镜：容器注水效果（水深=水位，80% 警戒线）+ 成员胶囊 + 归因水位线索 + 时间轴峰值水位', async () => {
+    await renderObsPage();
+    await act(async () => { clickToolbarButton('指标透镜', '水位'); });
+    const nodeWith = (t: string) =>
+      Array.from(document.querySelectorAll('.run-node')).find(n => n.textContent?.includes(t))!;
+    const build0 = nodeWith('86%');
+    const build1 = nodeWith('30%');
+    // 描边仍按档位（86% 最深 / 30% 最浅）；无数据节点灰描边不注水
+    expect(build0.querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#155fae');
+    expect(build1.querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#edf1f6');
+    const initNode = nodeWith('init');
+    expect(initNode.querySelector('.run-node-box')?.getAttribute('stroke')).toBe(METRIC_EMPTY);
+    // 容器注水：有水位的节点带水体与警戒线，无数据节点两者皆无
+    expect(build0.querySelector('.run-node-water')).toBeTruthy();
+    expect(build0.querySelector('.run-water-line')).toBeTruthy();
+    expect(build1.querySelector('.run-node-water')).toBeTruthy();
+    expect(initNode.querySelector('.run-node-water')).toBeNull();
+    expect(initNode.querySelector('.run-water-line')).toBeNull();
+    // 图例是注水语义（水深 + 警戒线），不是低→高分位
+    const legend = document.querySelector('[aria-label="图例"]')?.textContent ?? '';
+    expect(legend).toContain('水深 = 峰值水位');
+    expect(legend).toContain('80% 警戒线');
+
+    // 侧栏：成员会话胶囊挂水位；失败归因块给水位逼限线索（86% ≥ 80%）
+    await act(async () => {
+      build0.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const aside = document.querySelector('aside')!;
+    expect(aside.textContent).toContain('水位 86%');
+    expect(aside.textContent).toContain('上下文水位达 86%');
+    expect(aside.textContent).toContain('逼近上限');
+
+    // 时间轴摘要：run 级峰值水位
+    await act(async () => { clickToolbarButton('视图模式', '时间轴'); });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('峰值水位');
+    expect(text).toContain('86%');
+  });
+
+  it('冗余透镜：绝对阈值三档着色（<0.60 红）+ 会话行为信号块 + 成员胶囊冗余分', async () => {
+    await renderObsPage();
+    await act(async () => { clickToolbarButton('指标透镜', '冗余'); });
+    const nodeWith = (t: string) =>
+      Array.from(document.querySelectorAll('.run-node')).find(n => n.textContent?.includes(t))!;
+    // build g0（ses_mini_a 冗余 0.52）→ 红；build g1（ses_mini_c 1.00）→ 绿；
+    // init 无会话数据 → 灰（冗余分是绝对阈值，不是分位——满屏干净时也如实全绿）
+    const build0 = nodeWith('0.52');
+    const build1 = nodeWith('1.00');
+    expect(build0.querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#cf222e');
+    expect(build1.querySelector('.run-node-box')?.getAttribute('stroke')).toBe('#1a7f37');
+    const initNode = nodeWith('init');
+    expect(initNode.querySelector('.run-node-box')?.getAttribute('stroke')).toBe(METRIC_EMPTY);
+    // 冗余透镜不注水（容器注水是水位透镜专属视觉）
+    expect(build0.querySelector('.run-node-water')).toBeNull();
+    // 图例：三档语义 + 无会话数据
+    const legend = document.querySelector('[aria-label="图例"]')?.textContent ?? '';
+    expect(legend).toContain('≥0.80 干净');
+    expect(legend).toContain('0.60–0.80 一般');
+    expect(legend).toContain('<0.60 糙');
+
+    // 侧栏：冗余信号块浮出异常子项（白话标题 + 白话解释 + 证据 + 复算明细），
+    // 位置在会话列表下边（时长 → 会话 → 冗余信号）
+    await act(async () => {
+      build0.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const aside = document.querySelector('aside')!;
+    expect(aside.textContent).toContain('冗余信号');
+    expect(aside.textContent).toContain('子任务重派');
+    expect(aside.textContent).toContain('同一个子任务派了 2 遍');
+    expect(aside.textContent).toContain('上下文撑爆');
+    expect(aside.textContent).toContain('触发 1 次压缩');
+    expect(aside.textContent).toContain('复算：重派 1 次 ×50 当量');
+    expect(aside.textContent).toContain('turn 6');
+    expect(aside.textContent).toContain('冗余 0.52');
+    expect(aside.textContent).toContain('效率 0.86');
+    // 冗余信号块在会话列表下边（首枚成员胶囊「冗余 0.52」在其之前）
+    const asideText = aside.textContent ?? '';
+    expect(asideText.indexOf('冗余信号')).toBeGreaterThan(asideText.indexOf('冗余 0.52'));
+
+    // 干净节点（build g1，findings 空）：零值不展示，无冗余信号块
+    await act(async () => {
+      build1.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const aside1 = document.querySelector('aside')!;
+    expect(aside1.textContent).not.toContain('冗余信号');
+    expect(aside1.textContent).toContain('冗余 1.00');
+  });
+
+  it('节点着色面积信号：底色按档染色 + 2px 描边（状态/用量/冗余透镜统一），无数据不染色', async () => {
+    await renderObsPage();
+    const boxes = () => Array.from(document.querySelectorAll('.run-node .run-node-box'));
+    const findByStroke = (c: string) => boxes().find(b => b.getAttribute('stroke') === c)!;
+
+    // 状态透镜（默认）：节点盒染状态色（10%），描边加粗 2px
+    const failedBox = findByStroke(statusColor('failed'));
+    expect(failedBox.getAttribute('fill')).toBe(statusColor('failed'));
+    expect(failedBox.getAttribute('fill-opacity')).toBe('0.1');
+    expect(failedBox.getAttribute('stroke-width')).toBe('2');
+    expect(failedBox.getAttribute('stroke-opacity')).toBe('0.9');
+    const passedBox = findByStroke(statusColor('passed'));
+    expect(passedBox.getAttribute('fill')).toBe(statusColor('passed'));
+
+    // 用量透镜（Token）：底色 = 分位色，浓度随档递增（0.08–0.26）；无数据节点
+    // 不染色（fill 保持中性底）且灰描边，与最低档浅蓝可分
+    await act(async () => { clickToolbarButton('指标透镜', 'Token'); });
+    const initBox = boxes().find(b => b.getAttribute('stroke') === METRIC_EMPTY)!;
+    expect(initBox.getAttribute('fill')).toBe(RUN_COLORS.nodeFill);
+    expect(initBox.getAttribute('fill-opacity')).toBeNull();
+    const tinted = boxes().filter(b => b.getAttribute('fill-opacity') !== null);
+    expect(tinted.length).toBeGreaterThan(0);
+    for (const b of tinted) {
+      const opacity = Number(b.getAttribute('fill-opacity'));
+      expect(opacity).toBeGreaterThanOrEqual(0.08);
+      expect(opacity).toBeLessThanOrEqual(0.26);
+      expect(b.getAttribute('fill')).toBe(b.getAttribute('stroke')); // 底色与描边同色
+      expect(b.getAttribute('stroke-width')).toBe('2');
+    }
+
+    // 冗余透镜：三档色 + 越糙染越重（0.19 糙 / 0.06 干净）
+    await act(async () => { clickToolbarButton('指标透镜', '冗余'); });
+    const rough = boxes().find(b => b.getAttribute('stroke') === '#cf222e')!;
+    expect(rough.getAttribute('fill')).toBe('#cf222e');
+    expect(rough.getAttribute('fill-opacity')).toBe('0.19');
+    const clean = boxes().find(b => b.getAttribute('stroke') === '#1a7f37')!;
+    expect(clean.getAttribute('fill-opacity')).toBe('0.06');
+
+    // 水位透镜：盒底保持中性（水体是面积信号，不双重染色）
+    await act(async () => { clickToolbarButton('指标透镜', '水位'); });
+    const waterBox = boxes().find(b => b.getAttribute('stroke') === '#155fae')!;
+    expect(waterBox.getAttribute('fill')).toBe(RUN_COLORS.nodeFill);
+    expect(waterBox.getAttribute('fill-opacity')).toBeNull();
+  });
+
+  it('Run Trace 时间轴：摘要指标 + 执行/验收条泳道，点条选节点联动侧栏', async () => {
+    await renderObsPage();
+    await act(async () => { clickToolbarButton('视图模式', '时间轴'); });
+
+    // 结构图让位时间轴，摘要栏给出系统级指标（口径见注释内样本数据）
+    expect(document.querySelector('.run-trace')).toBeTruthy();
+    expect(document.querySelector('.run-canvas')).toBeNull();
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('墙钟');
+    expect(text).toContain('3.8min');  // 02:00:12 → 02:04:00 = 228s
+    expect(text).toContain('Σ时长');
+    expect(text).toContain('4.3min');  // build g0 时长 228s + build g1 时长 30s = 258s
+    expect(text).toContain('并行度');
+    expect(text).toContain('1.1');     // 258 / 228
+    expect(text).toContain('重试开销');
+    expect(text).toContain('77%');     // 失败尝试跨度 (168 + 30) / Σ时长 258s
+    // 构成四元：执行 108s / 验收 110s / 间隙 10s / 重试等待 30s（分母 Σ时长 258s）
+    expect(text).toContain('构成');
+    expect(text).toContain('执行 42%');
+    expect(text).toContain('验收 43%');
+    expect(text).toContain('间隙 4%');
+    expect(text).toContain('重试等待 12%');
+
+    // 泳道：build 两代各一条（g0 两次尝试两行，g1 一行）；执行条实心 + 验收条描边（ses_mini_b）
+    expect(document.querySelectorAll('.trace-lane').length).toBe(2);
+    expect(document.querySelectorAll('.trace-bar').length).toBe(4);
+    expect(document.querySelectorAll('.trace-bar-verify').length).toBe(1);
+    // 派发间隙显影：build g0 执行结束（02:01:00）→ 验收开始（02:01:10）一条点状线
+    expect(document.querySelectorAll('.trace-gap').length).toBe(1);
+
+    // 点击执行条 → 选中节点，侧栏从概览切到运行历史 + 时间四元构成块
+    await act(async () => {
+      (document.querySelector('.trace-bar') as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const after = document.body.textContent ?? '';
+    expect(after).not.toContain('Run 概览');
+    expect(after).toContain('第 1 次');
+    expect(after).toContain('执行：');
+    // 时间块：时长含重试等待（228s = 168 + 30等待 + 30），非零构成才展示
+    expect(after).toContain('时长');
+    expect(after).toContain('3.8min');
+    expect(after).toContain('执行 1.3min');       // 48 + 30
+    expect(after).toContain('验收 1.8min');       // 110
+    expect(after).toContain('间隙 10.0s');
+    expect(after).toContain('重试等待 30.0s');
+    expect(document.querySelectorAll('.usage-compose-bar > span').length).toBe(4);
+    // 尝试徽标悬浮给出同口径分解（第 1 次尝试：48s 执行 + 110s 验收 + 10s 间隙）
+    const badge = Array.from(document.querySelectorAll('aside [title^="耗时"]'))[0];
+    expect(badge?.getAttribute('title')).toContain('执行 48.0s');
+    expect(badge?.getAttribute('title')).toContain('验收 1.8min');
+    expect(badge?.getAttribute('title')).toContain('间隙 10.0s');
+  });
+
+  it('重试账本：平行宇宙对比（可对账）+ 浪费明细行点击联动侧栏', async () => {
+    await renderObsPage();
+    await act(async () => { clickToolbarButton('视图模式', '账本'); });
+    expect(document.querySelector('.run-retry-ledger')).toBeTruthy();
+    expect(document.querySelector('.run-canvas')).toBeNull();
+    expect(document.querySelector('.run-trace')).toBeNull();
+    const text = document.body.textContent ?? '';
+
+    // 平行宇宙（意图管线 init → build 关键路径，attempt 级时间口径）：
+    // 现实 = build g0 墙钟 228s + g1 30s + init 5s = 263s；
+    // 首试即过 = build 两次末次尝试 30+30s + init 5s = 65s
+    expect(text).toContain('平行宇宙');
+    expect(text).toContain('4.4min');  // A 模拟墙钟 263s
+    expect(text).toContain('1.1min');  // B 模拟墙钟 65s
+    expect(text).toContain('121k');    // A Token（120k + 1k）
+    // 可省 = 263 − 65 = 198s = 账本总额（build g0：228s − 末次尝试 30s，严格对账）
+    expect(text).toContain('可省（上界）');
+    expect(text).toContain('75%');
+    expect(text).toContain('120k');
+    // 真实墙钟参照（观测值 228s，与模拟的差 = 回滚代并行/调度效应）
+    expect(text).toContain('真实墙钟 3.8min');
+
+    // 修复优先级表：仅 build g0（两次尝试）入账，合计与宇宙之差对账
+    expect(text).toContain('修复优先级');
+    expect(text).toContain('全局可提前');
+    const row = document.querySelector('.ledger-row')!;
+    expect(row).toBeTruthy();
+    expect(row.textContent).toContain('build');
+    expect(row.textContent).toContain('第 1 次运行');
+    expect(row.textContent).toContain('2 次');
+    expect(row.textContent).toContain('120k');
+    expect(row.textContent).toContain('失败');
+    // 失败归因徽标：两次失败原因不同（缺少边界用例 / exit 1）→ 原因各异
+    expect(row.textContent).toContain('原因各异');
+    // 节点浪费与全局可提前各 198s（串行关键路径上无并行吸收，两列相等）
+    expect((row.textContent?.match(/3\.3min/g) ?? []).length).toBe(2);
+    // 尝试解剖阶梯：a1(168s 失败) + 等待(30s) + a2(30s 失败) 三段
+    expect(row.querySelectorAll('.ledger-ladder > span').length).toBe(3);
+    expect((document.body.textContent ?? '')).toContain('合计浪费 3.3min · 120k tokens');
+
+    // 点击行 → 侧栏切到该节点运行历史（与结构图/时间轴共用选中）
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const after = document.body.textContent ?? '';
+    expect(after).not.toContain('Run 概览');
+    expect(after).toContain('第 1 次');
+    expect(after).toContain('执行：');
+  });
+});
+
+describe('失败归因 post-mortem：环境指纹 / 同因连败 / 验收项清单', () => {
+  // 独立 viewModel：build g0 两次失败都是同一验收项「边界用例齐全」未过
+  // （证据文本不同——同因按归一化验收项聚类，不按整篇报告）；init 注入一次
+  // 环境失败（curl 超时）作环境指纹样本
+  const pmVm = buildViewModel(parseAndIndex(fixture));
+  const pmBuildG0 = pmVm.nodes.find(n => n.nodeId === 'build' && n.generation === 0)!;
+  pmBuildG0.attempts[0].verification = {
+    type: 'agent',
+    status: 'failed',
+    reason: [
+      '我已完成全部验收项核查，逐项结论如下。',
+      '**1. 包骨架完整（op/ 目录结构）— met** `test -d op` 全部命中，退出 0。',
+      '**2. 边界用例齐全（tests 目录含边界样例）— not met** find op/tests -name "*boundary*" 返回空。',
+    ].join('\n'),
+  };
+  pmBuildG0.attempts.push({
+    ordinal: 2,
+    status: 'failed',
+    startedAt: null,
+    finishedAt: null,
+    outputText: null,
+    verification: {
+      type: 'agent',
+      status: 'failed',
+      reason: [
+        '**1. 包骨架完整（op/ 目录结构）— met** 退出 0。',
+        '**2. 边界用例齐全（tests 目录含边界样例）— not met** 仍未补充：grep -r boundary op/tests 无匹配，exit 1。',
+      ].join('\n'),
+    },
+    executeMember: {
+      memberId: 'm-pm-b2', kind: 'session', role: 'execute', name: null, note: null,
+      sessionId: 'ses_pm_b2', location: null, startedAt: null, finishedAt: null,
+    },
+    verifyMember: null,
+  });
+  const pmInit = pmVm.nodes.find(n => n.nodeId === 'init' && n.generation === 0)!;
+  pmInit.attempts.push({
+    ordinal: 2,
+    status: 'failed',
+    startedAt: null,
+    finishedAt: null,
+    outputText: 'curl: (28) operation timed out after 30000 milliseconds\nexit 1',
+    verification: { type: 'script', status: 'failed', reason: 'exit 1' },
+    executeMember: {
+      memberId: 'm-pm-i2', kind: 'process', role: 'execute', name: null, note: null,
+      sessionId: null, location: null, startedAt: null, finishedAt: null,
+    },
+    verifyMember: null,
+  });
+  const pmBody = {
+    run: {
+      runId: 'minidemo01',
+      name: index.manifest.name ?? null,
+      status: pmVm.status,
+      exportDataComplete: pmVm.exportDataComplete,
+      startedAt: pmVm.startedAt,
+      finishedAt: pmVm.finishedAt,
+      import: importMeta,
+    },
+    viewModel: pmVm,
+  };
+
+  async function renderPmPage() {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => pmBody,
+    })));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        createElement(
+          Suspense,
+          { fallback: null },
+          createElement(RunDetailPage, { params: Promise.resolve({ runId: 'minidemo01' }) }),
+        ),
+      );
+    });
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0));
+    });
+  }
+
+  it('同因连败：同一验收项两次未过 → 归因徽标 + 单点修复建议 + 逐项清单', async () => {
+    await renderPmPage();
+    await act(async () => { clickNode('build'); });
+
+    const aside = document.querySelector('aside')!;
+    expect(aside.querySelector('.failure-attribution')).toBeTruthy();
+    const text = aside.textContent ?? '';
+    expect(text).toContain('失败归因');
+    expect(text).toContain('同因连败');
+    // 建议：单点修复即可全部消除，点名未过验收项
+    expect(text).toContain('连败 2 次（第 1/2 次）');
+    expect(text).toContain('单点修复即可全部消除');
+    expect(text).toContain('边界用例齐全（tests 目录含边界样例）');
+    // 末次失败的逐项清单：未过置顶（✗）+ 通过项（✓）+ 计数
+    expect(text).toContain('末次失败验收（第 2 次 · 通过 1/2）');
+    expect(text).toContain('包骨架完整（op/ 目录结构）');
+  });
+
+  it('环境指纹：curl 超时失败 → 疑似环境 + 修环境/豁免重试建议（改 prompt 无效）', async () => {
+    await renderPmPage();
+    await act(async () => { clickNode('init'); });
+
+    const aside = document.querySelector('aside')!;
+    expect(aside.querySelector('.failure-attribution')).toBeTruthy();
+    const text = aside.textContent ?? '';
+    expect(text).toContain('疑似环境');
+    expect(text).toContain('改 prompt 或收紧验收无效');
+    expect(text).toContain('豁免出重试预算');
+    // init 第 1 次通过在第 2 次失败之前——不是重试自愈
+    expect(text).not.toContain('重试自愈');
+  });
+
+  it('账本归因徽标：修复名单直接带「为什么败」（同因连败 / 疑似环境）', async () => {
+    await renderPmPage();
+    await act(async () => {
+      const group = document.querySelector('[aria-label="视图模式"]')!;
+      const btn = Array.from(group.querySelectorAll('button')).find(b => b.textContent === '账本');
+      expect(btn).toBeTruthy();
+      btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const rows = Array.from(document.querySelectorAll('.ledger-row'));
+    expect(rows.length).toBe(2);
+    const buildRow = rows.find(r => r.textContent?.includes('build'))!;
+    expect(buildRow.textContent).toContain('同因连败');
+    const initRow = rows.find(r => r.textContent?.includes('init'))!;
+    expect(initRow.textContent).toContain('疑似环境');
+  });
+
+  it('部分通过（partially met / partial）不计为通过：末次清单归入 ✗、通过计数不计入', async () => {
+    // 独立 viewModel：末次失败三项验收——met / partially met / partial
+    const pvVm = buildViewModel(parseAndIndex(fixture));
+    const pvBuild = pvVm.nodes.find(n => n.nodeId === 'build' && n.generation === 0)!;
+    pvBuild.attempts[0].verification = {
+      type: 'agent',
+      status: 'failed',
+      reason: [
+        '逐项结论如下。',
+        '**1. 包骨架完整（op/ 目录结构）— met** `test -d op` 退出 0。',
+        '**2. 边界用例齐全（tests 目录含边界样例）— partially met** 仅覆盖部分子目录。',
+        '**3. 样例无残留（grep 无 AddCustom）— partial** 仍有 1 处残留。',
+      ].join('\n'),
+    };
+    const pvBody = {
+      run: {
+        runId: 'minidemo01',
+        name: index.manifest.name ?? null,
+        status: pvVm.status,
+        exportDataComplete: pvVm.exportDataComplete,
+        startedAt: pvVm.startedAt,
+        finishedAt: pvVm.finishedAt,
+        import: importMeta,
+      },
+      viewModel: pvVm,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => pvBody })));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        createElement(Suspense, { fallback: null },
+          createElement(RunDetailPage, { params: Promise.resolve({ runId: 'minidemo01' }) })),
+      );
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+
+    await act(async () => { clickNode('build'); });
+    const aside = document.querySelector('aside')!;
+    const text = aside.textContent ?? '';
+    // 只有 met 计通过（1/3）：partially met 与 partial 都归入未通过（✗）
+    expect(text).toContain('通过 1/3');
+    expect(text).toContain('边界用例齐全（tests 目录含边界样例）');
+    expect(text).toContain('样例无残留（grep 无 AddCustom）');
+  });
+});
