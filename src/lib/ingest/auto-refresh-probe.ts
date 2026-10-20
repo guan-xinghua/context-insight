@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 import type { PrismaClient } from '@prisma/client';
 import { isClaudeFormatSession } from '../shared/session-format';
 import { opencodeReaderGeneration, v2ImportableTypeSql } from './adapters/opencode-db';
+import { isQueuedUserAttachment, KNOWN_SKIP_TYPES } from './adapters/claude-jsonl';
 
 export interface AutoRefreshProbe {
   countChanged: boolean;
@@ -43,16 +44,14 @@ const NO_CHANGE: AutoRefreshProbe = {
 };
 
 // Claude Code metadata line types that don't carry conversational content.
-// Mirrors NON_BREAKING_TYPES in the claude-jsonl adapter.
-const CLAUDE_METADATA_TYPES = new Set([
-  'ai-title',
-  'attachment',
-  'mode',
-  'permission-mode',
-  'file-history-snapshot',
-  'last-prompt',
-  'system',
-]);
+// 单源派生自适配器的 KNOWN_SKIP_TYPES（剔除携带会话语义的 user/assistant）：
+// 双清单手工同步必漂移——queue-operation 就是靠手工补才没漏，下一个新类型
+// 漏同步就会复现「尾行意义行误判 settled / 提前刷新出半截轮」。
+// attachment 例外见 isQueuedUserAttachment：queued_command 子类型携带用户
+// 输入，是「有输入待响应」信号，不作元数据跳过
+const CLAUDE_METADATA_TYPES = new Set(
+  [...KNOWN_SKIP_TYPES].filter(t => t !== 'user' && t !== 'assistant'),
+);
 
 export async function probeAutoRefresh(
   session: ProbeSession,
@@ -253,7 +252,7 @@ async function probeClaudeCodeRefresh(
     ? rawContent.split('\n').filter(l => l.trim())
     : [];
 
-  const parsed: Array<{ type?: string; message?: { role?: string; content?: unknown; stop_reason?: string | null }; stopReason?: string | null }> = [];
+  const parsed: Array<{ type?: string; message?: { role?: string; content?: unknown; stop_reason?: string | null }; stopReason?: string | null; attachment?: { type?: string; prompt?: string; humanTurn?: boolean; origin?: { kind?: string } } }> = [];
   for (const line of lines) {
     try {
       parsed.push(JSON.parse(line));
@@ -263,10 +262,10 @@ async function probeClaudeCodeRefresh(
   }
 
   // Find the last meaningful (non-metadata) line to determine session state.
-  let lastMeaningful: { type?: string; message?: { content?: unknown; stop_reason?: string | null }; stopReason?: string | null } | null = null;
+  let lastMeaningful: { type?: string; message?: { content?: unknown; stop_reason?: string | null }; stopReason?: string | null; attachment?: { type?: string; prompt?: string; humanTurn?: boolean; origin?: { kind?: string } } } | null = null;
   for (let i = parsed.length - 1; i >= 0; i--) {
     const t = parsed[i].type;
-    if (t && !CLAUDE_METADATA_TYPES.has(t)) {
+    if (t && (!CLAUDE_METADATA_TYPES.has(t) || isQueuedUserAttachment(parsed[i]))) {
       lastMeaningful = parsed[i];
       break;
     }
@@ -277,7 +276,11 @@ async function probeClaudeCodeRefresh(
 
   if (lastMeaningful) {
     const t = lastMeaningful.type;
-    if (t === 'assistant') {
+    if (isQueuedUserAttachment(lastMeaningful)) {
+      // 尾行是插队 delivery（enqueue 后用户在等响应）：与 user 文本行同口径
+      // pendingInput，不误判 settled
+      pendingInput = true;
+    } else if (t === 'assistant') {
       // Claude Code emits a `stop_reason` (end_turn / tool_use / ...) on a finalized
       // assistant response segment. Mirrors opencode's `time.completed IS NULL` check:
       // a present stop_reason means the response is complete (not streaming); an

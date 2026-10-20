@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readCaptureBuffer, readCaptureHead, readCaptureText as readArchivedText } from '@/lib/compression';
+import { createLogger } from '@/lib/logger';
 import { readEnvelope } from '@/lib/shared/envelope';
 import { classifyUserInjection } from './injections/index';
 import { isSkillInjectionText } from './injections/claude-code';
@@ -60,6 +61,10 @@ export interface ClaudeJsonlLine {
   ttftMs?: number;
   deduped?: boolean;
   originalChars?: number;
+  // Ctrl+X Ctrl+C 插队消息（≥2.1.3xx queue 机制）的 delivery 行：用户原文在
+  // attachment.prompt（不在 message.content），rendered 是发给模型的
+  // system-reminder 包装。其余 attachment 子类型仍是纯元数据
+  attachment?: AttachmentLike;
   // x_lake/x_cannbay 信封字段：读方一律经 shared/envelope readEnvelope 双名
   // 解析（键名与优先级单一真身），此处不再逐字段声明
 }
@@ -284,14 +289,16 @@ export function parseJsonlLines(filePath: string): ClaudeJsonlLine[] {
   const buf = readCaptureBuffer(resolveCaptureForm(filePath));
   const result: ClaudeJsonlLine[] = [];
   let start = 0;
+  let lineNo = 0;
   const flush = (end: number): void => {
     if (end <= start) return;
+    lineNo++;
     const t = buf.toString('utf-8', start, end).trim();
     if (t && !t.startsWith('//')) {
       try {
         result.push(JSON.parse(t) as ClaudeJsonlLine);
       } catch {
-        console.warn(`claude-jsonl: skipping malformed JSON line in ${filePath}`);
+        skipLog.warn('skipping malformed JSON line', { filePath, line: lineNo });
       }
     }
     start = end + 1;
@@ -362,7 +369,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
     try {
       lines = parseJsonlLines(file);
     } catch (e) {
-      console.warn(`claude-jsonl: skipping unreadable capture in listSessions: ${file} (${e instanceof Error ? e.message : String(e)})`);
+      skipLog.warn('skipping unreadable capture in listSessions', { file, error: e instanceof Error ? e.message : String(e) });
       continue;
     }
     if (lines.length === 0) continue;
@@ -607,6 +614,59 @@ const NON_BREAKING_TYPES = new Set([
   'file-history-snapshot', 'last-prompt', 'system',
 ]);
 
+// 插队消息（attachment/queued_command）升格判据：必须是人类输入——
+// humanTurn 显式 false / origin.kind 非 human（hook/MCP/系统注入的队列
+// delivery）不冒充用户轮（时间线归属、turn 计数、AI 分析输入都会被污染）。
+// 导出给 auto-refresh 探针同口径判定（尾行插队消息 = 有输入待响应）
+export interface AttachmentLike {
+  type?: string;
+  prompt?: string;
+  humanTurn?: boolean;
+  origin?: { kind?: string };
+}
+export function isQueuedUserAttachment(line: { type?: string; attachment?: AttachmentLike }): boolean {
+  if (line.type !== 'attachment' || line.attachment?.type !== 'queued_command') return false;
+  if (line.attachment.humanTurn === false) return false;
+  const kind = line.attachment.origin?.kind;
+  if (kind !== undefined && kind !== 'human') return false;
+  return true;
+}
+function queuedUserPrompt(line: ClaudeJsonlLine): string | null {
+  if (!isQueuedUserAttachment(line)) return null;
+  const prompt = typeof line.attachment?.prompt === 'string' ? line.attachment.prompt.trim() : '';
+  return prompt || null;
+}
+
+// 已知的「无交互产出」行类型（元数据/记账/wire 调试/语义已由他处消费）：
+// 跳过属正常，info 级。user = 只含 tool_result 的载体行（内容并入前一条
+// assistant 的 tool_calls）；assistant = 无 message 的客户端记账行。未知
+// 类型跳过 = 上游格式演进的最早信号（2.1.3xx 的 queued_command 就是这么
+// 溜进来的），warn 级——现场排查「丢了条消息」时日志里有线索可查。
+// attachment 按子类型普查（queued_command 事故的复发形态正是「已知类型
+// 携带新子类型」）：子类型目录来自真机 2.1.303 全量普查。
+// 导出供 auto-refresh 探针派生镜像集（单源，消除双清单手工同步漂移）
+export const KNOWN_SKIP_TYPES = new Set([
+  ...NON_BREAKING_TYPES,
+  'user', 'assistant',
+  'queue-operation', 'atis-latch', 'progress', 'summary',
+  'api-request', 'api-request-blob', 'api-request-shape',
+]);
+const KNOWN_ATTACHMENT_SUBTYPES = new Set([
+  'queued_command', 'environment', 'model', 'agent_listing_delta', 'skill_listing',
+  'total_tokens_reminder', 'session_context', 'date', 'remote_session_change',
+  'prompt_snapshot', 'nested_memory',
+]);
+// 门控丢弃的 queued_command（humanTurn=false / origin 非 human / 空 prompt）
+// 单独计键且不入白名单：真实用户插队被误标时必须 warn 可查，不能与普通
+// 元数据跳过混在 info 里无声
+const GATED_QUEUED_KEY = 'attachment/queued_command!gated';
+const isKnownSkipKey = (key: string): boolean => {
+  if (KNOWN_SKIP_TYPES.has(key)) return true;
+  return key.startsWith('attachment/') && KNOWN_ATTACHMENT_SUBTYPES.has(key.slice('attachment/'.length));
+};
+
+const skipLog = createLogger('claude-jsonl');
+
 export function groupAssistantLines(lines: ClaudeJsonlLine[]): AssistantGroup[] {
   const groups: AssistantGroup[] = [];
   let current: AssistantGroup | null = null;
@@ -639,7 +699,8 @@ export function groupAssistantLines(lines: ClaudeJsonlLine[]): AssistantGroup[] 
       current.lines.push(line);
       if (msgId && currentMsgIds) currentMsgIds.add(msgId);
     } else if (NON_BREAKING_TYPES.has(line.type)
-      && !(line.type === 'system' && line.message?.content != null)) {
+      && !(line.type === 'system' && line.message?.content != null)
+      && queuedUserPrompt(line) === null) {
       // Don't break the current assistant group for non-substantive lines.
       // EXCEPTION: a system line carrying message.content is substantive (our
       // proxy/export convention for system turns & injections) — it must break
@@ -931,22 +992,29 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
   // Phase 1: process non-assistant lines and group assistant lines
   const assistantGroups = groupAssistantLines(lines);
 
-  // Build a map of line-index → assistant group for interleaving
-  const lineToGroup = new Map<number, AssistantGroup>();
+  // Build a map of line → assistant group for interleaving. 按对象身份而非
+  // startLineIndex+j 下标映射：吸收进分组的 tool_result-only user 行占据
+  // 中间下标，连续下标假设会把真实 assistant 行挤出映射（内容已在组内合并
+  // 不丢，但会掉进下方 else 分支被误计为跳过行——计数失真误导排查）
+  const lineToGroup = new Map<ClaudeJsonlLine, AssistantGroup>();
   for (const g of assistantGroups) {
-    for (let j = 0; j < g.lines.length; j++) {
-      lineToGroup.set(g.startLineIndex + j, g);
+    for (const ln of g.lines) {
+      lineToGroup.set(ln, g);
     }
   }
 
   // Track which groups we've already emitted
   const emittedGroups = new Set<AssistantGroup>();
 
+  // 跳过行计数（按 type）：未知类型 warn（上游格式演进信号），已知元数据 info
+  const skippedTypes = new Map<string, number>();
+  const noteSkip = (t: string) => { skippedTypes.set(t, (skippedTypes.get(t) ?? 0) + 1); };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     // If this line belongs to an assistant group, emit the whole group once
-    const group = lineToGroup.get(i);
+    const group = lineToGroup.get(line);
     if (group) {
       if (emittedGroups.has(group)) continue; // already emitted
       emittedGroups.add(group);
@@ -967,7 +1035,7 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
     if (line.type === 'user' && line.message) {
       const raw = extractTextContent(line.message.content);
       // Skip user messages that only contain tool_result (no real text prompt)
-      if (!raw) continue;
+      if (!raw) { noteSkip(line.type); continue; }
 
       // 框架注入分类（contract 原则 1：指纹规则框架自持）：native 会话与
       // insight-export 走 claude-code 指纹（task-notification / ≥2.1 协议
@@ -979,7 +1047,7 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       // tool_call）。
       const injection = classifyUserInjection(line.source, raw, { isFirstTurn: result.length === 0 });
       if (injection) {
-        if (injection.action === 'drop') continue;
+        if (injection.action === 'drop') { noteSkip(line.type); continue; }
         result.push({
           role: 'system',
           content: injection.content ?? raw,
@@ -1017,6 +1085,27 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
           finish_reason: null,
         });
       }
+    } else if (line.type === 'attachment') {
+      // Ctrl+X Ctrl+C 插队消息：delivery 落盘为 attachment/queued_command，
+      // 用户原文在 attachment.prompt、renderedRole=system 只是发给模型的包
+      // 装——升格为 user interaction，时间线上作为独立用户轮可见（排在断开
+      // 的两个 assistant 分组之间，与其真实发生时刻一致）
+      const prompt = queuedUserPrompt(line);
+      if (prompt) {
+        result.push({
+          role: 'user',
+          content: prompt,
+          timestamp,
+          timeInfo: { created: timeCreated },
+          agent: null, subagent_name: null, subagent_session_id: null, subagent_type: null,
+          tool_calls: null, usage: null, model: null, modelID: null, providerID: null,
+          latency: null, finish_reason: null,
+        });
+      } else {
+        noteSkip(line.attachment?.type === 'queued_command'
+          ? GATED_QUEUED_KEY
+          : `attachment/${line.attachment?.type ?? 'none'}`);
+      }
     } else if (line.type === 'system' && line.message) {
       // Proxy (cannbot-proxy) relays request messages with role:"system"
       // verbatim — e.g. the "Available agent types" registry claude-code
@@ -1026,7 +1115,7 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       // top-level `content` string, no `message`) are NOT model input and
       // stay skipped.
       const raw = extractTextContent(line.message.content);
-      if (!raw) continue;
+      if (!raw) { noteSkip(line.type); continue; }
       result.push({
         role: 'system',
         content: raw,
@@ -1057,6 +1146,20 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
         latency: line.duration_ms ?? null,
         finish_reason: line.subtype ?? null,
       });
+    } else {
+      // 未知类型：不产出交互直接掉出 if 链——计数，日志层分级告警
+      noteSkip(line.type);
+    }
+  }
+
+  if (skippedTypes.size > 0) {
+    const dist: Record<string, number> = Object.fromEntries([...skippedTypes.entries()].sort((a, b) => b[1] - a[1]));
+    const unknown = Object.keys(dist).filter(t => !isKnownSkipKey(t));
+    const total = Object.values(dist).reduce((a, b) => a + b, 0);
+    if (unknown.length > 0) {
+      skipLog.warn('跳过行含未知类型（疑似上游格式演进，检查是否丢语义）', { sessionId, total, unknown: unknown.join(','), dist: JSON.stringify(dist) });
+    } else {
+      skipLog.info('跳过行均为已知元数据类型', { sessionId, total, dist: JSON.stringify(dist) });
     }
   }
 

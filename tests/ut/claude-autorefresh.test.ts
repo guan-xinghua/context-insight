@@ -174,6 +174,39 @@ describe('E2E: claude-code auto-refresh (probe + delta refresh)', () => {
     });
   });
 
+  describe('queue mechanism (2.1.3xx Ctrl+X Ctrl+C)：记账行与插队 delivery 的探针状态', () => {
+    // 运行中 assistant（无 stop_reason）后追加 enqueue 记账行：不得把 settled 顶成 true
+    beforeAll(async () => {
+      appendRaw(liveFile, JSON.stringify({
+        type: 'queue-operation', operation: 'enqueue',
+        timestamp: '2026-07-16T10:21:00.000Z', sessionId: CLAUDE_SESSION_ID,
+        content: '为啥需要rust',
+      }) + '\n');
+      bumpMtime(liveFile, 220);
+    });
+
+    it('尾行 queue-operation 记账 → 仍 streaming（不提前 settled）', async () => {
+      const s = await getSessionRecord(CLAUDE_SESSION_ID);
+      const probe = await probeAutoRefresh(s, prisma);
+      expect(probe.streaming).toBe(true);
+      expect(probe.settled).toBe(false);
+    });
+
+    it('尾行插队 delivery（queued_command attachment）→ pendingInput=true', async () => {
+      appendRaw(liveFile, JSON.stringify({
+        type: 'attachment', uuid: 'att-q', parentUuid: 'u-pending',
+        attachment: { type: 'queued_command', prompt: '为啥需要rust', humanTurn: true, origin: { kind: 'human' }, timestamp: '2026-07-16T10:21:01.000Z' },
+        timestamp: '2026-07-16T10:21:01.000Z',
+        rendered: [{ content: '<system-reminder>queued</system-reminder>' }], renderedRole: 'system',
+      }) + '\n');
+      bumpMtime(liveFile, 240);
+      const s = await getSessionRecord(CLAUDE_SESSION_ID);
+      const probe = await probeAutoRefresh(s, prisma);
+      expect(probe.pendingInput).toBe(true);
+      expect(probe.settled).toBe(false);
+    });
+  });
+
   describe('pendingInput detection (user text line waiting for assistant)', () => {
     beforeAll(async () => {
       const userLine = JSON.stringify({
