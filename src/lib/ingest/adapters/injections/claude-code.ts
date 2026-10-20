@@ -11,6 +11,7 @@
 // 规则框架自持）。消费方：claude-jsonl 适配器（native 会话 + claude 布局
 // proxy 捕获的默认族）经 injections/index.ts 分发，见各函数注释。
 import type { UserInjectionClassifier, UserInjectionContext, UserInjectionDecision } from '../contract';
+import { truncateUtf16Safe } from '../../../shared/text-strip';
 
 // Parse a <task-notification> XML (Task-tool completion notification injected
 // as a user line by claude-code) into a readable summary.
@@ -20,7 +21,7 @@ export function parseTaskNotificationSummary(content: string): string {
   const agent = summary?.match(/Agent "([^"]*)"/)?.[1];
   const label = agent ? `Task: ${agent}` : 'Task 完成';
   const statusLabel = status ? ` [${status}]` : '';
-  const detail = summary ? `\n${summary.slice(0, 200)}` : '';
+  const detail = summary ? `\n${truncateUtf16Safe(summary, 200)}` : '';
   return `✅ ${label}${statusLabel}${detail}`;
 }
 
@@ -69,13 +70,13 @@ export function classifyAgentInjection(raw: string): AgentInjection | null {
     const parsed = notif ? parseTaskNotificationSummary(notif) : null;
     return {
       kind: 'background-event',
-      summary: `[背景事件] ${parsed ?? raw.slice(0, 160)}`,
+      summary: `[背景事件] ${parsed ?? truncateUtf16Safe(raw, 160)}`,
     };
   }
   if (raw.startsWith('2-4 word lowercase label')) {
     return {
       kind: 'label-request',
-      summary: `[label 请求] ${raw.slice(0, 120)}`,
+      summary: `[label 请求] ${truncateUtf16Safe(raw, 120)}`,
     };
   }
   if (raw.startsWith('Current state: ')) {

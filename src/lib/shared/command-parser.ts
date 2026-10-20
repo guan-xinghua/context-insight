@@ -6,6 +6,8 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
+import { truncateUtf16Safe } from './text-strip';
+
 /**
  * Detect and parse Claude Code CLI command turns and continuation (compact summary) turns.
  *
@@ -103,7 +105,7 @@ export function parseContinuationTurn(text: string): ContinuationInfo {
   const sectionCount = sectionLines ? sectionLines.length : 0
 
   return {
-    summaryLine: summaryLine ? summaryLine.substring(0, 120) : null,
+    summaryLine: summaryLine ? truncateUtf16Safe(summaryLine, 120) : null,
     sectionCount,
     fullSummary: text,
   }

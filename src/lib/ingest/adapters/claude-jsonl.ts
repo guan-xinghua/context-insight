@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import fs from 'node:fs';
+import { truncateUtf16Safe } from '@/lib/shared/text-strip';
 import path from 'node:path';
 import { readCaptureBuffer, readCaptureHead, readCaptureText as readArchivedText } from '@/lib/compression';
 import { createLogger } from '@/lib/logger';
@@ -403,7 +404,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
         const text = extractTextContent(line.message.content);
         if (text && !firstQuery) {
           const stripped = stripSystemReminders(text);
-          if (stripped) firstQuery = stripped.substring(0, 200);
+          if (stripped) firstQuery = truncateUtf16Safe(stripped, 200);
         }
       }
       if (line.type === 'assistant' && line.message?.usage) {

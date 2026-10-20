@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import type { RawInteraction } from '../shared/types';
+import { truncateUtf16Safe } from '../shared/text-strip';
 import { getContextWindowLimit } from '@/lib/context-window-config';
 import { isContinuationTurn } from '@/lib/shared/command-parser';
 
@@ -95,7 +96,7 @@ export function resetIdCounter(): void {
 function truncateTo200(text: string | null): string | null {
   if (!text) return null;
   if (text.length <= 200) return text;
-  return text.substring(0, 200);
+  return truncateUtf16Safe(text, 200);
 }
 
 import { stripThinkingAndReminder } from '../shared/text-strip';
@@ -147,7 +148,7 @@ function extractDispatchSkillName(argsJson: string | null): string {
     // 英文形态：act as the "developer" agent / act as the developer agent
     m = prompt.match(/act as (?:the )?["'`]?([A-Za-z][\w.-]*)["'`]?\s*(?:sub)?agent/i);
     if (m) return m[1];
-    if (args.description) return String(args.description).substring(0, 40);
+    if (args.description) return truncateUtf16Safe(String(args.description), 40);
   } catch { /* ignore */ }
   return 'unknown-dispatch';
 }

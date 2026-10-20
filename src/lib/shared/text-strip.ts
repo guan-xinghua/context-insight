@@ -10,6 +10,16 @@
 // <system-reminder> 前缀显示为 XML 标签噪音——ingest 侧（turn-split/
 // phase-split 的 contentSummary）与显示侧（LlmOutputView 折叠预览）同口径。
 
+// 定长截断的 UTF-16 安全版：substring/slice 按码元切，切点落在代理对中间
+// 会留下半个字符（孤立 \udXXX），Prisma 引擎反序列化即报
+// "unexpected end of hex escape" 导致整批写入失败。落库文本一律走这里。
+export function truncateUtf16Safe(text: string, maxUnits: number): string {
+  if (text.length <= maxUnits) return text;
+  const last = text.charCodeAt(maxUnits - 1);
+  if (last >= 0xD800 && last <= 0xDBFF) return text.substring(0, maxUnits - 1);
+  return text.substring(0, maxUnits);
+}
+
 export function stripThinkingAndReminder(text: string | null): string | null {
   return text
     ?.replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, '')

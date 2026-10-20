@@ -18,6 +18,7 @@
 //    剥离 system-reminder 同款语义；wire 原文永远在盘上
 //  - 事件注入（子代理通知/轮中止）→ system turn（可观测的会话事件）
 import type { UserInjectionClassifier, UserInjectionDecision } from '../contract';
+import { truncateUtf16Safe } from '../../../shared/text-strip';
 
 export type CodexInjectionKind =
   | 'environment'
@@ -61,11 +62,11 @@ export function summarizeSubagentNotification(raw: string): string {
         : detail == null ? '' : JSON.stringify(detail);
     if (!text) return `✅ 子代理完成: ${agent} [${state}]`;
     const preview = text.length > 200
-      ? `${text.slice(0, 200)}…（全文 ${text.length} 字，见该子代理的最终回复）`
+      ? `${truncateUtf16Safe(text, 200)}…（全文 ${text.length} 字，见该子代理的最终回复）`
       : text;
     return `✅ 子代理完成: ${agent} [${state}]\n${preview}`;
   } catch {
-    return `✅ 子代理通知: ${raw.slice(0, 160)}`;
+    return `✅ 子代理通知: ${truncateUtf16Safe(raw, 160)}`;
   }
 }
 

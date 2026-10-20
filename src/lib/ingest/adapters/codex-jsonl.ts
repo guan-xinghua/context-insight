@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import fs from 'node:fs';
+import { truncateUtf16Safe } from '@/lib/shared/text-strip';
 import path from 'node:path';
 import { readCaptureHead } from '@/lib/compression';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
@@ -541,7 +542,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
       if (line.type === 'response_item' && payload.type === 'message' && payload.role === 'user') {
         const text = extractMessageText(payload.content as CodexContentPart[] | undefined);
         if (text && !firstQuery && !classifyCodexUserInjection(text, { isFirstTurn: false })) {
-          firstQuery = text.substring(0, 200);
+          firstQuery = truncateUtf16Safe(text, 200);
         }
       }
     }

@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { stripThinkingAndReminder } from '../shared/text-strip';
+import { truncateUtf16Safe } from '../shared/text-strip';
 import type { TurnRow, SkillEventRow } from './turn-split';
 import type { InteractionBridgeRow } from './bridge-builder';
 import { getFamilyKey, getFamilyLabel, getPhaseGapTurns, getPhaseInfo, type PhaseInfo } from '@/lib/skill-family-config';
@@ -561,7 +562,7 @@ function buildPhase(
         turnId: t.id,
         turnIndex: t.turnIndex,
         role: t.role,
-        contentSummary: (stripThinkingAndReminder(t.content) ?? '').substring(0, 200),
+        contentSummary: truncateUtf16Safe(stripThinkingAndReminder(t.content) ?? '', 200),
         startTime: t.createdAt_ts ?? null,
         endTime: t.completedAt ?? null,
         durationMs: t.latencyMs,

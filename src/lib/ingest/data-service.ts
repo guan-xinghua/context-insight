@@ -15,6 +15,7 @@ import { listSubagentSessionsWithDb, readSessionWithDb, readSessionMeta } from '
 import { extractVersion as extractClaudeVersion } from './adapters/claude-jsonl';
 import { classifyProxyCapture, readCcSessionMeta, proxyRecordingFrameworkFromVersion } from './proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
+import { truncateUtf16Safe } from '../shared/text-strip';
 import { normalize } from './normalize';
 import { splitIntoTurns, resetIdCounter } from './turn-split';
 import type { TurnRow, ToolCallRow, SkillEventRow } from './turn-split';
@@ -53,7 +54,7 @@ function recordingClassOfSessionRow(row: { framework: string; version: string | 
 function previewText(text: string | null | undefined): string | null {
   if (!text) return null;
   const stripped = text.replace(/^<system-reminder>[\s\S]*?<\/system-reminder>\s*/, '').trim();
-  return (stripped || text).substring(0, 200);
+  return truncateUtf16Safe(stripped || text, 200);
 }
 
 // 首真人查询（会话 label/query 来源）。注入分类后（adapter 侧
@@ -871,8 +872,7 @@ async function importSessionInner(
       const sessionRow = await tx.session.create({
         data: {
           taskId: sessionId,
-          label: firstHumanQueryText(rawInteractions)?.substring(0, 100)
-            ?? rawInteractions[0]?.content?.substring(0, 100) ?? null,
+          label: truncateUtf16Safe(firstHumanQueryText(rawInteractions) ?? rawInteractions[0]?.content ?? '', 100) || null,
           query: sessionQuery,
           framework: frameworkForCapture,
           model: aggregates.model,

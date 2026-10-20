@@ -7,6 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import fs from 'node:fs';
+import { truncateUtf16Safe } from '../../../shared/text-strip';
 import path from 'node:path';
 import type { RawInteraction, SessionListItem } from '@/lib/shared/types';
 import { decodeDshLogFile } from '../core';
@@ -172,7 +173,7 @@ function buildListItem(decoded: DecodedSession): SessionListItem {
       const kind = source && typeof source.kind === 'string' ? source.kind : null;
       if (kind != null && USER_KINDS.has(kind)) {
         const text = blocksToText(data.content);
-        if (text) firstQuery = text.length > 200 ? text.slice(0, 200) : text;
+        if (text) firstQuery = truncateUtf16Safe(text, 200);
       }
     }
   }

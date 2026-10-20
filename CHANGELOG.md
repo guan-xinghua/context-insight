@@ -2,7 +2,7 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
-## [Unreleased]
+## [0.2.39] - 2026-10-20
 
 ### Changed
 - 【会话页返回语义】会话页内切 tab / 跨 tab 跳转不再逐条进入浏览器历史——Back（页内按钮与浏览器返回键）直接回到上一个大页面（如主页）；地址栏仍实时反映当前视图，深链 / 刷新 / 分享不受影响
@@ -13,6 +13,7 @@
 - 【DSH 原生会话导入】`~/.dsh/sessions/**/session.v4.jsonl(.zstd)` 与 dsh-export 导出根可直接导入：多帧 zstd 解压 → 事件转义为会话轮次 → 子代理按 `header.parentSession` 并入主会话时间线（DSH 徽标）
 
 ### Fixed
+- 【含 emoji 会话导入失败】修复文本截断把表情字符切成两半导致整会话导入报错的问题，长会话重导即可恢复
 - 【claude 插队消息不再丢失】Claude Code 运行中插入的用户消息（Ctrl+X Ctrl+C，≥2.1.3xx 的队列机制）此前在时间线上整条消失——现作为独立用户轮显示在真实发生位置（提问与续答之间），存量会话刷新后自动恢复
 - 【DB 导出再导入的会话类型保持】导出的会话数据库（.db）再导入时保持原会话类型与版本（此前误标为 CANNBot-Insight 且版本丢失），同实例重导入按原记录类幂等合并、不再产生重复行；导入预览新增 Type 列显示每个会话的真实类型
 - 【opencode 会话 Files 分析与技能名】opencode 旧版 read 的 `path` 参数键读取纳入 Files 分析（此前整页不可见）；skill 工具新版 `id` 参数键识别出真技能名（此前显示为字面量 "skill"），存量会话重导入后自动订正且不产生重复记录
