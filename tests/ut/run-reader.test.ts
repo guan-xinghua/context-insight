@@ -38,18 +38,18 @@ describe('reader：结构样例全量断言', () => {
     expect(index.manifest.data.exportDataComplete).toBe(true);
   });
 
-  it('全树：76 成员（75 个带 graph 注解）/ 82 关系', () => {
+  it('全树：76 成员（75 个带 graph 注解）/ 83 关系', () => {
     expect(index.members).toHaveLength(76);
     expect(index.graphMembers).toHaveLength(75);
-    expect(index.relations).toHaveLength(82);
+    expect(index.relations).toHaveLength(83);
     // 全树 id 唯一（重复在 buildIndex 抛错，这里验证可正常建索引）
     expect(index.membersById.size).toBe(76);
   });
 
-  it('关系分类：77 依赖 + 2 回滚 + 3 子图生成（端点全部解析）', () => {
+  it('关系分类：78 依赖 + 2 回滚 + 3 子图生成（端点全部解析）', () => {
     const count = (pred: (a: Record<string, unknown> | undefined) => boolean) =>
       index.relations.filter(r => pred(r.raw.annotation)).length;
-    expect(count(a => a?.type === 'depends_on')).toBe(77);
+    expect(count(a => a?.type === 'depends_on')).toBe(78);
     expect(count(a => a?.type === 'rollback')).toBe(2);
     expect(count(a => a?.kind === 'gen-sub-graph')).toBe(3);
   });

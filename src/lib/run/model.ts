@@ -103,4 +103,6 @@ export interface SessionRef {
   totalTokens: number;
   durationMs: number | null;
   label: string | null;
+  startTime: string | null;    // 会话起止（ISO）：成员 manifest 常缺时间戳，展示层用会话行起止兜底
+  endTime: string | null;
 }

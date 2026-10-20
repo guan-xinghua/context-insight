@@ -1,7 +1,7 @@
 // Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
 // This program is free software: you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
-// You may refer to the License for details. You may not use this file except in compliance with the License.
+// You may refer to the License for details. You should not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
@@ -9,19 +9,23 @@
 "use client";
 
 // Run 详情页：/api/observe/run/[runId] 拉取 view-model（已含成员会话 join），
-// 主图/子图视图切换 + 纯 SVG DAG + 节点运行历史侧栏。成员下钻 session 页走
-// 路由导航（非嵌入），session 页经 RunBadge 反向返回——闭环见 design.md §7。
+// 布局 = 页面 chrome（全站对齐）+ 工作台（toolbar 视图标题/图例 + 点阵
+// 画布 + 侧栏）。画布支持缩放平移（Ctrl/⌘+滚轮以光标为锚缩放、左键拖拽平移、
+// 浮动工具条缩放/适配）；跑马灯按需点亮——选中节点点亮其关联边，点击空白
+// 熄灭。侧栏两态：未选中 → Run 概览；选中 → 节点运行历史。子图不占顶层
+// 视图——生成器节点「子图 ▸」入口以弹窗展开，弹窗内按代际切换。
 
 import { useEffect, useMemo, useState } from "react";
 import { use } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { RunGraph, bandLabel } from "@/components/run/RunGraph";
+import { RunCanvas } from "@/components/run/RunCanvas";
 import { RunNodeDetail } from "@/components/run/RunNodeDetail";
+import { RunSubgraphDialog } from "@/components/run/RunSubgraphDialog";
+import { RUN_COLORS, RUN_STATUS_META, bandLabel } from "@/components/run/run-theme";
 import { Badge } from "@/components/ui/badge";
-import { EyeIcon, SettingsIcon, Loader2Icon, ArrowLeftIcon } from "lucide-react";
+import { Loader2Icon, ArrowLeftIcon } from "lucide-react";
 import type { RunViewModel } from "@/lib/run/view-model";
-import { BAY_VIEWER_NAME } from "@/lib/branding";
 
 interface RunDetailResponse {
   run: {
@@ -50,12 +54,84 @@ const STATUS_VARIANT: Record<string, "green" | "red" | "orange" | "gray" | "slat
   unknown: "yellow",
 };
 
+const LEGEND_STATUSES = ["passed", "failed", "running", "carried"] as const;
+
+function RunOverview({ viewModel, sessionStats }: { viewModel: RunViewModel; sessionStats: string | null }) {
+  const sessionMemberCount = viewModel.nodes.reduce(
+    (sum, n) => sum + n.attempts.reduce((s, a) => s + (a.executeMember.session ? 1 : 0) + (a.verifyMember?.session ? 1 : 0), 0),
+    0,
+  );
+  const stats: { label: string; value: string }[] = [
+    { label: "节点", value: String(viewModel.nodes.length) },
+    { label: "会话成员", value: String(sessionMemberCount) },
+    { label: "代", value: String(viewModel.generations.length) },
+    { label: "回滚", value: String(viewModel.rollbacks.length) },
+    { label: "子图", value: String(viewModel.views.length - 1) },
+  ];
+  return (
+    <div className="flex flex-col">
+      <div className="border-b border-black/[0.08] px-4 py-3.5">
+        <h2 className="text-[15px] font-semibold text-[#1f2328]">Run 概览</h2>
+        <p className="mt-0.5 text-[11px] leading-4 text-[#8c959f]">
+          {sessionStats ?? "未登记导入会话"}
+        </p>
+      </div>
+      <div className="flex flex-col gap-4 px-4 py-4">
+        <div className="grid grid-cols-5 gap-2">
+          {stats.map(s => (
+            <div key={s.label} className="rounded-lg border border-black/[0.08] bg-black/[0.02] px-2 py-2.5 text-center">
+              <div className="text-[16px] font-semibold tabular-nums text-[#1f2328]">{s.value}</div>
+              <div className="mt-0.5 text-[10px] text-[#8c959f]">{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <h3 className="mb-2 text-[11px] font-medium tracking-wide text-[#8c959f]">代际</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {viewModel.generations.map(g => (
+              <span
+                key={g}
+                className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-black/[0.03] px-2 py-0.5 text-[11px] leading-4 text-[#57606a]"
+              >
+                {g > 0 ? <span className="size-1.5 rounded-full bg-[#cf222e]" aria-hidden /> : null}
+                {bandLabel(g)}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {viewModel.rollbacks.length > 0 ? (
+          <div>
+            <h3 className="mb-2 text-[11px] font-medium tracking-wide text-[#8c959f]">回滚历史</h3>
+            <div className="flex flex-col gap-1">
+              {viewModel.rollbacks.map(r => (
+                <p key={r.ordinal} className="text-[11px] leading-5 text-[#57606a]">
+                  <span className="text-[#cf222e]">回滚 #{r.ordinal}</span>
+                  ：{r.from.nodeId} 第 {r.from.attempt} 次失败 → {r.to.nodeId} {bandLabel(r.to.generation)} 第 {r.to.attempt} 次
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <p className="mt-1 border-t border-black/[0.08] pt-3.5 text-[11px] leading-5 text-[#8c959f]">
+          点击图上节点查看运行历史（逐次尝试、验收结论、成员会话与 turn 下钻）；生成器节点右上角
+          <span className="text-[#57606a]">「子图 ▸」</span>以弹窗展开该代子图（可点击子图节点下钻会话）；
+          <span className="text-[#57606a]"> 红虚线为回滚边</span>——失败尝试的验收成员指向新代目标。
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function RunDetailPage({ params }: { params: Promise<{ runId: string }> }) {
   const { runId } = use(params);
   const [data, setData] = useState<RunDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [viewId, setViewId] = useState<string>("main");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // 子图弹窗：点击生成器节点「子图 ▸」入口打开（entryKey = 该代生成器节点）
+  const [subgraphKey, setSubgraphKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,10 +156,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     () => new Map((data?.viewModel.nodes ?? []).map(n => [n.key, n])),
     [data],
   );
-  const view = useMemo(
-    () => data?.viewModel.views.find(v => v.id === viewId) ?? data?.viewModel.views[0] ?? null,
-    [data, viewId],
-  );
+  // 主图即工作台（子图为弹窗，不再是顶层视图）
+  const view = data?.viewModel.views[0] ?? null;
   const selectedNode = selectedKey ? nodesByKey.get(selectedKey) ?? null : null;
 
   if (error) {
@@ -122,98 +196,106 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         .sort((a, b) => a.generation - b.generation)
         .map(n => ({ key: n.key, generation: n.generation, status: n.status }))
     : [];
+  const sessionStats = run.import
+    ? `会话：${run.import.sessions.imported + run.import.sessions.existing}/${run.import.sessions.total}`
+      + (run.import.sessions.failed > 0 ? ` · 失败 ${run.import.sessions.failed}` : "")
+    : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <main className="flex w-full max-w-7xl flex-col gap-4 px-6 py-8 mx-auto">
-        <AppHeader
-          actions={
-            <>
-              <a href="/lake_viewer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
-                <EyeIcon className="size-4 text-cyan-500" />
-                {BAY_VIEWER_NAME}
-              </a>
-              <a href="/settings" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
-                <SettingsIcon className="size-4 text-muted-foreground" />
-                设置
-              </a>
-            </>
-          }
-        />
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-4">
+        {/* 铺满布局：导航 / 标题行 / 警告固定高，工作台 flex-1 精确吃满剩余高度 */}
+        <div className="shrink-0">
+          <AppHeader />
+        </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
           <Link href="/runs" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeftIcon className="size-4" /> Runs
           </Link>
           <h1 className="text-xl font-bold">{run.name ?? run.runId}</h1>
           <Badge variant={STATUS_VARIANT[run.status] ?? "gray"}>{run.status}</Badge>
-          <span className="text-xs text-muted-foreground">{run.runId}</span>
+          <span className="font-mono text-xs text-muted-foreground">{run.runId}</span>
           {!run.exportDataComplete ? (
             <Badge variant="yellow" className="text-xs">数据不完整</Badge>
           ) : null}
-          {run.import ? (
-            <span className="text-xs text-muted-foreground" title={`源目录 ${run.import.sourceDir}`}>
-              会话：{run.import.sessions.imported + run.import.sessions.existing}/{run.import.sessions.total}
-              {run.import.sessions.failed > 0 ? ` · 失败 ${run.import.sessions.failed}` : ""}
+          {sessionStats ? (
+            <span className="text-xs text-muted-foreground" title={`源目录 ${run.import?.sourceDir ?? ""}`}>
+              {sessionStats}
             </span>
           ) : null}
         </div>
 
         {viewModel.warnings.length > 0 ? (
-          <div className="rounded-md border border-yellow-500/40 bg-yellow-500/5 p-2 text-xs text-yellow-700 dark:text-yellow-400">
+          <div className="shrink-0 rounded-md border border-yellow-500/40 bg-yellow-500/5 p-2 text-xs text-yellow-700 dark:text-yellow-400">
             {viewModel.warnings.slice(0, 5).map(w => <p key={w}>⚠ {w}</p>)}
           </div>
         ) : null}
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-muted-foreground">视图：</span>
-          {viewModel.views.map(v => (
-            <button
-              key={v.id}
-              onClick={() => { setViewId(v.id); setSelectedKey(null); }}
-              className={
-                v.id === view.id
-                  ? "rounded-md bg-accent px-2.5 py-1 text-xs font-medium"
-                  : "rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent/40"
-              }
-            >
-              {v.title}
-            </button>
-          ))}
+        {/* 工作台（铺满页宽）：toolbar（视图标题/图例）+ 点阵画布 + 侧栏；子图经
+            生成器节点「子图 ▸」入口以弹窗展开，不再是割裂的顶层视图 */}
+        <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-xl border bg-white shadow-sm">
+          <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-black/[0.08] bg-black/[0.015] px-3">
+            <span className="truncate px-1 text-xs font-medium text-[#57606a]" title={view.title}>
+              {view.title}
+            </span>
+            <div className="hidden items-center gap-3.5 text-[11px] text-[#8c959f] lg:flex" aria-label="图例">
+              {LEGEND_STATUSES.map(s => (
+                <span key={s} className="inline-flex items-center gap-1.5">
+                  <span className="size-2 rounded-full" style={{ backgroundColor: RUN_STATUS_META[s].color }} aria-hidden />
+                  {RUN_STATUS_META[s].label}
+                </span>
+              ))}
+              <span className="h-3.5 w-px bg-black/10" aria-hidden />
+              <span className="inline-flex items-center gap-1.5">
+                <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden>
+                  <path d="M1 4 H17" stroke={RUN_COLORS.edge} strokeWidth="1.25" />
+                </svg>
+                依赖
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden>
+                  <path d="M1 4 H17" stroke={RUN_COLORS.rollback} strokeWidth="1.25" strokeDasharray="4 3" />
+                </svg>
+                回滚
+              </span>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1">
+            <div className="flex min-w-0 flex-1">
+              <RunCanvas
+                view={view}
+                nodesByKey={nodesByKey}
+                selectedKey={selectedKey}
+                onSelectNode={setSelectedKey}
+                onOpenSubgraph={key => setSubgraphKey(key)}
+              />
+            </div>
+            <aside className="w-[360px] shrink-0 overflow-y-auto border-l border-black/[0.08] bg-black/[0.012]">
+              {selectedNode ? (
+                <RunNodeDetail
+                  node={selectedNode}
+                  rollbacks={nodeRollbacks}
+                  peers={peers}
+                  onSelectNode={key => { setSelectedKey(key); }}
+                  onClose={() => setSelectedKey(null)}
+                />
+              ) : (
+                <RunOverview viewModel={viewModel} sessionStats={sessionStats} />
+              )}
+            </aside>
+          </div>
         </div>
 
-        <div className="flex gap-4 items-start">
-          <div className="flex-1 overflow-auto rounded-lg border bg-card p-2">
-            <RunGraph
-              view={view}
-              nodesByKey={nodesByKey}
-              selectedKey={selectedKey}
-              onSelectNode={key => setSelectedKey(prev => (prev === key ? null : key))}
-              onOpenSubgraph={key => { setViewId(`sub:${key}`); setSelectedKey(null); }}
-            />
-          </div>
-          {selectedNode ? (
-            <RunNodeDetail
-              node={selectedNode}
-              rollbacks={nodeRollbacks}
-              peers={peers}
-              onSelectNode={key => { setSelectedKey(key); }}
-              onClose={() => setSelectedKey(null)}
-            />
-          ) : (
-            <aside className="w-96 shrink-0 rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
-              点击图上节点查看运行历史（逐次尝试、验收结论、成员会话与 turn 下钻）。
-              {view.rollbackLinks.length > 0 ? (
-                <p className="mt-2">
-                  本视图含 {view.rollbackLinks.length} 条回滚边（红虚线）：失败尝试的验收成员指向新代目标。
-                </p>
-              ) : null}
-              {viewModel.generations.length > 1 ? (
-                <p className="mt-1">代带：{viewModel.generations.map(g => bandLabel(g)).join(" → ")}</p>
-              ) : null}
-            </aside>
-          )}
-        </div>
+        <RunSubgraphDialog
+          open={subgraphKey !== null}
+          onOpenChange={next => { if (!next) setSubgraphKey(null); }}
+          views={viewModel.views}
+          nodesByKey={nodesByKey}
+          rollbacks={viewModel.rollbacks}
+          entryKey={subgraphKey}
+        />
       </main>
     </div>
   );

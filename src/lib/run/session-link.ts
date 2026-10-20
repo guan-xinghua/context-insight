@@ -91,6 +91,8 @@ export async function joinSessionRefs(
         ? chosen.endTime.getTime() - chosen.startTime.getTime()
         : null,
       label: chosen.label,
+      startTime: chosen.startTime ? chosen.startTime.toISOString() : null,
+      endTime: chosen.endTime ? chosen.endTime.toISOString() : null,
     });
   }
   return result;

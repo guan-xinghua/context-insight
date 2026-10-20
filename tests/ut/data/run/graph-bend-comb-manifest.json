@@ -1,0 +1,384 @@
+{
+  "schema": "cannbot.workflow-bundle",
+  "version": 1,
+  "id": "WA0B1C2D3E4F5001",
+  "kind": "workflow",
+  "name": "bend-comb-demo",
+  "data": {
+    "exportDataComplete": true,
+    "members": [
+      {
+        "id": "M0000000000000000",
+        "kind": "process",
+        "annotation": {
+          "note": "a1 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "a1",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "a1：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000001",
+        "kind": "process",
+        "annotation": {
+          "note": "a2 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "a2",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "a2：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000002",
+        "kind": "process",
+        "annotation": {
+          "note": "a3 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "a3",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "a3：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000003",
+        "kind": "process",
+        "annotation": {
+          "note": "a4 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "a4",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "a4：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000004",
+        "kind": "process",
+        "annotation": {
+          "note": "b1 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "b1",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "b1：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000005",
+        "kind": "process",
+        "annotation": {
+          "note": "b2 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "b2",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "b2：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000006",
+        "kind": "process",
+        "annotation": {
+          "note": "b3 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "b3",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "b3：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000007",
+        "kind": "process",
+        "annotation": {
+          "note": "b4 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "b4",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "b4：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000008",
+        "kind": "process",
+        "annotation": {
+          "note": "c1 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "c1",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "c1：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M0000000000000009",
+        "kind": "process",
+        "annotation": {
+          "note": "c2 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "c2",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "c2：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M000000000000000A",
+        "kind": "process",
+        "annotation": {
+          "note": "c3 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "c3",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "c3：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M000000000000000B",
+        "kind": "process",
+        "annotation": {
+          "note": "c4 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "c4",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "c4：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M000000000000000C",
+        "kind": "process",
+        "annotation": {
+          "note": "s1 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "s1",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "s1：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M000000000000000D",
+        "kind": "process",
+        "annotation": {
+          "note": "s4 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "s4",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "s4：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M000000000000000E",
+        "kind": "process",
+        "annotation": {
+          "note": "t1 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "t1",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "t1：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      },
+      {
+        "id": "M000000000000000F",
+        "kind": "process",
+        "annotation": {
+          "note": "t4 执行",
+          "graph": {
+            "role": "execute",
+            "nodeId": "t4",
+            "generation": 0,
+            "attempt": 1,
+            "attemptResult": "succeeded"
+          }
+        },
+        "name": "t4：第 0 代第 1 次执行",
+        "startedAt": "2026-10-10T02:00:06Z",
+        "finishedAt": "2026-10-10T02:00:11Z"
+      }
+    ],
+    "relations": [
+      {
+        "from": "M0000000000000000",
+        "to": "M0000000000000001",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000001",
+        "to": "M0000000000000002",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000002",
+        "to": "M0000000000000003",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000004",
+        "to": "M0000000000000005",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000005",
+        "to": "M0000000000000006",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000006",
+        "to": "M0000000000000007",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000008",
+        "to": "M0000000000000009",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000009",
+        "to": "M000000000000000A",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M000000000000000A",
+        "to": "M000000000000000B",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M000000000000000C",
+        "to": "M000000000000000D",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M000000000000000E",
+        "to": "M000000000000000F",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000000",
+        "to": "M0000000000000007",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000008",
+        "to": "M0000000000000007",
+        "annotation": {
+          "type": "depends_on"
+        }
+      },
+      {
+        "from": "M0000000000000004",
+        "to": "M000000000000000B",
+        "annotation": {
+          "type": "depends_on"
+        }
+      }
+    ]
+  }
+}

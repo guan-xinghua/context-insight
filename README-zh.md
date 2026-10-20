@@ -26,7 +26,7 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 主页 Sessions 列表支持关键词 / sessionID 搜索；导入对话框提供常用路径一键直达。
 
-**Run 观测** — 与 Sessions 并列的 Runs 一级域，观测 Opsbot graph 运行：网页「导入 Bundle」（与 Import Session 同款弹窗：目录浏览找包，含 `workflow.json`/`manifest.json` 的 bundle 目录高亮、点击即导入）或 `cbi import-bundle <dir>` 导入 workflow-bundle 目录（`workflow.json` + `sessions/`），成员会话即时全量走标准管线入库——**run 导入的会话只在 run 详情内查看，不进 Sessions 列表**（删除 run 会同时删除由它导入的会话，导入前已存在的会话不受影响）；run 页以纯 SVG 渲染多代 DAG（回滚代带、重试历史、carried/未运行占位、生成器子图），节点侧栏提供逐次尝试（验收结论、Bash 输出）与成员会话 turn 下钻；session 页显示 run 归属徽标可反向返回。`cbi runs` 列出已导入 run。
+**Run 观测** — 与 Sessions 并列的 Runs 一级域，观测 Opsbot graph 运行：网页「导入 Bundle」（与 Import Session 同款弹窗：目录浏览找包，含 `workflow.json`/`manifest.json` 的 bundle 目录高亮、点击即导入）或 `cbi import-bundle <dir>` 导入 workflow-bundle 目录（`workflow.json` + `sessions/`），成员会话即时全量走标准管线入库——**run 导入的会话只在 run 详情内查看，不进 Sessions 列表**（删除 run 会同时删除由它导入的会话，导入前已存在的会话不受影响）；run 页在与全站一致的工作台内以纯 SVG 渲染多代 DAG（回滚代带、重试历史、carried/未运行占位、生成器子图）——正交电路风走线（交叉处 PCB 半圆跳线，交叉不相连）、点击节点点亮关联边跑马灯（状态色加粗 + 流动光点，其余边压暗静止，点击空白熄灭）、Ctrl/⌘+滚轮以光标为锚缩放、拖拽平移与一键适配——节点侧栏提供逐次尝试（验收结论、Bash 输出）与成员会话 turn 下钻；session 页显示 run 归属徽标可反向返回。`cbi runs` 列出已导入 run。
 
 **运行日志** — 服务端过程日志（导入管线、数据之湖同步、API 错误）按天滚动写入 `~/.cannbot-insight/logs/insight-<日期>.log`，可选同时输出到启动终端。级别与「写入文件 / 输出到屏幕」开关在「设置 → 运行日志」即时调整（日志位置同页展示，免重启）；环境变量（`CANNBOT_LOG` / `CANNBOT_LOG_LEVEL` / `CANNBOT_LOG_FILE` / `CANNBOT_LOG_STDOUT` / `CANNBOT_LOG_DIR`）优先于设置页。
 
