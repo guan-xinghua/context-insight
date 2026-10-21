@@ -31,7 +31,7 @@ export interface SessionMemberRef {
   location: string | null;
   startedAt: string | null;
   finishedAt: string | null;
-  /** session-link join 结果（未导入/无会话成员为 null） */
+  /** session-link join 结果（未导入/无成员会话为 null） */
   session?: SessionRef | null;
 }
 
@@ -101,8 +101,10 @@ export interface RunView {
   ranks: Record<string, number>;
   /** 同代依赖边（跨视图边已按 representative 归约到本视图节点；逻辑边，测试/API 口径） */
   edges: { from: string; to: string }[];
-  /** 渲染边链：跨 rank 长边经虚拟节点逐层下行（bends 为虚拟中转点坐标） */
-  edgeChains: { from: string; to: string; bends: Array<{ x: number; y: number }> }[];
+  /** 渲染边链：跨 rank 长边经虚拟节点逐层下行（bends 为虚拟中转点坐标）；
+   *  fromDx/toDx = 端口偏移（扇出/扇入 ≥3 时锚点沿节点底/顶缘错开，
+   *  相对节点中心的 dx；缺省 0 = 中心锚点） */
+  edgeChains: { from: string; to: string; fromDx?: number; toDx?: number; bends: Array<{ x: number; y: number }> }[];
   rollbackLinks: { from: string; to: string; label: string; ordinal: number }[];
   layout: RunViewLayout;
 }
@@ -127,7 +129,6 @@ export const NODE_W = 168;
 export const NODE_H = 48;
 export const ROW_STEP = 120;   // rank 行距（节点间隙 72 即边曲线/跳线区）
 export const COL_STEP = 212;   // 宽槽步进（真实节点列距）
-const DUMMY_STEP = 34;         // 窄道步进（纯虚拟槽，只过曲线）
 const BAND_PAD_X = 32;         // 带条左右内边距合计
 const BAND_GAP = 64;           // 带条间距（回滚边曲线区）
 const ORIGIN_X = 18;
@@ -173,6 +174,12 @@ interface Group {
 
 export function buildViewModel(index: RunIndex): RunViewModel {
   const warnings = [...index.warnings];
+
+  // 导出侧未启用 graph 插件（成员全无 annotation.graph）：图/代际/重试视图
+  // 整体不可用——显式告知而非留一张空画布；导入不拒绝，会话级观测照常
+  if (index.graphMembers.length === 0) {
+    warnings.push('导出包未包含 graph 注解数据（annotation.graph），依赖图与代际/重试视图不可用；成员会话信息仍可查看');
+  }
 
   // 1. 分组：graphMembers 按 (nodeId, generation) 聚簇（原型 collect）
   const groups = new Map<string, Group>();
@@ -510,52 +517,113 @@ export function buildViewModel(index: RunIndex): RunViewModel {
     reorder(false);
     reorder(true);
 
+    // 7b′. 右行单调化（真实节点稠密列分配）：依赖边源列 ≤ 目标列。按 rank
+    //     自上而下、带内传播：目标列 = max(前列 + 1, 最右前置列)——最长路
+    //     标注即最少列数（保序 ⇒ 交叉结构不变；列号稠密 ⇒ 跨 rank 并列对
+    //     齐）。虚拟点不占列：不再把真实列号推散，其位置由 7c′ 走廊/主干
+    //     全权决定。
+    //     通道预留（稠密列的关键补偿）：同列直落的通道会被列内中间节点挡
+    //     死（两侧缺口均在列中心之外，无右行绕行走廊）——扇入 ≥2 长边的目
+    //     标（主干须落目标列：全员 1 次过渡）、与长边前置同列的独立目标，
+    //     若列内被占则右移至最近净空列。长边扇出 ≥2 的源，其长边目标至少
+    //     隔一列（主干 lo < hi，走廊存在性由列间缺口保证）
+    const realPreds = new Map<string, string[]>();
+    for (const e of renderEdges) {
+      if (!realPreds.has(e.to)) realPreds.set(e.to, []);
+      realPreds.get(e.to)!.push(e.from);
+    }
+    const longEdgeSet = new Set(skipEdges.map(e => `${e.from}|${e.to}`));
+    const longPredsOf = new Map<string, string[]>();
+    const longSuccCnt = new Map<string, number>();
+    for (const e of skipEdges) {
+      if (!longPredsOf.has(e.to)) longPredsOf.set(e.to, []);
+      longPredsOf.get(e.to)!.push(e.from);
+      longSuccCnt.set(e.from, (longSuccCnt.get(e.from) ?? 0) + 1);
+    }
+    const occupied = new Map<string, Set<number>>(); // `${gen}:${col}` → 已占 rank
+    const occHas = (gen: number, col: number, r1: number, r2: number): boolean => {
+      const set = occupied.get(`${gen}:${col}`);
+      if (!set) return false;
+      for (let r = r1; r <= r2; r++) if (set.has(r)) return true;
+      return false;
+    };
+    for (const r of ranksAsc) {
+      const byBand = new Map<number, string[]>();
+      for (const key of rankBuckets.get(r)!) {
+        if (dummyRank.has(key)) continue;
+        const g = nodesByKey.get(key)!.generation;
+        if (!byBand.has(g)) byBand.set(g, []);
+        byBand.get(g)!.push(key);
+      }
+      for (const keys of byBand.values()) {
+        keys
+          .map(key => {
+            const preds = realPreds.get(key) ?? [];
+            const need = Math.max(-1, ...preds.map(p =>
+              stackOrder.get(p)!
+              + (longEdgeSet.has(`${p}|${key}`) && (longSuccCnt.get(p) ?? 0) >= 2 ? 1 : 0)));
+            // 预留目标（扇入 ≥2 长边）同 need 时后落位：反正要右移让列，
+            // 先让无预留的同侪落低列，避免级联右推（省一整列宽度）
+            const reserve = (longPredsOf.get(key)?.length ?? 0) >= 2 ? 1 : 0;
+            return { key, need, cur: stackOrder.get(key)!, reserve };
+          })
+          .sort((a, b) => a.need - b.need || a.reserve - b.reserve || a.cur - b.cur)
+          .forEach((x, i, arr) => {
+            const prev = i === 0 ? -1 : stackOrder.get(arr[i - 1].key)!;
+            const gen = nodesByKey.get(x.key)!.generation;
+            let col = Math.max(x.need, prev + 1);
+            const longPreds = longPredsOf.get(x.key) ?? [];
+            if (longPreds.length >= 2) {
+              // lo==hi（目标列 == 最右长前置列）且列内被挡：主干区间无落点
+              // （两侧缺口均在列中心之外）→ 右移至最近净空列，主干落目标列
+              // （全员 1 次过渡）。目标列已在最右长前置列之右时，两列间的缺
+              // 口即天然走廊（缺口中点永不被节点 span 覆盖），无需净空列
+              const maxPredCol = Math.max(...longPreds.map(p => stackOrder.get(p)!));
+              if (col === maxPredCol) {
+                const top = Math.min(...longPreds.map(p => ranks[p])) + 1;
+                while (occHas(gen, col, top, r - 1)) col++;
+              }
+            } else if (longPreds.length === 1) {
+              const p = longPreds[0];
+              while (col === stackOrder.get(p)! && occHas(gen, col, ranks[p] + 1, r - 1)) col++;
+            }
+            stackOrder.set(x.key, col);
+            const occ = occupied.get(`${gen}:${col}`) ?? new Set<number>();
+            occ.add(r);
+            occupied.set(`${gen}:${col}`, occ);
+          });
+      }
+    }
+
     // 7c. 代带布局：带条为纵向列（代际左→右），带内 rank → y 自上而下流。
-    //     槽位制：每个栈序号占一个槽；任一 rank 有真实节点的槽为宽槽
-    //     （COL_STEP 步进），纯虚拟槽为窄道（DUMMY_STEP 步进，只过曲线）——
-    //     虚拟链走窄道不撑宽画布，纵向通道全程无节点。rank 按逻辑 nodeId
-    //     计算 → 同节点跨代行对齐
+    //     槽位制（仅真实节点）：每列号占一个宽槽（COL_STEP），列号跨 rank
+    //     共享 x（同列对齐）。虚拟点不占槽（7c′ 走廊/主干定位）；rank 按
+    //     逻辑 nodeId 计算 → 同节点跨代行对齐
     const gens = [...new Set(visible.map(n => n.generation))].sort((a, b) => a - b);
     const positions: Record<string, { x: number; y: number }> = {};
     const bands: BandLayout[] = [];
     let x = ORIGIN_X;
     for (const gen of gens) {
-      const inBand = orderedKeys.filter(k =>
-        dummyGen.has(k) ? dummyGen.get(k) === gen : nodesByKey.get(k)!.generation === gen,
-      );
-      // 槽 → 条目（每槽在不同 rank 各至多一条；同槽跨 rank 共享 x 才能对齐列）
-      const slotEntries = new Map<number, Array<{ key: string; isDummy: boolean; rank: number }>>();
-      for (const key of inBand) {
-        const isDummy = dummyRank.has(key);
-        const rank = isDummy ? dummyRank.get(key)! : ranks[key];
-        const slot = stackOrder.get(key)!;
-        if (!slotEntries.has(slot)) slotEntries.set(slot, []);
-        slotEntries.get(slot)!.push({ key, isDummy, rank });
+      const inBand = visible.filter(n => n.generation === gen);
+      const slotKeys = new Map<number, string[]>();
+      for (const n of inBand) {
+        const slot = stackOrder.get(n.key)!;
+        if (!slotKeys.has(slot)) slotKeys.set(slot, []);
+        slotKeys.get(slot)!.push(n.key);
       }
-      const slotHasReal = new Map<number, boolean>();
-      for (const [slot, entries] of slotEntries) {
-        slotHasReal.set(slot, entries.some(e => !e.isDummy));
-      }
-      const slotsAsc = [...slotEntries.keys()].sort((a, b) => a - b);
+      const slotsAsc = [...slotKeys.keys()].sort((a, b) => a - b);
       const slotX = new Map<number, number>();
       let cursor = BAND_PAD_X / 2;
       for (const s of slotsAsc) {
         slotX.set(s, cursor);
-        cursor += slotHasReal.get(s) ? COL_STEP : DUMMY_STEP;
+        cursor += COL_STEP;
       }
       let maxRight = 0;
-      for (const [slot, entries] of slotEntries) {
+      for (const [slot, keys] of slotKeys) {
         const sx = x + slotX.get(slot)!;
-        const wide = slotHasReal.get(slot)!;
-        for (const e of entries) {
-          if (!e.isDummy) {
-            positions[e.key] = { x: sx, y: ORIGIN_Y + e.rank * ROW_STEP };
-            maxRight = Math.max(maxRight, sx + NODE_W - x);
-          } else {
-            const dx = wide ? sx + NODE_W / 2 : sx + DUMMY_STEP / 2;
-            positions[e.key] = { x: dx, y: ORIGIN_Y + e.rank * ROW_STEP + NODE_H / 2 };
-            maxRight = Math.max(maxRight, dx + 6 - x);
-          }
+        for (const key of keys) {
+          positions[key] = { x: sx, y: ORIGIN_Y + ranks[key] * ROW_STEP };
+          maxRight = Math.max(maxRight, sx + NODE_W - x);
         }
       }
       const width = Math.max(maxRight + BAND_PAD_X / 2 + 4, NODE_W + BAND_PAD_X);
@@ -591,22 +659,26 @@ export function buildViewModel(index: RunIndex): RunViewModel {
     };
     const nodeCenterX = (key: string) => positions[key]!.x + NODE_W / 2;
     const setDummyCols = (keys: string[], colList: number[]) => {
-      keys.forEach((k, i) => { positions[k] = { x: colList[i], y: positions[k]!.y }; });
+      keys.forEach((k, i) => {
+        // 虚拟点无 7c 槽位（真实节点独占）：y 按所在 rank 行推导
+        const y = positions[k]?.y ?? ORIGIN_Y + (dummyRank.get(k) ?? 0) * ROW_STEP + NODE_H / 2;
+        positions[k] = { x: colList[i], y };
+      });
     };
     const rightEdge = Math.max(x - BAND_GAP, ORIGIN_X);
-    // 走廊列：行区间内所有节点间隙的中点（含带间隙；间隙 ≥12 才容得下线宽）
+    // 走廊列：全列栅格相邻列 span 间缺口的中点（含带间隙）。不能只看行内
+    // 观察到的 span——列内无节点的行会漏掉列间缺口（稠密列下主干将无落
+    // 脚列）；行区间内全程无节点才可用（间隙 ≥12 才容得下线宽）
+    const allColLefts = [...new Set(visible.map(n => positions[n.key]!.x))].sort((a, b) => a - b);
     const corridorCols = (fromRow: number, toRow: number): number[] => {
-      const cols = new Set<number>();
-      for (let r = fromRow; r <= toRow; r++) {
-        const spans = [...(rowSpans.get(r) ?? [])].sort((a, b) => a[0] - b[0]);
-        let prev = ORIGIN_X;
-        for (const [a, b] of spans) {
-          if (a - prev >= 12) cols.add(Math.round((prev + a) / 2));
-          prev = Math.max(prev, b);
-        }
-        if (rightEdge - prev >= 12) cols.add(Math.round((prev + rightEdge) / 2));
+      const cands = new Set<number>();
+      let prev = ORIGIN_X;
+      for (const cl of allColLefts) {
+        if (cl - 4 - prev >= 12) cands.add(Math.round((prev + cl - 4) / 2));
+        prev = Math.max(prev, cl + NODE_W + 4);
       }
-      return [...cols];
+      if (rightEdge - prev >= 12) cands.add(Math.round((prev + rightEdge) / 2));
+      return [...cands].filter(c => colFree(c, fromRow, toRow));
     };
     const longEdges = renderEdges.filter(e => ranks[e.to] > ranks[e.from] + 1);
     const inCnt = new Map<string, number>();
@@ -626,21 +698,40 @@ export function buildViewModel(index: RunIndex): RunViewModel {
         fanOut.get(e.from)!.push(e);
       }
     }
-    const trunkColNear = (prefer: number, top: number, bottom: number): number | undefined =>
-      colFree(prefer, top, bottom)
-        ? prefer
-        : corridorCols(top, bottom)
-          .filter(c => colFree(c, top, bottom))
-          .sort((a, b) => Math.abs(a - prefer) - Math.abs(b - prefer))[0];
+    // 主干列限 [lo, hi]（右行单调）：扇入 lo = 最右源中心 / hi = 目标中心（源
+    // stub 右行汇入、主干右行接出），扇出对偶；区间内无自由列才退化为最近
+    // 自由走廊（病态拓扑兜底，可能左行）
+    const trunkColNear = (prefer: number, top: number, bottom: number, lo: number, hi: number): number | undefined => {
+      const near = (c: number) => Math.abs(c - prefer);
+      if (prefer >= lo && prefer <= hi && colFree(prefer, top, bottom)) return prefer;
+      const inRange = corridorCols(top, bottom)
+        .filter(c => c >= lo && c <= hi && colFree(c, top, bottom))
+        .sort((a, b) => near(a) - near(b));
+      return inRange[0] ?? corridorCols(top, bottom)
+        .filter(c => colFree(c, top, bottom))
+        .sort((a, b) => near(a) - near(b))[0];
+    };
     for (const [to, members] of fanIn) {
-      const col = trunkColNear(nodeCenterX(to), Math.min(...members.map(e => ranks[e.from])) + 1, ranks[to] - 1);
+      const col = trunkColNear(
+        nodeCenterX(to),
+        Math.min(...members.map(e => ranks[e.from])) + 1,
+        ranks[to] - 1,
+        Math.max(...members.map(e => nodeCenterX(e.from))),
+        nodeCenterX(to),
+      );
       if (col === undefined) continue;
       for (const e of members) {
         setDummyCols(chainKeysOf.get(`${e.from}|${e.to}`)!.slice(1, -1), chainKeysOf.get(`${e.from}|${e.to}`)!.slice(1, -1).map(() => col));
       }
     }
     for (const [from, members] of fanOut) {
-      const col = trunkColNear(nodeCenterX(from), ranks[from] + 1, Math.max(...members.map(e => ranks[e.to])) - 1);
+      const col = trunkColNear(
+        nodeCenterX(from),
+        ranks[from] + 1,
+        Math.max(...members.map(e => ranks[e.to])) - 1,
+        nodeCenterX(from),
+        Math.min(...members.map(e => nodeCenterX(e.to))),
+      );
       if (col === undefined) continue;
       for (const e of members) {
         setDummyCols(chainKeysOf.get(`${e.from}|${e.to}`)!.slice(1, -1), chainKeysOf.get(`${e.from}|${e.to}`)!.slice(1, -1).map(() => col));
@@ -680,7 +771,9 @@ export function buildViewModel(index: RunIndex): RunViewModel {
         for (let cj = 0; cj < N; cj++) {
           if (cj === ci) continue;
           const ns = i * N + cj;
-          const nc = cost + 1_000_000 + Math.abs(cols[ci] - cols[cj]) + (D - i);
+          // 左行重罚：换列只向右；全右路径无解（列被挡死）时才允许左行绕行
+          const nc = cost + 1_000_000 + Math.abs(cols[ci] - cols[cj]) + (D - i)
+            + (cols[cj] < cols[ci] ? 1_000_000_000 : 0);
           if (nc < dist[ns]) {
             dist[ns] = nc;
             prevSt[ns] = s;
@@ -715,6 +808,99 @@ export function buildViewModel(index: RunIndex): RunViewModel {
       setDummyCols(dummies, dcols);
     }
 
+    // 7c″. 留白压缩：7c 为虚拟槽预留的列宽在 7c′ 重定位后大部分空置（主干/
+    //     Dijkstra 把虚拟点搬离原槽，槽位仍占带内宽度）。按「列序全保全」
+    //     贪心装箱重排 x：列 = 相同 x 的一组元素（真实节点左缘 / 虚拟点中
+    //     心；落在真实列 span 内的虚拟点跟随该列）。列距 real→real =
+    //     COL_STEP（节奏保持）、real→dummy = W+12 / dummy→real = 32（夹一
+    //     条虚拟线的真实列距仍 = COL_STEP）、dummy→dummy = 26、跨带列间
+    //     缘距 100（回滚曲线区保持）。序全保全 ⇒ 虚拟列与任一节点列的左右
+    //     关系不变 ⇒ 不穿框、右行单调、边-边交叉数全部保持
+    const realColXs = new Set<number>();
+    for (const n of visible) realColXs.add(positions[n.key]!.x);
+    interface Column { x: number; gen: number; hasReal: boolean; tiedDummies: Array<{ key: string; off: number }> }
+    const colByX = new Map<number, Column>();
+    for (const n of visible) {
+      const px = positions[n.key]!.x;
+      let c = colByX.get(px);
+      if (!c) {
+        c = { x: px, gen: n.generation, hasReal: true, tiedDummies: [] };
+        colByX.set(px, c);
+      }
+      c.hasReal = true;
+    }
+    for (const k of dummyRank.keys()) {
+      const pk = positions[k];
+      if (!pk) continue; // 主干/走廊全失败的链无位置：bends 直接省略（直连兜底）
+      const px = pk.x;
+      const host = [...realColXs].find(rx => px >= rx && px <= rx + NODE_W);
+      if (host !== undefined) {
+        colByX.get(host)!.tiedDummies.push({ key: k, off: px - host });
+      } else if (!colByX.has(px)) {
+        colByX.set(px, { x: px, gen: dummyGen.get(k)!, hasReal: false, tiedDummies: [{ key: k, off: 0 }] });
+      } else {
+        colByX.get(px)!.tiedDummies.push({ key: k, off: 0 });
+      }
+    }
+    const cols = [...colByX.values()].sort((a, b) => a.x - b.x);
+    if (cols.length > 0) {
+      const EXT_DUMMY = 6; // 虚拟点视觉半径
+      let prev: Column | undefined;
+      const colX = new Map<Column, number>();
+      for (const c of cols) {
+        let x: number;
+        if (prev === undefined) {
+          x = ORIGIN_X + BAND_PAD_X / 2;
+        } else {
+          const crossBand = prev.gen !== c.gen;
+          const extGap = crossBand
+            ? 100
+            : prev.hasReal && c.hasReal ? COL_STEP - NODE_W
+            : prev.hasReal ? 12
+            : c.hasReal ? COL_STEP - NODE_W - 2 * 6 - 12
+            : 14;
+          const prevAnchor = colX.get(prev)!;
+          const prevExtRight = prev.hasReal ? prevAnchor + NODE_W : prevAnchor + EXT_DUMMY;
+          x = c.hasReal ? prevExtRight + extGap : prevExtRight + extGap + EXT_DUMMY;
+        }
+        colX.set(c, x);
+        prev = c;
+      }
+      for (const c of cols) {
+        const nx = colX.get(c)!;
+        if (c.hasReal) {
+          for (const n of visible) {
+            if (positions[n.key]!.x === c.x) positions[n.key] = { x: nx, y: positions[n.key]!.y };
+          }
+        }
+        for (const d of c.tiedDummies) {
+          positions[d.key] = { x: nx + d.off, y: positions[d.key]!.y };
+        }
+      }
+      // 带条包络重算（列装箱后）
+      bands.length = 0;
+      for (const gen of gens) {
+        const genCols = cols.filter(c => c.gen === gen);
+        if (genCols.length === 0) continue;
+        let left = Infinity;
+        let right = -Infinity;
+        for (const c of genCols) {
+          const nx = colX.get(c)!;
+          const l = c.hasReal ? nx : nx - EXT_DUMMY;
+          const r = c.hasReal ? nx + NODE_W : nx + EXT_DUMMY;
+          left = Math.min(left, l);
+          right = Math.max(right, r);
+        }
+        bands.push({
+          generation: gen,
+          label: gen === 0 ? '第 1 次运行' : `回滚 #${gen}`,
+          x: left - BAND_PAD_X / 2,
+          width: right - left + BAND_PAD_X + 4,
+        });
+      }
+      x = bands.length > 0 ? bands[bands.length - 1].x + bands[bands.length - 1].width + BAND_GAP : x;
+    }
+
     const maxRank = visible.length > 0 ? Math.max(...visible.map(n => ranks[n.key])) : 0;
     const layout: RunViewLayout = {
       bands,
@@ -723,13 +909,50 @@ export function buildViewModel(index: RunIndex): RunViewModel {
       height: ORIGIN_Y + maxRank * ROW_STEP + NODE_H + 26,
     };
 
+    // 7e. 端口分布：扇出/扇入 ≥3 的节点，锚点沿底/顶缘均匀错开——多边共
+    //     享同一中心锚点的「叠线」改为可分辨的并行出入。间距上限 16、节
+    //     点缘内收 12；按对端列 x 排序分端口（避免端口处扭线）；<3 条不
+    //     动（低扇出叠线由渲染层平行段错开处理）
+    const PORT_FAN = 3;
+    const PORT_GAP_MAX = 16;
+    const PORT_INSET = 12;
+    const centerOf = (key: string) => positions[key]!.x + NODE_W / 2;
+    const outEdges = new Map<string, { from: string; to: string }[]>();
+    const inEdges = new Map<string, { from: string; to: string }[]>();
+    for (const e of renderEdges) {
+      if (!outEdges.has(e.from)) outEdges.set(e.from, []);
+      outEdges.get(e.from)!.push(e);
+      if (!inEdges.has(e.to)) inEdges.set(e.to, []);
+      inEdges.get(e.to)!.push(e);
+    }
+    const portDxOf = (edges: { from: string; to: string }[], anchorOf: (e: { from: string; to: string }) => number): Map<string, number> => {
+      const dx = new Map<string, number>();
+      if (edges.length < PORT_FAN) return dx;
+      const sorted = [...edges].sort((a, b) => anchorOf(a) - anchorOf(b) || `${a.from}|${a.to}`.localeCompare(`${b.from}|${b.to}`));
+      const span = Math.min((sorted.length - 1) * PORT_GAP_MAX, NODE_W - 2 * PORT_INSET);
+      const gap = span / (sorted.length - 1);
+      sorted.forEach((e, i) => dx.set(`${e.from}|${e.to}`, -span / 2 + i * gap));
+      return dx;
+    };
+    const fromDx = new Map<string, number>();
+    const toDx = new Map<string, number>();
+    for (const edges of outEdges.values()) {
+      for (const [ek, dx] of portDxOf(edges, e => centerOf(e.to))) fromDx.set(ek, dx);
+    }
+    for (const edges of inEdges.values()) {
+      for (const [ek, dx] of portDxOf(edges, e => centerOf(e.from))) toDx.set(ek, dx);
+    }
+
     // 7d. 渲染边链：源底 → 各虚拟点 → 目标顶（vBezier 垂直手柄在衔接处切向
     //     连续，链式拼出一条平滑曲线）
     const edgeChains = renderEdges.map(e => {
       const chain = chainKeysOf.get(`${e.from}|${e.to}`)!;
+      const ek = `${e.from}|${e.to}`;
       return {
         from: e.from,
         to: e.to,
+        ...(fromDx.has(ek) ? { fromDx: fromDx.get(ek) } : {}),
+        ...(toDx.has(ek) ? { toDx: toDx.get(ek) } : {}),
         bends: chain.slice(1, -1).map(k => positions[k]).filter((p): p is { x: number; y: number } => p !== undefined),
       };
     });

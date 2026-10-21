@@ -41,6 +41,8 @@
 <sid>/                       # 根级（上传缺省位：未指定范式/directory 时的落盘处；
   …                          # 列表归「根目录」桶。'sessions' 存量区默认已退役——
                              # sessions/ 若存在即普通范式目录，同布局同待遇）
+opsbot-bundle/<runId>/        # bundle 专区（opsbot workflow 包，见 §2.1；顶层
+  …                          # 目录名固定，会话列表视野排除该子树）
 ```
 
 范式目录 = 数据仓顶层目录（`elementwise` / `contraction` / `others` …，25 个
@@ -59,6 +61,29 @@
 
 cpx 本地目录（`~/.cannbot-insight/proxy/`）与 norm/ 镜像同一约定（顶层捕获文件带 `cpx-` 前缀，meta 与主文件同 stem 并列）。
 insight 评分过程日志（`~/.cannbot-insight/score-judge-logs/`）为本地明文 jsonl，走同一信封规范（`cc-judge-round`），仅本机留存，不属于 cannbay 仓布局。
+
+### 2.1 bundle 专区（`opsbot-bundle/<runId>/`）
+
+opsbot workflow 包（设计 `docs/design/cannbay-bundle/design.md`）：一个 bundle
+一个目录，`runId` 即存储身份，重传整体替换（原子语义）。专区不属于范式
+注册表（会话上传目录网关拒绝它），会话列表视野排除整个子树——成员会话
+只归 bundle。锚定规则：专区下一级目录含 `workflow.json` 即 bundle，散文件
+忽略。
+
+```
+opsbot-bundle/<runId>/
+  workflow.json             # 关系清单（cannbot.workflow-bundle v1 信封自持，
+                            # 见 workflow-bundle-format.md；仓内统一命名，源
+                            # manifest.json 同内容改名搬运；永远明文）
+  bundle.meta.json          # lake 侧归属快照（cc-bundle-meta，§4.8；明文）
+  sessions/<sid>…/          # 成员会话，生产者原样搬运（目录名不改写，读方以
+    <sid>.jsonl.7z          # manifest location 为权威）；会话件形态与 §2 同
+    <sid>.meta.json         # （cc-session-meta；.jsonl.7z at rest，明文/.gz
+                            # 源上传时统一迁移 7z）
+```
+
+`workflow.json` 是 opsbot 侧格式（`cannbot.*` 信封族），不在本文档
+`x_cannbay` 命名空间内。
 
 ## 3. 行格式与信封规则
 
@@ -231,6 +256,28 @@ schema 版本
 | `startedAt` / `finishedAt` | ISO 时间 | 起 / 止 |
 | `durationMs` / `judgeCalls` / `judgeTokens` | int? | 尾：总耗时 / LLM 调用次数 / token 用量 |
 | `items` | `Record<string, int>`? | 尾：子项状态计数（ok / not-applicable / error） |
+
+### 4.8 `cc-bundle-meta` v1（`opsbot-bundle/<runId>/bundle.meta.json`，生产者 = insight 上传）
+
+```json
+{ "x_cannbay": { "schema": "cc-bundle-meta", "version": 1,
+  "data": { "runId": "...", "submitter": "...", "description": "...", "remark": "...",
+    "uploadedAt": "...", "name": "...", "sessionCount": 197 } } }
+```
+
+bundle 目录级归属快照（上传时从提交信息与 manifest 合成，永远明文）。
+列表归属的权威字段：读方 meta 优先、git log 推导回落（与 `cc-session-meta`
+的提交人/描述字段同款约定——与 commit message 格式解耦，维护提交无法污染
+归属展示）。
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `runId` | string | bundle 身份（= 目录名 = manifest.id） |
+| `submitter` | string? | 提交人（提交信息快照） |
+| `description` / `remark` | string? | 内容描述 / 备注（提交信息快照） |
+| `uploadedAt` | ISO 时间 | 上传时间 |
+| `name` | string? | manifest.name 展示快照（权威在 workflow.json） |
+| `sessionCount` | int? | 会话规模快照（权威在仓内 sessions/ 目录计数） |
 
 ## 5. 信息承载映射
 

@@ -78,10 +78,11 @@ export const METRIC_EMPTY = "#8c959f";
 /** 节点面积信号（透镜可见度统一整改）：程度辨识靠**染色面积**不靠细描边——
  *  1px 半透明线肉眼难分档，节点盒底色按档位/状态染色后一眼可辨。描边统一
  *  加粗到 2px（选中 2.5px）；水位透镜例外（水体本身就是面积信号，盒底保持
- *  中性）；无数据节点不染色、灰描边，与最低档浅蓝可分。 */
+ *  中性）；无数据节点不染色、灰描边，与最低档浅蓝可分。状态透镜的铺色较
+ *  透镜档再降一档（0.08）——状态信号以描边 + 圆点为主，铺色只留底味。 */
 export const NODE_STROKE_WIDTH = 2;
 export const NODE_STROKE_WIDTH_SELECTED = 2.5;
-export const STATUS_TINT_OPACITY = 0.1;
+export const STATUS_TINT_OPACITY = 0.08;
 
 /** 分位档 → 底色染色浓度（最低档 0.08 → 最高档 0.26，与色阶同档递增）。 */
 export function metricTintOpacity(rank: number, maxRank: number): number {

@@ -88,7 +88,7 @@ export interface NodeUsage {
   redundancyScore: number | null; // 成员会话的 D5 冗余规则分最小值（0-1，越低越糙；无评分 null）
 }
 
-/** 节点实例用量：聚合其全部尝试的成员会话（执行 + 验收）。无会话成员返回 null。 */
+/** 节点实例用量：聚合其全部尝试的成员会话（执行 + 验收）。无成员会话返回 null。 */
 export function nodeUsageOf(node: NodeInstance): NodeUsage | null {
   const u: NodeUsage = {
     sessions: 0, totalTokens: 0, totalMs: 0, activeMs: 0, turns: 0,

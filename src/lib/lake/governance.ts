@@ -137,6 +137,22 @@ export interface GovernanceResult {
   residue: string[];
 }
 
+/** 治理熔断错误（会话/bundle 上传共用；路由按 name 识别给 422 + governance 标记）。 */
+export class GovernanceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GovernanceError';
+  }
+}
+
+// 单会话上限（压缩后字节，会话与 bundle 成员会话共用）。可变引用（测试注入
+// 小阈值验证熔断路径）；生产初值经 env LAKE_MAX_SESSION_MB 覆写（LFS 模式下
+// 平台限制在 LFS 对象侧，git blob 的 100MiB 钳制不再适用）
+export const MAX_SESSION_BYTES = { value: (() => {
+  const v = Number(process.env.LAKE_MAX_SESSION_MB);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v * 1024 * 1024) : 100 * 1024 * 1024;
+})() };
+
 // 单条 jsonl 行：能 parse 则结构层+字符串层双重清洗后回序列化（保持一行），
 // 不能 parse 的行整行过字符串层（不丢内容）。
 function redactLine(line: string): string {
@@ -158,7 +174,8 @@ function looksMasked(v: string): boolean {
 // 独立复检：与清洗分离的第二遍扫描。正则组逐条重测（match 全量、无状态），
 // 结构层检查敏感键的值是否仍为明文。清洗后掩码形态（前4…后4/****）不会再
 // 命中，任何命中都是清洗未能覆盖的形态 → 熔断。
-function scanResidue(text: string): string[] {
+// bundle 治理复用（.json 深度清洗后的复检），导出供编排层组合使用。
+export function scanResidue(text: string): string[] {
   const hits: string[] = [];
   for (const rule of STRING_RULES) {
     const matches = text.match(rule.re);

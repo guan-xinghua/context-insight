@@ -132,32 +132,34 @@
   }
 }
 
-/* Run 工作台（暗色画布）：点阵网格底 + 节点 hover 亮边 + 细滚动条 */
-.run-canvas {
-  background-image: radial-gradient(circle, rgba(27, 31, 36, 0.07) 1px, transparent 1px);
-  background-size: 24px 24px;
-  background-position: 12px 12px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(27, 31, 36, 0.22) transparent;
-}
-
-.run-canvas::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
-}
-
-.run-canvas::-webkit-scrollbar-thumb {
-  background: rgba(27, 31, 36, 0.2);
-  border-radius: 9999px;
-  border: 2px solid #ffffff;
-}
-
-.run-canvas::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+/* Run 工作台（暗色画布）：点阵网格底已内嵌 SVG pattern（随 viewBox 矢量缩放，
+   见 RunGraph），此处仅保留节点 hover 亮边 */
 .run-node:hover .run-node-box {
   stroke-opacity: 0.95;
+}
+
+/* 相机模型：viewport 布局/绘制隔离（尺寸来自 absolute inset-0，不受内容影
+   响），camera 单元素 transform 走 GPU 合成——平移/缩放手势零重栅格化 */
+.run-viewport {
+  contain: strict;
+  touch-action: none;
+  cursor: grab;
+}
+
+.run-camera {
+  will-change: transform;
+}
+
+/* 手势期间：抓取光标 + 暂停流动画（水位 SMIL 由 pauseAnimations() 暂停），
+   消除动画 invalidate paint 与平移合成的竞争 */
+.run-viewport.run-gesture {
+  cursor: grabbing;
+}
+
+.run-gesture .run-edge-flow,
+.run-gesture .run-edge-flow-active,
+.run-gesture .run-rb-flow {
+  animation-play-state: paused;
 }
 
 /* Run 工作台边流动画：依赖边叠加流动光点（dash 周期 = 偏移量保证无缝循环），
@@ -187,6 +189,64 @@
 
 .run-rb-flow {
   animation: run-rb-flow 1.2s linear infinite;
+}
+
+/* ── P3 材质（Liquid Glass 克制版）──────────────────────────────
+   玻璃只给浮层 chrome（缩放工具条 / 概览侧栏 / 子图弹窗），内容层（节点/
+   边/文本）禁用 backdrop-filter（红线 IT：tests/ut/run-material.test.tsx）；
+   @supports 降级为不透明白——低端机零模糊开销 */
+:root {
+  --run-spring: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.run-glass {
+  background-color: rgba(255, 255, 255, 0.55);
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.08) 42%,
+    rgba(255, 255, 255, 0.22) 100%
+  );
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 0 0 1px rgba(31, 35, 40, 0.07),
+    0 2px 6px rgba(31, 35, 40, 0.06),
+    0 16px 48px rgba(31, 35, 40, 0.16);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .run-glass {
+    background: #ffffff;
+  }
+}
+
+/* 滚动边缘渐隐：内容滚到玻璃面板上下缘时用 mask 溶解，替代硬分割线 */
+.run-scroll-fade {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+
+/* 工具条按钮微交互：spring 缓动 + 按压回弹 + hover 发光内衬 */
+.run-tool-btn {
+  transition:
+    background-color 220ms var(--run-spring),
+    color 220ms var(--run-spring),
+    box-shadow 220ms var(--run-spring),
+    transform 220ms var(--run-spring);
+}
+
+.run-tool-btn:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(31, 35, 40, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.run-tool-btn:active {
+  transform: scale(0.98);
 }
 
 /* 数据仓令牌引导弹窗装饰动画（图标弹性入场 / 保存成功弹出） */
@@ -243,5 +303,11 @@
   .run-edge-flow-active,
   .run-rb-flow {
     animation: none;
+  }
+
+  .run-tool-btn,
+  .run-tool-btn:active {
+    transition: none;
+    transform: none;
   }
 }

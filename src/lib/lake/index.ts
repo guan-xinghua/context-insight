@@ -18,9 +18,10 @@ import { isProxyVersion } from '../shared/session-format';
 import { computeSessionActiveSplit } from '../active-time';
 import { defaultLakeRemote } from './remote';
 import { requirePushCredentials } from './auth';
-import { parseSubmitInfo, type SessionSubmitInfo } from './notes';
-import { governText } from './governance';
+import { parseSubmitInfo, extractSubmitter, type SessionSubmitInfo } from './notes';
+import { governText, GovernanceError, MAX_SESSION_BYTES } from './governance';
 import { exportSessionToClaudeJsonl, xLake } from './export';
+import { BUNDLE_ROOT_DIR } from './bundle-layout';
 import { readEnvelope, envelopeFields } from '../shared/envelope';
 import { readCaptureText, ensure7z, compressCaptureFile, decompressToPlain } from '@/lib/compression';
 import { importSession } from '@/lib/ingest/data-service';
@@ -30,21 +31,9 @@ const lakeLog = createLogger('lake');
 import type { PrismaClient } from '@prisma/client';
 
 export type { LakeSessionEntry, LakeOverview };
-
-// 平台单文件上限兜底（按压缩后字节）。导出为可变引用（测试注入小阈值
-// 验证熔断路径）；生产初值可经 env LAKE_MAX_SESSION_MB 覆写（LFS 模式
-// 下平台限制在 LFS 对象侧，git blob 的 100MiB 钳制不再适用）
-export const MAX_SESSION_BYTES = { value: (() => {
-  const v = Number(process.env.LAKE_MAX_SESSION_MB);
-  return Number.isFinite(v) && v > 0 ? Math.floor(v * 1024 * 1024) : 100 * 1024 * 1024;
-})() };
-
-export class GovernanceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'GovernanceError';
-  }
-}
+export { listParadigmDirs } from './mirror';
+// 治理常量/错误已挪至 governance.ts（会话与 bundle 上传共用），re-export 保兼容
+export { GovernanceError, MAX_SESSION_BYTES } from './governance';
 
 type PrismaLike = PrismaClient;
 
@@ -196,7 +185,7 @@ async function patchXLakeColumns(mainJsonl: string, sessionRowId: string, prisma
   }
 }
 
-interface SessionRow {
+export interface SessionRow {
   id: string;
   taskId: string;
   framework: string;
@@ -209,18 +198,23 @@ interface SessionRow {
   model: string | null;
 }
 
-// 收集待传文件到 staging 的 sessions/<sid>/ 布局，返回 staging 根目录。
+// 装配一个 insight 会话到 parentDir/<dirName>/（会话上传 = sessions/<sid>，
+// bundle 成员上传 = manifest location）。直传优先（本机源文件字节保真），
+// 无源走 DB 导出兜底——bundle 上传（bundle.ts）复用同一装配，sessions/runs
+// 上传链路同源（数据集归一基础）。
 // - sourcePath 是本机存在的 jsonl（proxy 捕获 / native claude）：原文件直传，
 //   subagents 在 <dirname>/<fileSid>/subagents/（proxy 落盘约定）
 // - 其余一律 DB 导出兜底：opencode（无捕获文件）、v1 数据仓下载的 .db 快照
 //   会话（sourcePath 是 .db）、源文件已被删除/移动的会话。导出件不含
 //   Full Context（system/tools），管线数据齐全。
-async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promise<{ stagingDir: string; sid: string }> {
+export async function stageInsightSession(
+  session: SessionRow,
+  prisma: PrismaLike,
+  parentDir: string,
+  dirName: string = session.taskId,
+): Promise<void> {
   const sid = session.taskId;
-  // staging 必须在镜像缓存目录之外：首次 clone / 镜像自愈会 rmSync 整个缓存目录
-  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `lake-staging-${sid}-`));
-  const sessionDir = path.join(stagingDir, 'sessions', sid);
-  fs.rmSync(stagingDir, { recursive: true, force: true });
+  const sessionDir = path.join(parentDir, dirName);
   fs.mkdirSync(sessionDir, { recursive: true });
 
   // 原文件直传条件：sourcePath 是本机存在的 jsonl（明文/.7z/.gz）且非 native
@@ -288,12 +282,30 @@ async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promi
       }
     }
   } else {
-    const written = await exportSessionToClaudeJsonl(prisma, session.taskId, stagingDir, session.framework);
-    const mainFile = path.join(stagingDir, 'sessions', sid, `${sid}.jsonl`);
-    if (!written.includes(path.posix.join('sessions', sid, `${sid}.jsonl`)) || fs.statSync(mainFile).size === 0) {
-      throw new Error(`Session "${sid}" has no uploadable content (no local jsonl source, DB export empty)`);
+    // DB 导出固定写 <scratch>/sessions/<sid>/——导完整体挪到目标位（bundle
+    // 成员的 location 是任意包内相对路径，不保证 sessions/<sid> 形态）
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), `lake-export-${sid}-`));
+    try {
+      const written = await exportSessionToClaudeJsonl(prisma, session.taskId, scratch, session.framework);
+      const mainFile = path.join(scratch, 'sessions', sid, `${sid}.jsonl`);
+      if (!written.includes(path.posix.join('sessions', sid, `${sid}.jsonl`)) || !fs.existsSync(mainFile) || fs.statSync(mainFile).size === 0) {
+        throw new Error(`Session "${sid}" has no uploadable content (no local jsonl source, DB export empty)`);
+      }
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(sessionDir), { recursive: true });
+      fs.renameSync(path.join(scratch, 'sessions', sid), sessionDir);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
     }
   }
+}
+
+// 会话上传的 staging 装配（sessions/<sid>/ 布局），返回 staging 根目录。
+async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promise<{ stagingDir: string; sid: string }> {
+  const sid = session.taskId;
+  // staging 必须在镜像缓存目录之外：首次 clone / 镜像自愈会 rmSync 整个缓存目录
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `lake-staging-${sid}-`));
+  await stageInsightSession(session, prisma, path.join(stagingDir, 'sessions'), sid);
   return { stagingDir, sid };
 }
 
@@ -363,23 +375,17 @@ function governStagedSession(stagingDir: string, sid: string): void {
   }
 }
 
-// 提交约定（mirror.parseCommitSubject 消费）：`提交人:<姓名> 内容描述:<描述>`。// 提交人强制非空 —— 空提交人的 commit author 会顶替为机器身份 cannbot-insight，
-// 列表"用户名"列失真。网关层校验，Web/CLI/TUI 三端统一拦截。
-// 行内匹配：\s* 不跨行（\s 含 \n 会让"提交人:\n内容描述:x"吃下一行冒名通过）
-export function extractSubmitter(description: string | undefined): { submitter: string; error: string | null } {
-  const m = (description ?? '').match(/提交人[ \t]*[:：][ \t]*(.*)/);
-  const submitter = m ? m[1].trim() : '';
-  if (!submitter) {
-    return { submitter: '', error: '提交人不能为空：请在提交信息中填写「提交人: <姓名>」（如「提交人: 张三」），不能使用默认值' };
-  }
-  return { submitter, error: null };
-}
+// 提交约定（mirror.parseCommitSubject 消费）：`提交人:<姓名> 内容描述:<描述>`。
+// extractSubmitter 实现挪至 notes.ts（会话与 bundle 上传共用），此处经导入使用。
 
 // 范式目录网关（与提交人同级强制）：显式给 category 时必须是数据仓现存
 // 顶层目录（动态白名单，防 typo 凭空造目录）。范式注册表 = 数据仓顶层
 // 目录，insight 零范式知识（sessions/ 存量区特判已退役——普通目录同待遇）。
 function validateCategory(remote: LakeRemote, category?: string): string | undefined {
   const value = category?.trim() || undefined;
+  // bundle 专区不是会话范式：会话上传禁止落入（bundle 目录由 bundle 通道
+  // 原子管理，混入的会话目录列表不可见、永无法清理）
+  if (value === BUNDLE_ROOT_DIR) throw new Error(`"${BUNDLE_ROOT_DIR}" 是 bundle 专区，不能作为会话上传目录`);
   // category 缺省落上传缺省目录（rootDir；''=仓库根根级位）
   if (value) {
     if (!/^[\w.-]+$/.test(value)) throw new Error(`Invalid paradigm dir: "${value.slice(0, 40)}"`);

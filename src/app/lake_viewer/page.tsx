@@ -14,6 +14,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeftIcon } from 'lucide-react';
 import { ParadigmSidebar, type ParadigmSummaryView } from '@/app/lake_viewer/_components/ParadigmSidebar';
 import { FilterBar, EMPTY_FILTERS, type Filters } from '@/app/lake_viewer/_components/FilterBar';
+import { BundleTable, type BundleItemView } from '@/app/lake_viewer/_components/BundleTable';
+import { BUNDLE_ROOT_DIR } from '@/lib/lake/bundle-layout';
 import { RunsTable, type RunItemView } from '@/app/lake_viewer/_components/RunsTable';
 import { OpgenProgress } from '@/app/lake_viewer/_components/OpgenProgress';
 import { LakeProgressView } from '@/app/lake_viewer/_components/LakeProgressView';
@@ -90,10 +92,15 @@ function ViewerPage() {
 
   const [result, setResult] = useState<{ query: string; data: RunsResponse | null; error: string | null } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // bundle 专区（opsbot-bundle）：数据源是 bundles API（键 = 选中范式，与 runs
+  // 的 query 键同款——切换/刷新期间旧数据自然失配，无需同步清态）
+  const [bundles, setBundles] = useState<{ paradigm: string; data: BundleItemView[] | null; error: string | null } | null>(null);
 
+  const isBundleZone = selected === BUNDLE_ROOT_DIR;
   const query = selected ? filtersToQuery(selected, filters) : '';
-  const runs = result?.query === query ? result.data : null;
-  const error = result?.query === query ? result.error : null;
+  const runs = !isBundleZone && result?.query === query ? result.data : null;
+  const error = !isBundleZone && result?.query === query ? result.error : null;
+  const bundleView = isBundleZone && bundles?.paradigm === selected ? bundles : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -106,7 +113,24 @@ function ViewerPage() {
   }, []);
 
   useEffect(() => {
-    if (!query) return;
+    if (!selected || !isBundleZone) return;
+    let cancelled = false;
+    const paradigm = selected;
+    void (async () => {
+      try {
+        const res = await fetch('/lake_viewer/api/bundles');
+        const data = await res.json() as { items?: BundleItemView[]; error?: string };
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+        if (!cancelled) setBundles({ paradigm, data: data.items ?? [], error: null });
+      } catch (e) {
+        if (!cancelled) setBundles({ paradigm, data: null, error: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selected, isBundleZone, refreshKey]);
+
+  useEffect(() => {
+    if (!query || isBundleZone) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -119,7 +143,7 @@ function ViewerPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [query, refreshKey]);
+  }, [query, refreshKey, isBundleZone]);
 
   // 导入结果：成功回带服务端构建的权威深链（framework = 刚落库行的记录类），
   // 失败回带错误文案——深链身份只能来自导入响应，不用导入前的渲染行
@@ -153,7 +177,7 @@ function ViewerPage() {
     router.replace(`/lake_viewer/?${p.toString()}`, { scroll: false });
   };
 
-  const loadingView = !error && !runs && !!selected;
+  const loadingView = !isBundleZone && !error && !runs && !!selected;
 
   return (
     <div className="flex h-screen flex-col">
@@ -178,7 +202,25 @@ function ViewerPage() {
           onSelect={name => updateUrl({ paradigm: name })}
         />
         <main className="flex min-w-0 flex-1 flex-col">
-          {selected ? (
+          {selected && isBundleZone ? (
+            <>
+              <div className="mt-2 flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-1.5 text-xs text-neutral-500">
+                <span>opsbot-bundle · 工作流包</span>
+                <span>
+                  {bundleView == null ? '加载中…' : `共 ${(bundleView.data?.length ?? 0)} 个 bundle`}
+                </span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {bundleView?.error && <p className="p-4 text-sm text-red-600">{bundleView.error}</p>}
+                {!bundleView?.error && bundleView && (bundleView.data?.length ?? 0) === 0 && (
+                  <p className="p-8 text-center text-sm text-neutral-400">该专区还没有 bundle——在 runs 工作台的「导入 Bundle」对话框里上传</p>
+                )}
+                {bundleView?.data && bundleView.data.length > 0 && (
+                  <BundleTable items={bundleView.data} onImported={() => setRefreshKey(k => k + 1)} />
+                )}
+              </div>
+            </>
+          ) : selected ? (
             <>
               <FilterBar filters={filters} facets={runs?.facets ?? { frameworks: [], ccVersions: [] }} onChange={f => updateUrl(f)} />
               {runs && runs.items.length > 0 && (

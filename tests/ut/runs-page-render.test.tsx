@@ -88,7 +88,118 @@ describe('Runs 页：store → page → RunList 数据接线', () => {
     expect(document.body.textContent).not.toContain('Viewer')
   })
 
+  it('header 恢复设置入口（bundle 上传的数据仓远端/凭据在设置页配置）', async () => {
+    const tree = await RunsPage()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root!.render(tree)
+    })
+
+    const settingsLink = document.querySelector('a[href="/settings"]') as HTMLAnchorElement | null
+    expect(settingsLink).not.toBeNull()
+    expect(settingsLink!.textContent).toContain('设置')
+  })
+
   it('页面声明 force-dynamic（fs 数据源禁止构建期静态预渲染）', () => {
     expect(runsPageDynamic).toBe('force-dynamic')
+  })
+})
+
+describe('Runs 页 Run 上传流（导入后上传，与会话页同款）', () => {
+  const lakeCalls: Array<{ action?: string; runId?: string; description?: string }> = []
+  let lakeResponse: { status: number; value: Record<string, unknown> } = { status: 200, value: {} }
+  const origFetch = globalThis.fetch
+
+  beforeAll(() => {
+    ;(globalThis as { fetch: typeof fetch }).fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/api/ingest/lake')) {
+        lakeCalls.push(JSON.parse(String(init?.body ?? '{}')))
+        return Promise.resolve(new Response(JSON.stringify(lakeResponse.value), { status: lakeResponse.status, headers: { 'content-type': 'application/json' } }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } }))
+    }) as typeof fetch
+  })
+
+  afterAll(() => {
+    ;(globalThis as { fetch: typeof fetch }).fetch = origFetch
+  })
+
+  const setInputValue = (input: HTMLInputElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    setter.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  const click = (el: Element): void => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  }
+
+  const settle = async (): Promise<void> => {
+    await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+  }
+
+  async function renderPage(): Promise<void> {
+    const tree = await RunsPage()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => { root!.render(tree) })
+    await settle()
+  }
+
+  it('行内上传按钮 → 表单（提交人必填）→ POST bundle-upload（runId 通道）→ 成功提示', async () => {
+    lakeCalls.length = 0
+    lakeResponse = { status: 200, value: { runId: 'minidemo01', unchanged: false, sessionCount: 3, missingSessions: [], warnings: [] } }
+    await renderPage()
+
+    const uploadBtn = document.querySelector('button[aria-label^="上传 run"]') as HTMLButtonElement
+    expect(uploadBtn).not.toBeNull()
+    click(uploadBtn)
+    await settle()
+    expect(document.body.textContent).toContain('上传 Run 到')
+
+    // 提交人未填：上传按钮禁用
+    const submitBtn = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === '上传') as HTMLButtonElement
+    expect(submitBtn.disabled).toBe(true)
+
+    setInputValue(document.querySelector('input[placeholder="如：张三"]') as HTMLInputElement, '张三')
+    setInputValue(document.querySelector('input[placeholder="这个包是什么（可选）"]') as HTMLInputElement, '演示 run')
+    await settle()
+    expect(submitBtn.disabled).toBe(false)
+    click(submitBtn)
+    await settle()
+
+    expect(lakeCalls).toEqual([{ action: 'bundle-upload', runId: 'minidemo01', description: '提交人: 张三\n内容描述: 演示 run' }])
+    expect(document.body.textContent).toContain('已上传 3 个成员会话')
+  })
+
+  it('治理熔断（422）→ 错误展示；缺行成员提示（warnings）', async () => {
+    lakeCalls.length = 0
+    lakeResponse = { status: 422, value: { error: '上传熔断：清洗后仍检出疑似密钥残留', governance: true } }
+    await renderPage()
+    click(document.querySelector('button[aria-label^="上传 run"]')!)
+    await settle()
+    setInputValue(document.querySelector('input[placeholder="如：张三"]') as HTMLInputElement, '张三')
+    await settle()
+    click([...document.querySelectorAll('button')].find(b => b.textContent?.trim() === '上传')!)
+    await settle()
+    expect(document.body.textContent).toContain('上传熔断')
+    expect(lakeCalls).toHaveLength(1)
+
+    // 成功但缺行成员：warnings 呈现（包内缺正文，不阻断）
+    lakeResponse = { status: 200, value: { runId: 'minidemo01', unchanged: false, sessionCount: 2, missingSessions: ['S9'], warnings: ['成员会话 S9 不在 insight（导入缺文件或已删除），包内缺该正文'] } }
+    click([...document.querySelectorAll('button')].find(b => b.textContent?.trim() === '关闭')!)
+    await settle()
+    click(document.querySelector('button[aria-label^="上传 run"]')!)
+    await settle()
+    setInputValue(document.querySelector('input[placeholder="如：张三"]') as HTMLInputElement, '李四')
+    await settle()
+    click([...document.querySelectorAll('button')].find(b => b.textContent?.trim() === '上传')!)
+    await settle()
+    expect(document.body.textContent).toContain('已上传 2 个成员会话')
+    expect(document.body.textContent).toContain('S9')
   })
 })

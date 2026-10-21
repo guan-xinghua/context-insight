@@ -7,7 +7,8 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listLakeOverview, importLakeSession, uploadLakeSession, GovernanceError } from '@/lib/lake';
+import { listLakeOverview, importLakeSession, uploadLakeSession, GovernanceError, listParadigmDirs } from '@/lib/lake';
+import { listLakeBundles, uploadLakeBundle, importLakeBundle } from '@/lib/lake/bundle';
 import { resolveLakeRemote, resolveAdhocRemote, testLakeRemote, listRemoteBranches, redactRemoteSecrets, normalizeDirPrefix } from '@/lib/lake/remote';
 import { classifyLakeError } from '@/lib/lake/auth';
 import { listRemoteDirs } from '@/lib/lake/mirror';
@@ -132,7 +133,53 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ error: `Unknown action: "${action}". Supported: list, import, upload, test` }, { status: 400 });
+    if (action === 'bundle-list') {
+      // bundle 专区（opsbot-bundle/<runId>/）：列表含 imported 标记（run-store
+      // 已有该 runId）+ 顶层目录清单（与会话范式注册表同源——导入弹窗目录
+      // 选择阶段与 sessions lake 步同构，归一基础）
+      try {
+        const items = listLakeBundles(remote);
+        const dirs = listParadigmDirs(remote);
+        return NextResponse.json({ items, dirs });
+      } catch (err) {
+        return fail(err);
+      }
+    }
+
+    if (action === 'bundle-upload') {
+      // 已导入 run → opsbot-bundle/<runId>/（原子整体替换；数据源 = insight，
+      // 与会话上传同款「导入后上传」链路）
+      const { runId, description } = body as { runId?: string; description?: string };
+      if (!runId) {
+        return NextResponse.json({ error: 'Missing runId' }, { status: 400 });
+      }
+      try {
+        const result = await uploadLakeBundle(prisma, runId, description, remote);
+        return NextResponse.json(result);
+      } catch (err) {
+        if (err instanceof GovernanceError) {
+          logWarn('route:ingest/lake', 'bundle 上传熔断拒绝', { runId, error: err.message });
+          return NextResponse.json({ error: err.message, governance: true }, { status: 422 });
+        }
+        return fail(err);
+      }
+    }
+
+    if (action === 'bundle-import') {
+      // 数据仓 bundle → 物化 → run 域导入 job（fire-and-forget，轮询状态）
+      const { runId } = body as { runId?: string };
+      if (!runId) {
+        return NextResponse.json({ error: 'Missing runId' }, { status: 400 });
+      }
+      try {
+        const handle = importLakeBundle(runId, { prisma }, remote);
+        return NextResponse.json(handle);
+      } catch (err) {
+        return fail(err);
+      }
+    }
+
+    return NextResponse.json({ error: `Unknown action: "${action}". Supported: list, import, upload, bundle-list, bundle-upload, bundle-import, test, branches, dirs` }, { status: 400 });
   } catch (err) {
     return fail(err);
   }

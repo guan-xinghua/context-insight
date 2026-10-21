@@ -47,6 +47,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { sortDirEntries, type DirEntry } from "@/components/ingest/browse"
+import { lakeErrorMessage } from "@/components/ingest/lake-ui"
 
 // 兼容存量 IT 导入（local-import-dir-time-sort / local-import-browse-filter）
 export { sortDirEntries }
@@ -136,15 +137,6 @@ function formatTokens(n: number): string {
   if (n < 1000) return String(n)
   if (n < 1000000) return `${(n / 1000).toFixed(1)}K`
   return `${(n / 1000000).toFixed(2)}M`
-}
-
-// lake 路由错误（带结构化 code）：凭据类错误附设置页指引，其余原样
-function lakeErrorMessage(data: { error?: string; code?: string }): string {
-  const base = String(data.error ?? "Import failed")
-  if (["no-credentials", "auth-failed", "forbidden"].includes(data.code ?? "")) {
-    return `${base} —— 请在弹窗中配置凭据后重试`
-  }
-  return base
 }
 
 export function LocalFileImport() {

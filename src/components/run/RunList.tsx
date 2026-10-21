@@ -16,7 +16,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trash2Icon } from "lucide-react";
+import { UploadBundleDialog } from "@/components/run/UploadBundleDialog";
+import { BAY_NAME } from "@/lib/branding";
+import { Trash2Icon, UploadIcon, LoaderIcon, CheckIcon, XIcon } from "lucide-react";
 
 export interface RunRow {
   runId: string;
@@ -57,6 +59,11 @@ export function RunList({ initialRuns, warnings }: { initialRuns: RunRow[]; warn
   const router = useRouter();
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 上传到数据仓（与会话列表同款「导入后上传」）：行内状态图标 + 共享弹窗
+  type UploadStatus = "idle" | "uploading" | "done" | "error";
+  const [uploadStatus, setUploadStatus] = useState<Record<string, UploadStatus>>({});
+  const [uploadTarget, setUploadTarget] = useState<{ runId: string; name: string | null } | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const remove = async (runId: string) => {
     setDeleting(runId);
@@ -102,6 +109,7 @@ export function RunList({ initialRuns, warnings }: { initialRuns: RunRow[]; warn
                 <th className="px-3 py-2 font-medium">规模</th>
                 <th className="px-3 py-2 font-medium">回滚/子图</th>
                 <th className="px-3 py-2 font-medium">导入时间</th>
+                <th className="px-3 py-2 font-medium w-14" title={`上传到 ${BAY_NAME}`}>上传</th>
                 <th className="px-3 py-2 font-medium w-10"></th>
               </tr>
             </thead>
@@ -137,6 +145,30 @@ export function RunList({ initialRuns, warnings }: { initialRuns: RunRow[]; warn
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{formatDate(run.importedAt)}</td>
                   <td className="px-3 py-2">
+                    {(() => {
+                      const uStatus = uploadStatus[run.runId] ?? "idle";
+                      return (
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => {
+                            setUploadTarget({ runId: run.runId, name: run.name });
+                            setUploadOpen(true);
+                          }}
+                          disabled={uStatus === "uploading"}
+                          title={`上传到 ${BAY_NAME}`}
+                          aria-label={`上传 run ${run.runId} 到数据仓`}
+                        >
+                          {uStatus === "uploading" && <LoaderIcon className="size-4 animate-spin" />}
+                          {uStatus === "idle" && <UploadIcon className="size-4" />}
+                          {uStatus === "done" && <CheckIcon className="size-4 text-emerald-500" />}
+                          {uStatus === "error" && <XIcon className="size-4 text-red-500" />}
+                        </Button>
+                      );
+                    })()}
+                  </td>
+                  <td className="px-3 py-2">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -154,6 +186,20 @@ export function RunList({ initialRuns, warnings }: { initialRuns: RunRow[]; warn
           </table>
         </div>
       )}
+      <UploadBundleDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        runId={uploadTarget?.runId ?? ""}
+        runName={uploadTarget?.name ?? null}
+        onUploadStart={() => {
+          if (uploadTarget) setUploadStatus(prev => ({ ...prev, [uploadTarget.runId]: "uploading" }));
+          setError(null);
+        }}
+        onResult={({ ok, message }) => {
+          if (uploadTarget) setUploadStatus(prev => ({ ...prev, [uploadTarget.runId]: ok ? "done" : "error" }));
+          if (!ok && message) setError(message);
+        }}
+      />
     </div>
   );
 }

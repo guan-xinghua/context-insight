@@ -119,6 +119,8 @@ describe('Run 详情页暗色工作台', () => {
     expect(text).toContain('回滚')
     expect(text).toContain('Run 概览')
     expect(text).toContain('节点')
+    // 页头成员会话计数（导入时口径）：imported 3 / total 3；侧栏不再重复展示
+    expect(text).toContain('成员会话：3/3')
     expect(text).toContain('第 1 次运行')
 
     // 边渲染：默认全部静止（跑马灯按需点亮——见下个用例），正交走线无三次贝塞尔
@@ -216,6 +218,64 @@ describe('Run 详情页暗色工作台', () => {
       ;(document.querySelector('[aria-label="适配画布"]') as HTMLElement).click()
     })
     expect(zoomLabel()).toBe('100%')
+  })
+
+  it('相机模型：缩放/平移直改 camera transform 与百分比同步，手势期间挂 run-gesture 暂停动画', async () => {
+    await renderPage()
+    const camera = document.querySelector('.run-camera') as HTMLElement
+    const viewport = document.querySelector('.run-viewport') as HTMLElement
+    const svg = document.querySelector('.run-canvas svg') as SVGSVGElement
+    const label = () => document.querySelector('[aria-label="重置缩放"]')!.textContent
+    const svgW = () => Number(svg.getAttribute('width'))
+
+    // 初始：单位相机（SVG 按内容尺寸矢量栅格，CSS 无缩放分量）
+    const w0 = svgW()
+    expect(w0).toBeGreaterThan(0)
+    expect(camera.style.transform).toBe('translate(0px, 0px)')
+    expect(label()).toBe('100%')
+
+    // 工具条放大（离散操作）：立即矢量重栅格——SVG 尺寸随缩放档位对齐，
+    // 任意档位下文字线条按显示分辨率渲染（高清），CSS 保持纯平移
+    await act(async () => {
+      ;(document.querySelector('[aria-label="放大"]') as HTMLElement).click()
+    })
+    expect(label()).toBe('115%')
+    expect(svgW()).toBeCloseTo(w0 * 1.15, 1)
+    expect(camera.style.transform).toBe('translate(0px, 0px)')
+
+    // Ctrl+滚轮（连击手势）：先 GPU 拉伸（CSS scale 相对已栅格尺寸），SVG
+    // 尺寸不动；静默 160ms 后才落定重栅格。happy-dom 的 WheelEvent 不读修
+    // 饰键 init，用 MouseEvent + defineProperty deltaY 模拟
+    const canvas = document.querySelector('.run-canvas') as HTMLElement
+    await act(async () => {
+      const ev = new MouseEvent('wheel', { ctrlKey: true, cancelable: true })
+      Object.defineProperty(ev, 'deltaY', { value: -100 })
+      canvas.dispatchEvent(ev)
+    })
+    expect(label()).toBe('129%')
+    expect(camera.style.transform).toContain('scale(1.12)')
+    expect(svgW()).toBeCloseTo(w0 * 1.15, 1)
+
+    // 拖拽平移：手势中 viewport 挂 run-gesture（CSS 暂停流动画 + 抓取光标），
+    // translate 随指针增量更新（缩放分量保持）
+    await act(async () => {
+      canvas.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100 }))
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 160, clientY: 130 }))
+    })
+    expect(viewport.classList.contains('run-gesture')).toBe(true)
+    expect(camera.style.transform).toContain('translate(60px, 30px)')
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(viewport.classList.contains('run-gesture')).toBe(false)
+
+    // 重置：回归单位相机（SVG 尺寸与 CSS 平移双双复位）
+    await act(async () => {
+      ;(document.querySelector('[aria-label="重置缩放"]') as HTMLElement).click()
+    })
+    expect(label()).toBe('100%')
+    expect(camera.style.transform).toBe('translate(0px, 0px)')
+    expect(svgW()).toBe(w0)
   })
 
   it('点击节点：侧栏从概览切换为运行历史（逐次尝试）', async () => {
@@ -805,10 +865,10 @@ describe('系统级观测：指标透镜 + Run Trace 时间轴', () => {
     const boxes = () => Array.from(document.querySelectorAll('.run-node .run-node-box'));
     const findByStroke = (c: string) => boxes().find(b => b.getAttribute('stroke') === c)!;
 
-    // 状态透镜（默认）：节点盒染状态色（10%），描边加粗 2px
+    // 状态透镜（默认）：节点盒染状态色（8%，P3 铺色降饱和），描边加粗 2px
     const failedBox = findByStroke(statusColor('failed'));
     expect(failedBox.getAttribute('fill')).toBe(statusColor('failed'));
-    expect(failedBox.getAttribute('fill-opacity')).toBe('0.1');
+    expect(failedBox.getAttribute('fill-opacity')).toBe('0.08');
     expect(failedBox.getAttribute('stroke-width')).toBe('2');
     expect(failedBox.getAttribute('stroke-opacity')).toBe('0.9');
     const passedBox = findByStroke(statusColor('passed'));
@@ -1126,5 +1186,70 @@ describe('失败归因 post-mortem：环境指纹 / 同因连败 / 验收项清�
     expect(text).toContain('通过 1/3');
     expect(text).toContain('边界用例齐全（tests 目录含边界样例）');
     expect(text).toContain('样例无残留（grep 无 AddCustom）');
+  });
+});
+
+describe('无 graph 注解空态（导出侧未启用 graph 插件）', () => {
+  /** 递归剥掉全树成员的 annotation，模拟不带 graph 插件的导出包 */
+  function stripAnnotations(node: { members?: Array<Record<string, unknown>> }): void {
+    for (const m of node.members ?? []) {
+      delete m.annotation;
+      if (m.data) stripAnnotations(m.data as { members?: Array<Record<string, unknown>> });
+    }
+  }
+
+  async function renderNoGraphPage() {
+    // 在原始 manifest JSON 上剥 annotation（模拟不带 graph 插件的导出包），
+    // 再走完整解析 → 视图模型管线
+    const raw = structuredClone(fixture) as { data: { members: Array<Record<string, unknown>> } };
+    stripAnnotations(raw.data);
+    const vm2 = buildViewModel(parseAndIndex(raw));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        run: {
+          runId: 'minidemo01',
+          name: null,
+          status: vm2.status,
+          exportDataComplete: vm2.exportDataComplete,
+          startedAt: vm2.startedAt,
+          finishedAt: vm2.finishedAt,
+          import: importMeta,
+        },
+        viewModel: vm2,
+      }),
+    })));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        createElement(
+          Suspense,
+          { fallback: null },
+          createElement(RunDetailPage, { params: Promise.resolve({ runId: 'minidemo01' }) }),
+        ),
+      );
+    });
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0));
+    });
+  }
+
+  it('工作台降级为空态引导卡：说明原因与可用信息，隐藏模式切换与画布', async () => {
+    await renderNoGraphPage();
+
+    // 空态卡就地说明（白话），不再是一张静默空画布
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('该 Run 没有图数据');
+    expect(text).toContain('未包含 graph 注解数据');
+    expect(text).toContain('Run 概览与成员会话信息仍可在右侧查看');
+    // 画布与模式切换不渲染（三模式均依赖图数据）
+    expect(document.querySelector('.run-canvas')).toBeNull();
+    expect(document.querySelector('[aria-label="视图模式"]')).toBeNull();
+    // 顶部警告条同步给出解释
+    expect(text).toContain('依赖图与代际/重试视图不可用');
+    // 侧栏 Run 概览仍可用
+    expect(text).toContain('Run 概览');
   });
 });

@@ -13,6 +13,7 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { RunList } from '@/components/run/RunList';
 import { BundleImport } from '@/components/run/BundleImport';
 import { listRuns } from '@/lib/run/run-store';
+import { SettingsIcon } from 'lucide-react';
 
 // run 数据是 fs 落盘（~/.cannbot-insight/runs/），导入后必须反映到下一次请求：
 // 未声明动态渲染时该页会被构建期静态预渲染，把「空列表」烘焙进缓存——
@@ -26,7 +27,16 @@ export default async function RunsPage() {
       <main className="flex w-full max-w-7xl flex-col gap-6 px-6 py-8 mx-auto">
         <AppHeader
           actions={
-            <BundleImport />
+            <>
+              <BundleImport />
+              {/* 设置入口（数据仓/日志等配置页）：bundle 上传到数据仓的远端与
+                  凭据在这里配，run 域需要直达（33c64e9 曾随 session 侧 chrome
+                  一并移除，cannbay-bundle 上传入口落地后恢复） */}
+              <a href="/settings" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
+                <SettingsIcon className="size-4 text-muted-foreground" />
+                设置
+              </a>
+            </>
           }
         />
         <RunList initialRuns={runs} warnings={warnings} />

@@ -58,6 +58,19 @@ export type LakeRecord = NoteEntry | ScorecardEntry
 /** 会话提交信息：上传时人工填写、落在该会话目录最后触碰 commit 的 message 里 */
 export interface SessionSubmitInfo { author: string | null; description: string | null; remark: string | null }
 
+// 提交人网关（会话与 bundle 上传共用）：commit message 需含「提交人:<姓名>」。
+// 提交人强制非空 —— 空提交人的 commit author 会顶替为机器身份 cannbot-insight，
+// 列表"用户名"列失真。网关层校验，Web/CLI/TUI 三端统一拦截。
+// 行内匹配：\s* 不跨行（\s 含 \n 会让"提交人:\n内容描述:x"吃下一行冒名通过）
+export function extractSubmitter(description: string | undefined): { submitter: string; error: string | null } {
+  const m = (description ?? '').match(/提交人[ \t]*[:：][ \t]*(.*)/);
+  const submitter = m ? m[1].trim() : '';
+  if (!submitter) {
+    return { submitter: '', error: '提交人不能为空：请在提交信息中填写「提交人: <姓名>」（如「提交人: 张三」），不能使用默认值' };
+  }
+  return { submitter, error: null };
+}
+
 /** 记录定位：recording 缺省 capture（存量兼容）；native 会话的记录落在
  *  <sid>.native/ 目录内——写错位会在裸目录制造幻影会话条目。 */
 export interface SessionLoc { sid: string; paradigm: string; isBaseline: boolean; recording?: 'capture' | 'native' }

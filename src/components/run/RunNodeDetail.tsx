@@ -112,7 +112,7 @@ function MemberLink({ member: memberRef }: { member: SessionMemberRef }) {
   }
   return (
     <span className="text-xs text-[#8c959f]">
-      {roleText}：无会话成员（{memberRef.kind === "process" ? "Bash/脚本" : "未开始"}）
+      {roleText}：无成员会话（{memberRef.kind === "process" ? "Bash/脚本" : "未开始"}）
     </span>
   );
 }

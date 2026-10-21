@@ -20,7 +20,7 @@ import { importSession } from '@/lib/ingest/data-service';
 import { logInfo, logError } from '@/lib/logger';
 import { parseManifest, buildIndex, type RunIndex } from './reader';
 import { MANIFEST_FILENAMES, type RunManifest } from './model';
-import { saveRun, runsRoot, isSafeRunId, readRun } from './run-store';
+import { saveRun, runsRoot, readRun, isSafeRunId } from './run-store';
 
 export interface BundleValidation {
   ok: boolean;
@@ -144,11 +144,13 @@ export function getImportJob(jobId: string): ImportJobState | null {
   return jobs.get(jobId) ?? null;
 }
 
-/** 供测试与 CLI 复用的 job 启动（fire-and-forget；校验由调用方先行）。 */
+/** 供测试与 CLI 复用的 job 启动（fire-and-forget；校验由调用方先行）。
+ *  cleanupDir：随 job 生存的临时目录（lake bundle 物化件）——终态（done/
+ *  error）后删除，目录生命周期由 job 自管。 */
 export function createImportJob(
   dirPath: string,
   manifest: RunManifest,
-  opts?: { prisma?: PrismaClient; root?: string },
+  opts?: { prisma?: PrismaClient; root?: string; cleanupDir?: string },
 ): string {
   const jobId = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const state: ImportJobState = {
@@ -168,13 +170,18 @@ export function createImportJob(
     finishedAt: null,
   };
   jobs.set(jobId, state);
-  // 后台执行不抛出（错误进 job 状态）；不 await——路由立即返回 jobId
-  void runImportJob(state, dirPath, manifest, opts).catch(e => {
-    state.step = 'error';
-    state.error = e instanceof Error ? e.message : String(e);
-    state.finishedAt = new Date().toISOString();
-    logError('run:import', '导入 job 异常终止', { jobId, error: state.error });
-  });
+  // 后台执行不抛出（错误进 job 状态）；不 await——路由立即返回 jobId。
+  // cleanupDir 在 promise 落定（成功/失败皆然）后清理
+  void runImportJob(state, dirPath, manifest, opts)
+    .catch(e => {
+      state.step = 'error';
+      state.error = e instanceof Error ? e.message : String(e);
+      state.finishedAt = new Date().toISOString();
+      logError('run:import', '导入 job 异常终止', { jobId, error: state.error });
+    })
+    .finally(() => {
+      if (opts?.cleanupDir) fs.rmSync(opts.cleanupDir, { recursive: true, force: true });
+    });
   return jobId;
 }
 

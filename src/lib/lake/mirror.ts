@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaultLakeRemote, escapeRegExp, normalizeDirPrefix, redactRemoteSecrets, stripUrlCreds } from './remote';
 import type { LakeRemote, PushAuth } from './remote';
+import { BUNDLE_ROOT_DIR, BUNDLE_MANIFEST_FILE, BUNDLE_META_FILE } from './bundle-layout';
 import { privateLfsBinDir, ensureLfsBinaryAvailable } from './lfs-setup';
 import { readEnvelope } from '../shared/envelope';
 import { isProxyVersion } from '../shared/session-format';
@@ -298,6 +299,9 @@ function resolveSessionPath(p: string): { folder: string; root: string; baseline
   const slash = p.lastIndexOf('/');
   if (slash < 0) return null;
   const segs = p.slice(0, slash).split('/');
+  // bundle 专区（opsbot-bundle/<runId>/…）不是会话布局：成员会话只归 bundle，
+  // 不进会话列表/定位视野（设计 cannbay-bundle R5）
+  if (segs[0] === BUNDLE_ROOT_DIR) return null;
   let fi = segs.length - 1;
   if (segs[fi] === 'subagents') {
     if (fi === 0) return null;
@@ -602,7 +606,8 @@ function locateSessionLocations(dir: string, remote: LakeRemote, sid: string, re
   // 逐项匹配（不 join('\n')/split('\n')）：ls-tree -z 路径可含 \n（NUL 才是
   // 分隔符），按行拆会让恶意文件路径伪造出 `evil-root/<sid>/` 形态的"行"
   // ——完全可控的 root 进入 locs 后直通下游 shell 命令（sparse/add/show）
-  const files = lsTreeFiles(dir, '', remote);
+  // bundle 专区同理排除（runId 恰与 sid 同形时的防误定位）
+  const files = lsTreeFiles(dir, '', remote).filter(f => !f.startsWith(`${BUNDLE_ROOT_DIR}/`));
   const re = new RegExp(`^([^/]+)\\/(baseline\\/)?${escapeRegExp(folder)}\\/`);
   const locs = new Map<string, SessionLocation>();
   for (const f of files) {
@@ -1704,4 +1709,249 @@ export async function listParadigmDirsDetailed(remote: LakeRemote = defaultLakeR
 export function readParadigmDirs(dir: string, remote: LakeRemote): string[] {
   if (!revParseMain(dir, remote)) return [];
   return lsTreeTopDirs(dir, remote).sort();
+}
+
+// ── bundle 对象（opsbot-bundle/<runId>/，设计 cannbay-bundle）───────────
+// 与会话对象共用 runGit/ensureMirror/pushMirror/withWriteLock 原语；语义差异
+// （无 baseline/记录类/范式位）不进会话函数——各自独立函数，互不触碰。
+
+export interface LakeBundleEntry {
+  runId: string;
+  name: string | null;
+  exportDataComplete: boolean | null;
+  memberCount: number | null;
+  sessionCount: number | null;
+  submitter: string | null;
+  description: string | null;
+  remark: string | null;
+  uploadedAt: string | null;
+  fileCount: number;
+  commitTime: string;
+}
+
+// manifest 成员计数（递归含嵌套子 workflow）
+function countBundleMembers(data: { members?: unknown[] }): number {
+  let n = 0;
+  for (const m of data.members ?? []) {
+    n += 1;
+    if (m && typeof m === 'object' && 'data' in (m as Record<string, unknown>)) {
+      const inner = (m as { data?: { members?: unknown[] } }).data;
+      if (inner && typeof inner === 'object') n += countBundleMembers(inner);
+    }
+  }
+  return n;
+}
+
+/** bundle 列表：锚定目录扫描（含 workflow.json 即 bundle）+ 两个 JSON blob
+ *  读取（manifest/meta）+ 一次 log walk 取 commitTime。 */
+export function listBundles(remote: LakeRemote = defaultLakeRemote()): LakeBundleEntry[] {
+  const dir = ensureMirror(remote);
+  if (!revParseMain(dir, remote)) return [];
+  const files = lsTreeFiles(dir, ` -- ${BUNDLE_ROOT_DIR}/`, remote);
+  if (files.length === 0) return [];
+
+  // runId → { 锚定 blob、其余文件清单 }；锚定 = <runId>/workflow.json
+  const perRun = new Map<string, { anchored: boolean; files: string[]; blobOids: Map<string, string> }>();
+  const treeOut = runGit(`git ls-tree -r -z origin/${remote.branch} -- ${BUNDLE_ROOT_DIR}/`, dir).toString('utf8');
+  for (const rec of treeOut.split('\0')) {
+    const entry = splitLsTreeEntry(rec);
+    if (!entry) continue;
+    const m = entry.meta.match(/^(\d+)\s+(\w+)\s+([0-9a-f]+)$/);
+    if (!m || m[2] !== 'blob') continue;
+    const rel = entry.path.slice(`${BUNDLE_ROOT_DIR}/`.length);
+    const slash = rel.indexOf('/');
+    if (slash <= 0) continue; // 顶层散文件忽略（无 runId 归属）
+    const runId = rel.slice(0, slash);
+    const file = rel.slice(slash + 1);
+    let item = perRun.get(runId);
+    if (!item) { item = { anchored: false, files: [], blobOids: new Map() }; perRun.set(runId, item); }
+    item.files.push(file);
+    item.blobOids.set(file, m[3]);
+    if (file === BUNDLE_MANIFEST_FILE) item.anchored = true;
+  }
+
+  // commitTime：一次 log walk，runId 前缀首命中（新→旧）即最新上传
+  const runCommit = new Map<string, { time: string; subject: string }>();
+  try {
+    const logOut = runGitText(
+      `git -c core.quotepath=off log --pretty=format:%x00%aI%x1f%s --name-only origin/${remote.branch}`,
+      dir,
+    );
+    const prefixOf = (f: string): string | null => {
+      if (!f.startsWith(`${BUNDLE_ROOT_DIR}/`)) return null;
+      const rest = f.slice(`${BUNDLE_ROOT_DIR}/`.length);
+      const slash = rest.indexOf('/');
+      return slash > 0 ? rest.slice(0, slash) : null;
+    };
+    for (const record of logOut.split('\x00')) {
+      const lines = record.split('\n').filter(l => l.trim());
+      if (lines.length === 0) continue;
+      const sep = lines[0].indexOf('\x1f');
+      if (sep < 0) continue;
+      for (const file of lines.slice(1)) {
+        const runId = prefixOf(file);
+        if (runId && !runCommit.has(runId)) runCommit.set(runId, { time: lines[0].slice(0, sep), subject: lines[0].slice(sep + 1) });
+      }
+    }
+  } catch { /* 无历史时 commitTime 退化空串 */ }
+
+  const readJson = (oid: string): Record<string, unknown> | null => {
+    try { return JSON.parse(runGit(`git cat-file blob ${oid}`, dir).toString('utf8')) as Record<string, unknown>; }
+    catch { return null; }
+  };
+
+  const entries: LakeBundleEntry[] = [];
+  for (const [runId, item] of perRun) {
+    if (!item.anchored) continue;
+    const manifest = item.blobOids.has(BUNDLE_MANIFEST_FILE) ? readJson(item.blobOids.get(BUNDLE_MANIFEST_FILE)!) : null;
+    const meta = item.blobOids.has(BUNDLE_META_FILE) ? readJson(item.blobOids.get(BUNDLE_META_FILE)!) : null;
+    const metaData = readEnvelope(meta)?.schema === 'cc-bundle-meta' ? (readEnvelope(meta)!.data as Record<string, unknown> | undefined) : undefined;
+    const data = (manifest?.data ?? {}) as { members?: unknown[]; exportDataComplete?: unknown };
+    // sessionCount 权威源 = 仓内 sessions/ 一级目录数
+    const sessionDirs = new Set(item.files
+      .filter(f => f.startsWith('sessions/') && f.indexOf('/', 'sessions/'.length) > 0)
+      .map(f => f.slice('sessions/'.length, f.indexOf('/', 'sessions/'.length))));
+    entries.push({
+      runId,
+      name: typeof manifest?.name === 'string' ? manifest.name : null,
+      exportDataComplete: manifest ? data.exportDataComplete === true : null,
+      memberCount: manifest ? countBundleMembers(data) : null,
+      sessionCount: sessionDirs.size || null,
+      submitter: typeof metaData?.submitter === 'string' ? metaData.submitter : null,
+      description: typeof metaData?.description === 'string' ? metaData.description : null,
+      remark: typeof metaData?.remark === 'string' ? metaData.remark : null,
+      uploadedAt: typeof metaData?.uploadedAt === 'string' ? metaData.uploadedAt : null,
+      fileCount: item.files.length,
+      commitTime: runCommit.get(runId)?.time ?? '',
+    });
+  }
+  entries.sort((a, b) => (b.commitTime || '').localeCompare(a.commitTime || ''));
+  return entries;
+}
+
+/** bundle 物化（只读路径，不触碰镜像工作树）：ls-tree 前缀 + blob 批量预取
+ *  + cat-file --batch 分批写盘（与 materializeSession 同构；LFS 模式指针件
+ *  逐文件 --filters smudge）。压缩态原样物化（解压归编排层）。 */
+export function materializeBundle(runId: string, targetDir: string, remote: LakeRemote = defaultLakeRemote()): string {
+  const t0 = Date.now();
+  if (!/^[\w.-]+$/.test(runId)) throw new Error(`Invalid bundle id: "${runId}"`);
+  lakeLog.info('bundle materialize start', { runId });
+  const dir = ensureMirror(remote);
+  if (!revParseMain(dir, remote)) throw new Error('lake mirror has no main branch');
+  const prefix = `${BUNDLE_ROOT_DIR}/${runId}/`;
+  const treeOut = runGit(`git ls-tree -r -z origin/${remote.branch} -- ${prefix}`, dir).toString('utf8');
+  const entries: Array<{ oid: string; repoPath: string }> = [];
+  for (const rec of treeOut.split('\0')) {
+    const entry = splitLsTreeEntry(rec);
+    if (!entry) continue;
+    const m = entry.meta.match(/^(\d+)\s+(\w+)\s+([0-9a-f]+)$/);
+    if (!m || m[2] !== 'blob') continue;
+    if (!entry.path.startsWith(prefix)) continue;
+    entries.push({ oid: m[3], repoPath: entry.path });
+  }
+  if (entries.length === 0 || !entries.some(e => e.repoPath === `${prefix}${BUNDLE_MANIFEST_FILE}`)) {
+    throw new Error(`Bundle not found in lake: "${runId}"`);
+  }
+  fs.rmSync(targetDir, { recursive: true, force: true });
+  fs.mkdirSync(targetDir, { recursive: true });
+  if (remote.lfs) {
+    for (const e of entries) {
+      const target = path.join(targetDir, e.repoPath.slice(prefix.length));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const cat = spawnGitAuthed(['cat-file', '--filters', `--path=${e.repoPath}`, e.oid], dir, remote.pullAuth, 300_000);
+      if (cat.error || cat.status !== 0) {
+        throw new Error(`git cat-file --filters failed for "${e.repoPath}" (${e.oid}): ${cat.error?.message ?? cat.stderr?.toString()}`);
+      }
+      fs.writeFileSync(target, cat.stdout);
+    }
+  } else {
+    const local = localObjectOids(dir);
+    const missing = entries.filter(e => !local.has(e.oid)).map(e => e.oid);
+    if (missing.length > 0) prefetchBlobs(dir, missing, remote.pullAuth);
+    const planned = entries.map(e => {
+      const target = path.join(targetDir, e.repoPath.slice(prefix.length));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      return { oid: e.oid, target };
+    });
+    materializeBlobsByBatch(dir, planned, remote.pullAuth);
+  }
+  lakeLog.info('bundle materialize done', { runId, files: entries.length, ms: Date.now() - t0 });
+  return targetDir;
+}
+
+/** bundle 上传：narrow sparse 物化专区目录 + scoped add + commit + push
+ *  （与 uploadFolder 同构管道；无 baseline/记录类/范式位概念）。staging 布局
+ *  stagingDir/<runId>/ = 权威全集，目标整体替换（原子语义）。 */
+export async function uploadBundleFolder(
+  stagingDir: string, runId: string, commitMessage: string, remote: LakeRemote = defaultLakeRemote(),
+): Promise<UploadResult> {
+  const t0 = Date.now();
+  lakeLog.info('bundle upload start', { runId });
+  return withWriteLock(async () => {
+    if (!/^[\w.-]+$/.test(runId)) throw new Error(`Invalid bundle id: "${runId}"`);
+    const dir = ensureMirror(remote);
+    if (!revParseMain(dir, remote)) throw new Error('lake mirror has no main branch');
+    if (remote.lfs) await ensureLfsReadyWithBootstrap(dir);
+    const targetRel = `${BUNDLE_ROOT_DIR}/${runId}`;
+
+    runGit('git sparse-checkout init --no-cone', dir);
+    runGit(`git sparse-checkout set "/${targetRel}/**" "/.gitattributes"`, dir);
+    try {
+      runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
+    } catch {
+      lakeLog.warn('镜像工作树脏（上次失败上传残留），硬复位自愈', { runId });
+      runGit(`git reset --hard origin/${remote.branch}`, dir);
+      runGit('git clean -fdq', dir);
+      runGit(`git checkout -B ${remote.branch} origin/${remote.branch}`, dir);
+    }
+    runGit('git reset --quiet', dir);
+
+    fs.rmSync(path.join(dir, ...targetRel.split('/')), { recursive: true, force: true });
+    fs.mkdirSync(path.join(dir, ...targetRel.split('/')), { recursive: true });
+    fs.cpSync(path.join(stagingDir, runId), path.join(dir, ...targetRel.split('/')), { recursive: true });
+
+    let gitattributesFixed = false;
+    const gaPath = path.join(dir, '.gitattributes');
+    if (remote.lfs) {
+      ensureLfsGitattributes(dir);
+    } else if (fs.existsSync(gaPath)) {
+      const ga = fs.readFileSync(gaPath, 'utf8');
+      const fixed = ga.split('\n').filter(l => !l.includes('filter=lfs')).join('\n');
+      if (fixed !== ga) {
+        fs.writeFileSync(gaPath, fixed);
+        runGit('git add .gitattributes', dir);
+        gitattributesFixed = true;
+      }
+    }
+
+    runGit(`git add ${targetRel}`, dir, 120_000, remote.lfs ? { raw: true } : undefined);
+    const msgFile = path.join(dir, '_commit_msg.txt');
+    fs.writeFileSync(msgFile, commitMessage);
+    let unchanged = false;
+    try {
+      runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost commit -F "${msgFile}"`, dir);
+    } catch {
+      try {
+        runGit('git diff --cached --quiet', dir);
+        unchanged = true;
+      } catch {
+        throw new Error(`git commit failed for bundle "${runId}" while staged changes exist`);
+      }
+    }
+    try { fs.unlinkSync(msgFile); } catch { /* ignore */ }
+
+    if (!unchanged) {
+      const push = () => { pushMirror(dir, remote); };
+      try {
+        push();
+      } catch {
+        lakeLog.warn('push 被拒，fetch+merge 换父提交后重试', { runId });
+        runGit(`git fetch --quiet origin ${remote.branch}`, dir);
+        runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost merge --allow-unrelated-histories --no-edit origin/${remote.branch}`, dir);
+        push();
+      }
+    }
+    lakeLog.info('bundle upload done', { runId, unchanged, ms: Date.now() - t0 });
+    return { folder: `${targetRel}/`, unchanged, gitattributesFixed };
+  });
 }

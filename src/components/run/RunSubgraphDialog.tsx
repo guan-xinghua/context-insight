@@ -53,7 +53,7 @@ export function RunSubgraphDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[84vh] w-[94vw] max-w-[min(1180px,94vw)] flex-col gap-0 p-0 sm:max-w-[min(1180px,94vw)]">
+      <DialogContent className="run-glass flex h-[84vh] w-[94vw] max-w-[min(1180px,94vw)] flex-col gap-0 rounded-2xl p-0 ring-0 sm:max-w-[min(1180px,94vw)]">
         <DialogHeader className="flex-row flex-wrap items-center justify-between gap-3 border-b border-black/[0.08] px-4 py-3">
           <DialogTitle className="text-sm">
             {entry.label} · 子图
@@ -62,7 +62,7 @@ export function RunSubgraphDialog({
             </span>
           </DialogTitle>
         </DialogHeader>
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1">
             <RunCanvas
               view={view}
@@ -74,7 +74,8 @@ export function RunSubgraphDialog({
               className="m-3"
             />
           </div>
-          <aside className="w-[340px] shrink-0 overflow-y-auto border-l border-black/[0.08] bg-black/[0.012]">
+          {/* 历史侧栏：浮层玻璃面板，画布内容滑入下方被虚化，滚动经 mask 渐隐 */}
+          <aside className="run-glass run-scroll-fade absolute inset-y-2 right-2 z-10 w-[340px] shrink-0 overflow-y-auto rounded-xl">
             {selectedNode ? (
               <RunNodeDetail
                 node={selectedNode}
@@ -87,7 +88,7 @@ export function RunSubgraphDialog({
                 onClose={() => selectInDialog(null)}
               />
             ) : (
-              <p className="border-t border-black/[0.08] p-4 text-[11px] leading-5 text-[#8c959f]">
+              <p className="p-4 text-[11px] leading-5 text-[#8c959f]">
                 点击子图节点查看运行历史（逐次尝试、验收结论、成员会话与 turn 下钻）。
               </p>
             )}

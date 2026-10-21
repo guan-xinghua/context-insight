@@ -250,18 +250,27 @@ describe('view-model：拐弯最小化（非必要不拐弯）', () => {
     return view.edgeChains.find(c => c.from === keyOf(fromId) && c.to === keyOf(toId))!;
   };
 
-  it('comb 拓扑：所有边 ≤1 次水平过渡且零穿框；扇入主干虚拟点全落目标列', () => {
+  it('comb 拓扑：所有边 ≤2 次水平过渡且零穿框；扇入主干虚拟点全落目标列', () => {
     const { m, view } = loadMain(COMB);
     for (const c of view.edgeChains) {
-      expect(transitionsOf(chainPts(view, c)), `${c.from}→${c.to}`).toBeLessThanOrEqual(1);
+      expect(transitionsOf(chainPts(view, c)), `${c.from}→${c.to}`).toBeLessThanOrEqual(2);
       expect(piercingsOf(view, c), `${c.from}→${c.to} 不穿节点`).toBe(0);
     }
-    // a1→b4 / c1→b4 扇入组：共享主干并入 b4 中心列，各以 1 次水平过渡汇入
-    const b4Col = view.layout.positions[m.nodes.find(n => n.nodeId === 'b4')!.key]!.x + NODE_W / 2;
+    // 稠密列分配（P2 留白压缩）后的拐弯分布：b1→c4 的两条直落列（b1 列/
+    // c4 列）均被 row1-2 的 b2/b3、c2/c3 挡住——1 次过渡几何上不可行，走
+    // 廊绕行 2 次为最优；代价换来 c3→c4 同列 0 过渡直落与整体宽度收缩
+    // （总拐弯数与旧稀疏布局持平）
+    expect(transitionsOf(chainPts(view, chainOf(m, view, 'b1', 'c4'))), 'b1→c4 走廊绕行').toBe(2);
+    expect(transitionsOf(chainPts(view, chainOf(m, view, 'c3', 'c4'))), 'c3→c4 同列直落').toBe(0);
+    // a1→b4 / c1→b4 扇入组：共享主干单列下行（走廊或目标列），≤2 次过渡汇入
+    // （P2 稠密列：b4 紧贴 c1 列右侧，主干落列间走廊——合并语义保持，整体
+    // 宽度较旧布局收缩 28%）
     for (const [f, t] of [['a1', 'b4'], ['c1', 'b4']] as const) {
       const c = chainOf(m, view, f, t);
-      expect(c.bends.every(p => p.x === b4Col), `${f}→${t} 主干并入目标列`).toBe(true);
-      expect(transitionsOf(chainPts(view, c))).toBe(1);
+      const trunkX = c.bends[0]?.x;
+      expect(c.bends.length, `${f}→${t} 有主干`).toBeGreaterThan(0);
+      expect(c.bends.every(p => p.x === trunkX), `${f}→${t} 主干单列合并`).toBe(true);
+      expect(transitionsOf(chainPts(view, c)), `${f}→${t} 汇入过渡`).toBeLessThanOrEqual(2);
     }
   });
 
@@ -271,11 +280,15 @@ describe('view-model：拐弯最小化（非必要不拐弯）', () => {
       expect(transitionsOf(chainPts(view, c)), `${c.from}→${c.to}`).toBeLessThanOrEqual(2);
       expect(piercingsOf(view, c), `${c.from}→${c.to} 不穿节点`).toBe(0);
     }
-    // 源/目标同列且通道畅通的长边全程直行（0 次水平过渡）
-    for (const [f, t] of [['b1', 'd5'], ['a2', 'e4']] as const) {
-      expect(transitionsOf(chainPts(view, chainOf(m, view, f, t))), `${f}→${t} 直行`).toBe(0);
-    }
-    // 两端列均被挡的长边/组绕行自由走廊：恰好 2 次水平过渡
+    // 稠密列分配（P2 留白压缩）后的拐弯分布：a2→e4 的两条直落列（a2 列/
+    // e4 列）均被 row2 的 a3/e3 挡住——1 次过渡几何上不可行，走廊绕行 2 次
+    // 为最优；代价换来 e3→e4 同列 0 过渡直落与整体宽度收缩。b1→d5 列被
+    // 挡，与下组一样走廊绕行 2 次
+    expect(transitionsOf(chainPts(view, chainOf(m, view, 'a2', 'e4'))), 'a2→e4 走廊绕行').toBe(2);
+    expect(transitionsOf(chainPts(view, chainOf(m, view, 'e3', 'e4'))), 'e3→e4 同列直落').toBe(0);
+    expect(transitionsOf(chainPts(view, chainOf(m, view, 'b1', 'd5'))), 'b1→d5 走廊绕行').toBe(2);
+    // 两端列均被挡的长边/组绕行自由走廊：恰好 2 次水平过渡（d1→b5 主干
+    // 落走廊列，同此）
     for (const [f, t] of [['e1', 'a5'], ['d1', 'b5'], ['c1', 'c4']] as const) {
       expect(transitionsOf(chainPts(view, chainOf(m, view, f, t))), `${f}→${t} 走廊绕行`).toBe(2);
     }
@@ -290,11 +303,191 @@ describe('view-model：拐弯最小化（非必要不拐弯）', () => {
   });
 });
 
+describe('view-model：右行下单调走线（依赖边水平段只向右）', () => {
+  // 修复回归锁：中位数栈序不保证目标在源右侧——修复前连 mini-bundle 唯一
+  // 一条边 init→build 都向左走，braid 半数边向左。7b′ 槽位传播 + 走廊/主干
+  // 右行偏好后，所有视图的所有边链 x 单调不减（直行或右行）、y 单调不减
+  const FILES = [
+    'graph-demo-rollback-manifest.json',
+    'graph-bend-comb-manifest.json',
+    'graph-bend-braid-manifest.json',
+    'mini-bundle/workflow.json',
+  ];
+  type View = (typeof vm.views)[number];
+  const chainPts = (view: View, c: View['edgeChains'][number]) => [
+    { x: view.layout.positions[c.from]!.x + NODE_W / 2, y: view.layout.positions[c.from]!.y + NODE_H },
+    ...c.bends,
+    { x: view.layout.positions[c.to]!.x + NODE_W / 2, y: view.layout.positions[c.to]!.y },
+  ];
+
+  it.each(FILES)('%s：全部视图全部边链右行/下行（x、y 单调不减）', file => {
+    const m = buildViewModel(parseAndIndex(JSON.parse(fs.readFileSync(path.resolve(__dirname, './data/run', file), 'utf-8'))));
+    expect(m.views.length).toBeGreaterThan(0);
+    let checked = 0;
+    for (const view of m.views) {
+      for (const c of view.edgeChains) {
+        const pts = chainPts(view, c);
+        for (let i = 0; i < pts.length - 1; i++) {
+          expect(pts[i + 1].x, `${file} ${view.id} ${c.from}→${c.to} 第 ${i} 段向左`).toBeGreaterThanOrEqual(pts[i].x);
+          expect(pts[i + 1].y, `${file} ${view.id} ${c.from}→${c.to} 第 ${i} 段向上`).toBeGreaterThanOrEqual(pts[i].y);
+        }
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
 describe('view-model：run 级汇总', () => {
   it('状态汇总：存在 failed 节点（always-fail 未执行但 bad-node 曾失败）', () => {
     // bad-node g1 终态 failed → run 汇总 failed
     expect(vm.status).toBe('failed');
     expect(vm.exportDataComplete).toBe(true);
     expect(vm.name).toBe('graph-demo');
+  });
+});
+
+describe('view-model：端口分布（P2 布线简洁）', () => {
+  const COMB = path.resolve(__dirname, './data/run/graph-bend-comb-manifest.json');
+  const BRAID = path.resolve(__dirname, './data/run/graph-bend-braid-manifest.json');
+  const loadMain = (file: string) => {
+    const m = buildViewModel(parseAndIndex(JSON.parse(fs.readFileSync(file, 'utf-8'))));
+    return { m, view: m.views[0] };
+  };
+
+  it('braid：扇出 ≥3（e1/b1/c1）出边 fromDx 互异且 ≤72；扇入 ≥3（b5/e5）入边 toDx 互异', () => {
+    const { m, view } = loadMain(BRAID);
+    const keyOf = (id: string) => m.nodes.find(n => n.nodeId === id && n.generation === 0)!.key;
+    for (const id of ['e1', 'b1', 'c1']) {
+      const dxs = view.edgeChains.filter(c => c.from === keyOf(id)).map(c => c.fromDx);
+      expect(dxs.length, `${id} 扇出`).toBeGreaterThanOrEqual(3);
+      expect(new Set(dxs).size, `${id} 端口互异`).toBe(dxs.length);
+      for (const dx of dxs) expect(Math.abs(dx!), `${id} |dx| ≤ 72`).toBeLessThanOrEqual(72);
+    }
+    for (const id of ['b5', 'e5']) {
+      const dxs = view.edgeChains.filter(c => c.to === keyOf(id)).map(c => c.toDx);
+      expect(dxs.length, `${id} 扇入`).toBeGreaterThanOrEqual(3);
+      expect(new Set(dxs).size, `${id} 端口互异`).toBe(dxs.length);
+    }
+  });
+
+  it('端口序按对端列单调（端口处不扭线）：fromDx 随目标列 x 单调不减', () => {
+    const { m, view } = loadMain(BRAID);
+    const e1 = m.nodes.find(n => n.nodeId === 'e1' && n.generation === 0)!.key;
+    const outs = view.edgeChains
+      .filter(c => c.from === e1)
+      .sort((a, b) => view.layout.positions[a.to]!.x - view.layout.positions[b.to]!.x);
+    expect(outs.length).toBe(3);
+    for (let i = 0; i < outs.length - 1; i++) {
+      expect(outs[i + 1].fromDx!, '对端更靠右的端口不更靠左').toBeGreaterThanOrEqual(outs[i].fromDx!);
+    }
+  });
+
+  it('锚点仍在节点缘内（内收 12）：x+12 ≤ 中心+dx ≤ x+NODE_W-12', () => {
+    const { view } = loadMain(BRAID);
+    for (const c of view.edgeChains) {
+      if (c.fromDx !== undefined) {
+        const a = view.layout.positions[c.from]!;
+        expect(a.x + NODE_W / 2 + c.fromDx).toBeGreaterThanOrEqual(a.x + 12);
+        expect(a.x + NODE_W / 2 + c.fromDx).toBeLessThanOrEqual(a.x + NODE_W - 12);
+      }
+      if (c.toDx !== undefined) {
+        const b = view.layout.positions[c.to]!;
+        expect(b.x + NODE_W / 2 + c.toDx).toBeGreaterThanOrEqual(b.x + 12);
+        expect(b.x + NODE_W / 2 + c.toDx).toBeLessThanOrEqual(b.x + NODE_W - 12);
+      }
+    }
+  });
+
+  it('扇出/扇入 <3 不设端口（低扇出叠线交给渲染层错开）：comb 仅 b4 三条入边带 toDx', () => {
+    const { m, view } = loadMain(COMB);
+    const withDx = view.edgeChains.filter(c => c.fromDx !== undefined || c.toDx !== undefined);
+    expect(withDx.length).toBe(3);
+    expect(withDx.every(c => c.toDx !== undefined && c.fromDx === undefined)).toBe(true);
+    const b4 = m.nodes.find(n => n.nodeId === 'b4' && n.generation === 0)!.key;
+    expect(withDx.every(c => c.to === b4)).toBe(true);
+  });
+});
+
+describe('view-model：留白压缩（P2 真实节点稠密列）', () => {
+  const COMB = path.resolve(__dirname, './data/run/graph-bend-comb-manifest.json');
+  const BRAID = path.resolve(__dirname, './data/run/graph-bend-braid-manifest.json');
+  const ROLLBACK = path.resolve(__dirname, './data/run/graph-demo-rollback-manifest.json');
+  const loadMain = (file: string) => {
+    const m = buildViewModel(parseAndIndex(JSON.parse(fs.readFileSync(file, 'utf-8'))));
+    return { m, view: m.views[0] };
+  };
+  // 旧槽位布局（虚拟点占槽把真实列推散）的主图宽度基线：虚拟点密集的拓扑
+  // （braid/comb）收缩显著；rollback 原布局已近稠密，收益被预留列抵平 → 不劣化锁
+  const OLD_WIDTH: Record<string, number> = {
+    [BRAID]: 2596,
+    [COMB]: 1502,
+    [ROLLBACK]: 1826,
+  };
+
+  it.each([[BRAID], [COMB]])('主图宽度较旧布局收缩 ≥10%（列序装箱）', file => {
+    const { view } = loadMain(file);
+    expect(view.layout.width, `${file} 宽度`).toBeLessThanOrEqual(OLD_WIDTH[file] * 0.9);
+  });
+
+  it('rollback 主图宽度不劣于旧布局（原已近稠密，收益与预留列相抵）', () => {
+    const { view } = loadMain(ROLLBACK);
+    expect(view.layout.width).toBeLessThanOrEqual(OLD_WIDTH[ROLLBACK]);
+  });
+
+  it('braid 25 节点 5 列拓扑：宽度 ≤ 7 列 + 走廊余量（旧槽位 ~10 列，收缩 ≥30%）', () => {
+    const { view } = loadMain(BRAID);
+    // 5 列网格 + 右行/预留带来的 2 列级联余量：18（原点）+ 7×212 + 32（带
+    // 内边距）+ 20（右缘）+ 缓冲
+    expect(view.layout.width).toBeLessThanOrEqual(2596 * 0.7);
+  });
+
+  it('同带相邻真实列距 ≥ COL_STEP（列节奏不被压缩）', () => {
+    const { m, view } = loadMain(ROLLBACK);
+    for (const band of view.layout.bands) {
+      const xs = [...new Set(
+        view.nodeKeys
+          .filter(k => m.nodes.find(n => n.key === k)!.generation === band.generation)
+          .map(k => view.layout.positions[k]!.x),
+      )].sort((a, b) => a - b);
+      for (let i = 0; i < xs.length - 1; i++) {
+        expect(xs[i + 1] - xs[i], `带 g${band.generation} 列距 ≥ 212`).toBeGreaterThanOrEqual(212);
+      }
+    }
+  });
+
+  it('跨带相邻节点缘间距 ≥ 96（回滚曲线区保持）', () => {
+    const { m, view } = loadMain(ROLLBACK);
+    for (let i = 0; i < view.layout.bands.length - 1; i++) {
+      const g1 = view.layout.bands[i].generation;
+      const g2 = view.layout.bands[i + 1].generation;
+      const rightMost = Math.max(...view.nodeKeys
+        .filter(k => m.nodes.find(n => n.key === k)!.generation === g1)
+        .map(k => view.layout.positions[k]!.x + NODE_W));
+      const leftMost = Math.min(...view.nodeKeys
+        .filter(k => m.nodes.find(n => n.key === k)!.generation === g2)
+        .map(k => view.layout.positions[k]!.x));
+      expect(leftMost - rightMost, `g${g1}→g${g2} 带隙`).toBeGreaterThanOrEqual(96);
+    }
+  });
+});
+
+describe('view-model：无 graph 注解容错（导出侧未启用 graph 插件）', () => {
+  /** 递归剥掉全树成员的 annotation（模拟不带 graph 插件的导出包），关系保留 */
+  function stripAnnotations(node: { members?: Array<Record<string, unknown>> }): void {
+    for (const m of node.members ?? []) {
+      delete m.annotation;
+      if (m.data) stripAnnotations(m.data as { members?: Array<Record<string, unknown>> });
+    }
+  }
+
+  it('成员全无 annotation.graph → 主图空视图 + 白话警告（不静默）', () => {
+    const manifest = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8')) as Record<string, unknown>;
+    stripAnnotations(manifest.data as { members?: Array<Record<string, unknown>> });
+    const vm2 = buildViewModel(parseAndIndex(manifest));
+    expect(vm2.nodes).toHaveLength(0);
+    expect(vm2.views[0].nodeKeys).toHaveLength(0);
+    expect(vm2.warnings.some(w => w.includes('未包含 graph 注解数据'))).toBe(true);
+    expect(vm2.warnings.some(w => w.includes('成员会话信息仍可查看'))).toBe(true);
   });
 });

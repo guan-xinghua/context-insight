@@ -19,6 +19,8 @@
 // 交叉处做 PCB 式半圆跳线（水平段跳过垂直段），表达「交叉不相连」。
 
 import type { NodeInstance, RunView } from "@/lib/run/view-model";
+import { nudgeParallelRuns, vChainPoints } from "@/lib/run/edge-geometry";
+import { memo, useId } from "react";
 import { RUN_COLORS, METRIC_EMPTY, NODE_STROKE_WIDTH, NODE_STROKE_WIDTH_SELECTED, STATUS_TINT_OPACITY, WATER_BAND_OPACITY, WATER_COLOR, WATER_CRITICAL_PCT, flowColor, metricColor, metricTintOpacity, redundancyColor, redundancyTint, statusColor } from "@/components/run/run-theme";
 import { lensBoundaries, lensFixedBoundaries, lensRank, lensValue, lensValueText, nodeUsageOf, type LensKey } from "@/lib/run/run-metrics";
 
@@ -43,7 +45,7 @@ function NodeWater({ pct, phase, clipId }: { pct: number; phase: number; clipId:
     <g clipPath={`url(#${clipId})`}>
       <defs>
         <clipPath id={clipId}>
-          <rect width={NODE_W} height={NODE_H} rx={7} />
+          <rect width={NODE_W} height={NODE_H} rx={11} />
         </clipPath>
       </defs>
       <g className="run-node-water">
@@ -184,22 +186,6 @@ function roundedPolyline(pts: Array<{ x: number; y: number }>, r = 4, hopsBySeg:
   return d;
 }
 
-/** 纵向链正交走线：源底 → 虚拟点 → 目标顶。水平过渡只发生在相邻行的间隙
- *  （midY 恒落进行间隙），垂直段沿虚拟窄道下行——全程不穿节点。 */
-function vChainPoints(pts: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
-  const out = [pts[0]];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p = pts[i];
-    const q = pts[i + 1];
-    if (p.x !== q.x) {
-      const midY = (p.y + q.y) / 2;
-      out.push({ x: p.x, y: midY }, { x: q.x, y: midY });
-    }
-  }
-  out.push(pts[pts.length - 1]);
-  return out;
-}
-
 /** 横向正交走线（回滚边跨带）：源右缘 → 带隙中竖 → 目标左缘。 */
 function hChainPoints(sx: number, sy: number, tx: number, ty: number): Array<{ x: number; y: number }> {
   if (Math.abs(sy - ty) < 1) return [{ x: sx, y: sy }, { x: tx, y: ty }];
@@ -212,13 +198,14 @@ function hChainPoints(sx: number, sy: number, tx: number, ty: number): Array<{ x
   ];
 }
 
-export function RunGraph({
+export const RunGraph = memo(function RunGraph({
   view,
   nodesByKey,
   selectedKey,
   onSelectNode,
   onOpenSubgraph,
   lens = "status",
+  svgRef,
 }: {
   view: RunView;
   nodesByKey: Map<string, NodeInstance>;
@@ -227,10 +214,15 @@ export function RunGraph({
   onOpenSubgraph?: (key: string) => void;
   /** 指标透镜：status = 状态着色（默认）；其余按节点会话用量分位着色 */
   lens?: LensKey;
+  /** SVG 根元素引用（RunCanvas 相机模型持有：手势落定后按显示分辨率
+   *  重设 width/height，矢量重栅格保证任意缩放下清晰） */
+  svgRef?: React.RefObject<SVGSVGElement | null>;
 }) {
   const { layout } = view;
   const nodes = view.nodeKeys.map(k => nodesByKey.get(k)).filter((n): n is NodeInstance => n !== undefined);
   const hasSel = selectedKey !== null;
+  const dotId = `run-dots-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const contentW = Math.max(layout.width, 200);
 
   // 指标透镜：节点用量 → 边界 → 逐节点取色。水位走绝对阈值（50/80——健康
   // 区间与分布无关），其余按全图分位。无会话数据节点灰描边（状态仍由左侧
@@ -252,13 +244,17 @@ export function RunGraph({
     const a = layout.positions[chain.from];
     const b = layout.positions[chain.to];
     if (!a || !b) return [];
+    // 端口偏移：扇出/扇入 ≥3 时锚点沿节点缘错开（view-model 7e），缺省中心
     const pts = vChainPoints([
-      { x: a.x + NODE_W / 2, y: a.y + NODE_H },
+      { x: a.x + NODE_W / 2 + (chain.fromDx ?? 0), y: a.y + NODE_H },
       ...chain.bends,
-      { x: b.x + NODE_W / 2, y: b.y },
+      { x: b.x + NODE_W / 2 + (chain.toDx ?? 0), y: b.y },
     ]);
     return [{ id: `dep:${chain.from}->${chain.to}`, chain, pts }];
   });
+  // 平行段错开：共线重叠的垂直段横向错开（主干全同叠线保留）——在跳线
+  // 检测前应用，跳线按错开后的最终几何计算
+  const depNudged = nudgeParallelRuns(depGeoms);
   const rbGeoms = view.rollbackLinks.flatMap(link => {
     const a = layout.positions[link.from];
     const b = layout.positions[link.to];
@@ -277,19 +273,29 @@ export function RunGraph({
     }
     return [{ id: `rb:${link.ordinal}`, link, pts }];
   });
-  const hops = collectHops([...depGeoms, ...rbGeoms], HOP_R + 5);
+  const hops = collectHops([...depNudged, ...rbGeoms], HOP_R + 5);
   const hopsOf = (id: string, pts: Array<{ x: number; y: number }>) =>
     pts.slice(0, -1).map((_, i) => hops.get(`${id}:${i}`) ?? []);
 
   return (
     <svg
-      width={Math.max(layout.width, 200)}
-      height={layout.height}
+      ref={svgRef}
+      viewBox={`0 0 ${contentW} ${layout.height}`}
       className="block max-w-none select-none"
       role="img"
       aria-label={view.title}
     >
       <defs>
+        {/* 点阵网格底：pattern 随 viewBox 矢量缩放——任意缩放档位下不糊（此
+            前 CSS 背景挂 DOM 层，与 SVG 缩放档位脱钩）。双层透明度：主点阵
+            之外叠半幅加密点（角点 0.5x 透明度），细密而不喧宾夺主 */}
+        <pattern id={dotId} width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="12" cy="12" r="0.9" fill="rgba(27, 31, 36, 0.07)" />
+          <circle cx="0" cy="0" r="0.9" fill="rgba(27, 31, 36, 0.035)" />
+          <circle cx="24" cy="0" r="0.9" fill="rgba(27, 31, 36, 0.035)" />
+          <circle cx="0" cy="24" r="0.9" fill="rgba(27, 31, 36, 0.035)" />
+          <circle cx="24" cy="24" r="0.9" fill="rgba(27, 31, 36, 0.035)" />
+        </pattern>
         <marker id="run-dep-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0,0 L8,4 L0,8 z" fill={RUN_COLORS.edge} />
         </marker>
@@ -303,6 +309,9 @@ export function RunGraph({
           <path d="M0,0 L8,4 L0,8 z" fill={RUN_COLORS.rollback} />
         </marker>
       </defs>
+
+      {/* 点阵底：四边外扩 2000，平移/缩放过程中网格始终铺满视野 */}
+      <rect x={-2000} y={-2000} width={contentW + 4000} height={layout.height + 4000} fill={`url(#${dotId})`} />
 
       {/* 代带列：纵向条带（代际左→右）；标签在带顶（回滚带带红点） */}
       {layout.bands.map(band => {
@@ -338,7 +347,7 @@ export function RunGraph({
       {/* 同代依赖边链：正交走线（源底 → 虚拟点 → 目标顶，水平过渡只进行间隙）。
           跑马灯按需点亮：默认静止，选中节点后其关联边以状态色加粗 + 白色
           蚂蚁线流动（运行中提速），其余边压暗；交叉处 PCB 半圆跳线 */}
-      {depGeoms.map(({ id, chain, pts }) => {
+      {depNudged.map(({ id, chain, pts }) => {
         const target = nodesByKey.get(chain.to);
         const flow = target ? flowColor(target.status) : RUN_COLORS.flow;
         const active = target?.status === "running";
@@ -442,13 +451,18 @@ export function RunGraph({
             className="run-node cursor-pointer"
           >
             {selected ? (
-              <rect x={-3.5} y={-3.5} width={NODE_W + 7} height={NODE_H + 7} rx={9.5} fill="none" stroke={RUN_COLORS.textPrimary} strokeOpacity={0.22} strokeWidth={1} />
+              <>
+                {/* 玻璃高光外圈：双层同心光晕（透镜/状态色随行），保留盒体
+                    描边加粗——选中态从「线变粗」升级为「发光体」 */}
+                <rect x={-4.5} y={-4.5} width={NODE_W + 9} height={NODE_H + 9} rx={15.5} fill="none" stroke={color} strokeOpacity={0.32} strokeWidth={1.5} />
+                <rect x={-9} y={-9} width={NODE_W + 18} height={NODE_H + 18} rx={20} fill="none" stroke={color} strokeOpacity={0.12} strokeWidth={2.5} />
+              </>
             ) : null}
             <rect
               className="run-node-box"
               width={NODE_W}
               height={NODE_H}
-              rx={7}
+              rx={11}
               fill={tint !== null ? color : RUN_COLORS.nodeFill}
               fillOpacity={tint !== null ? tint.opacity : undefined}
               stroke={color}
@@ -460,7 +474,7 @@ export function RunGraph({
               <NodeWater pct={metricVal} phase={(idx % 5) * 0.75} clipId={`water-${node.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`} />
             ) : null}
             <circle cx={14} cy={17.5} r={3.5} fill={statusColor(node.status)} />
-            <text x={24} y={21.5} fontSize={12.5} fontWeight={600} fill={RUN_COLORS.textPrimary}>
+            <text x={24} y={21.5} fontSize={13} fontWeight={600} fill={RUN_COLORS.textPrimary}>
               {truncate(node.label, 17)}
             </text>
             <text x={24} y={37.5} fontSize={10.5} fill={RUN_COLORS.textMuted} letterSpacing="0.01em">
@@ -486,4 +500,4 @@ export function RunGraph({
       })}
     </svg>
   );
-}
+});
