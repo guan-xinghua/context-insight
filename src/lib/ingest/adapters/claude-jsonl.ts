@@ -43,6 +43,8 @@ export interface ClaudeJsonlLine {
     model?: string;
     usage?: ClaudeUsage;
   };
+  /** 子代理链标记（native claude-code 行级字段；true=sidechain 内的行） */
+  isSidechain?: boolean;
   subtype?: string;
   result?: string;
   cost_usd?: number;
@@ -311,13 +313,17 @@ export function parseJsonlLines(filePath: string): ClaudeJsonlLine[] {
   return result;
 }
 
-function collectAllToolResults(lines: ClaudeJsonlLine[]): Map<string, string> {
-  const resultMap = new Map<string, string>();
+/** 工具结果登记：内容 + 结果行时间戳（tool_result 完成时刻，工具真实时长的右边界） */
+function collectAllToolResults(lines: ClaudeJsonlLine[]): Map<string, { content: string; tsMs: number | null }> {
+  const resultMap = new Map<string, { content: string; tsMs: number | null }>();
   for (const line of lines) {
     if (line.type === 'user' && line.message?.content && Array.isArray(line.message.content)) {
       for (const block of line.message.content as ContentBlock[]) {
         if (block.type === 'tool_result' && block.tool_use_id && block.content) {
-          resultMap.set(block.tool_use_id, normalizeToolResultPayload(block.content) ?? '');
+          const ts = line.timestamp != null && isValidISO(line.timestamp)
+            ? new Date(line.timestamp).getTime()
+            : null;
+          resultMap.set(block.tool_use_id, { content: normalizeToolResultPayload(block.content) ?? '', tsMs: ts });
         }
       }
     }
@@ -745,8 +751,9 @@ export function groupAssistantLines(lines: ClaudeJsonlLine[]): AssistantGroup[] 
 // Returns null when the group carries neither text nor tool calls.
 export function buildAssistantInteraction(
   group: AssistantGroup,
-  allToolResults: Map<string, string>,
+  allToolResults: Map<string, { content: string; tsMs: number | null }>,
   fileMtime: number,
+  prevBoundaryMs: number | null = null,
 ): RawInteraction | null {
   const textParts: string[] = [];
   const allToolCalls: ToolCallInfo[] = [];
@@ -783,13 +790,25 @@ export function buildAssistantInteraction(
     const text = extractTextContent(al.message?.content);
     if (text) textParts.push(text);
 
+    const realTimestamp = al.timestamp || null;
+    // 非法时间戳与缺失同路兜底（fileMtime 估计）：回退 epoch 0 会把 turn 时间打成
+    // 1970，经 subagentTiming 的 min 聚合放大成毫秒级伪时延（CI 实证 1.78e12 溢出 Int 列）
+    const tsValid = realTimestamp != null && isValidISO(realTimestamp);
+    const timeCreated = tsValid ? new Date(realTimestamp).getTime() : fileMtime + alLineIndex * 1000;
+    const timestamp = tsValid ? realTimestamp : new Date(timeCreated).toISOString();
+
     const toolCalls = extractToolCalls(contentBlocks);
     if (toolCalls) {
       for (const tc of toolCalls) {
-        const v = allToolResults.get(tc.toolCallId) ?? tc.resultJson ?? null;
+        // startedAt=tool_use 所在行时刻（发起），completedAt=tool_result 行时刻（完成）
+        // ——工具真实时长的左右边界；结果行缺失/无时间戳 → null（消费方降级）
+        const entry = allToolResults.get(tc.toolCallId);
+        const v = entry?.content ?? tc.resultJson ?? null;
         allToolCalls.push({
           ...tc,
           resultJson: v == null ? null : (typeof v === 'string' ? v : JSON.stringify(v)),
+          startedAt: timeCreated,
+          completedAt: entry?.tsMs ?? null,
         });
       }
     }
@@ -806,13 +825,6 @@ export function buildAssistantInteraction(
         finalUsageLine = al;
       }
     }
-
-    const realTimestamp = al.timestamp || null;
-    // 非法时间戳与缺失同路兜底（fileMtime 估计）：回退 epoch 0 会把 turn 时间打成
-    // 1970，经 subagentTiming 的 min 聚合放大成毫秒级伪时延（CI 实证 1.78e12 溢出 Int 列）
-    const tsValid = realTimestamp != null && isValidISO(realTimestamp);
-    const timeCreated = tsValid ? new Date(realTimestamp).getTime() : fileMtime + alLineIndex * 1000;
-    const timestamp = tsValid ? realTimestamp : new Date(timeCreated).toISOString();
 
     if (firstTimeCreated == null || timeCreated < firstTimeCreated) {
       firstTimeCreated = timeCreated;
@@ -928,7 +940,17 @@ export function buildAssistantInteraction(
   const span = lastTimeCreated && firstTimeCreated && lastTimeCreated > firstTimeCreated
     ? lastTimeCreated - firstTimeCreated
     : null;
-  const latency = explicitDurationMs ?? span;
+  // native/无显式 duration：请求时长按上一边界（上一轮末行或其工具结果完成
+  // 时刻）到本组末行推导——行跨度只覆盖首行落盘之后的生成尾段，短回复把 tps
+  // 虚高数倍（实测 966tok/0.96s→1012tps，边界推导 25.4s→38tps）。有显式
+  // duration_ms 的 proxy 行为不变。timeInfo 保持行时间语义（时间线/活跃时长
+  // 不受影响），边界时长经 latency 通道传递（turn-split 显式 latency 优先）。
+  const explicit = explicitDurationMs != null;
+  const endMs = lastTimeCreated ?? null;
+  const boundaryLatency = (!explicit && prevBoundaryMs != null && endMs != null && endMs > prevBoundaryMs)
+    ? endMs - prevBoundaryMs
+    : null;
+  const latency = explicitDurationMs ?? boundaryLatency ?? span;
 
   return {
     role: 'assistant',
@@ -936,7 +958,7 @@ export function buildAssistantInteraction(
     timestamp: firstTimestamp ?? new Date(fileMtime).toISOString(),
     timeInfo: {
       created: firstTimeCreated ?? fileMtime,
-      completed: (isProxy && explicitDurationMs != null) ? undefined : (lastTimeCreated ?? undefined),
+      completed: (isProxy && explicitDurationMs != null) ? undefined : (endMs ?? undefined),
     },
     agent: null,
     subagent_name: null,
@@ -1007,6 +1029,12 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
   // Track which groups we've already emitted
   const emittedGroups = new Set<AssistantGroup>();
 
+  // native 请求边界：上一轮末行与其工具结果完成时刻的较大者（用户输入重置）。
+  // 供下一 assistant 组把请求起点回撤到边界——latency 覆盖排队+prefill+生成
+  // 全程（TPS/TPOT 物理合理），工具时间天然在界外。子代理文件是独立调用，
+  // 边界天然按会话隔离。
+  let nativeBoundary: number | null = null;
+
   // 跳过行计数（按 type）：未知类型 warn（上游格式演进信号），已知元数据 info
   const skippedTypes = new Map<string, number>();
   const noteSkip = (t: string) => { skippedTypes.set(t, (skippedTypes.get(t) ?? 0) + 1); };
@@ -1020,8 +1048,17 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       if (emittedGroups.has(group)) continue; // already emitted
       emittedGroups.add(group);
 
-      const merged = buildAssistantInteraction(group, allToolResults, fileMtime);
-      if (merged) result.push(merged);
+      const merged = buildAssistantInteraction(group, allToolResults, fileMtime, nativeBoundary);
+      if (merged) {
+        // 每组结束推进边界（组末行与其工具结果完成时刻取大者）。子代理文件是
+        // 独立的 readSession 调用（各自边界隔离），isSidechain 打标在读取后的
+        // 标注 pass——此处无需也不可按 sidechain 跳过：跳过会让边界冻结在早期
+        // user 行，子代理后续各组 end−冻结边界 单调累加（实测 turn372-430）。
+        const toolEnd = merged.tool_calls?.reduce((m, tc) => Math.max(m, tc.completedAt ?? 0), 0) ?? 0;
+        const nb = Math.max(merged.timeInfo?.completed ?? 0, toolEnd);
+        if (nb > 0) nativeBoundary = nb;
+        result.push(merged);
+      }
       continue;
     }
 
@@ -1068,6 +1105,8 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       // 渲染层（LlmContextView.reminderPrefix）把 reminder 块显示为独立子块。
       const content = raw;
       if (content) {
+        // 用户输入是新的请求边界（下一 assistant 请求始于用户消息之后）
+        nativeBoundary = timeCreated;
         result.push({
           role: 'user',
           content,
@@ -1093,6 +1132,7 @@ export function readSession(filePath: string, sessionId: string): RawInteraction
       // 的两个 assistant 分组之间，与其真实发生时刻一致）
       const prompt = queuedUserPrompt(line);
       if (prompt) {
+        nativeBoundary = timeCreated;
         result.push({
           role: 'user',
           content: prompt,

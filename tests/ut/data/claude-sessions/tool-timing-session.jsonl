@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-10-20T03:00:00.000Z","message":{"role":"user","content":"跑一下检查"}}
+{"type":"assistant","timestamp":"2026-10-20T03:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"执行工具"},{"type":"tool_use","id":"call_tt_1","name":"Bash","input":{"command":"sleep 4 && echo done"}}],"model":"claude-sonnet-4-5","usage":{"input_tokens":100,"output_tokens":50}}}
+{"type":"user","timestamp":"2026-10-20T03:00:07.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_tt_1","content":"done"}]}}
+{"type":"assistant","timestamp":"2026-10-20T03:00:12.000Z","message":{"role":"assistant","content":[{"type":"text","text":"完成"}],"model":"claude-sonnet-4-5","usage":{"input_tokens":150,"output_tokens":30}}}

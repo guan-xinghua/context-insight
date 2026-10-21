@@ -150,7 +150,7 @@ export function RunsTable({
             {th('totalTokens', 'Token')}
             {th('totalScore', '质量')}
             <th className="px-3 py-2 font-medium text-neutral-500">vs Baseline</th>
-            <th className="px-3 py-2 font-medium text-neutral-500">算子生成</th>
+            <th className="px-3 py-2 font-medium text-neutral-500">任务结果</th>
             <th className="px-3 py-2 font-medium text-neutral-500">导入</th>
             <th className="px-3 py-2 font-medium text-neutral-500">操作</th>
           </tr>
@@ -243,8 +243,8 @@ export function RunsTable({
                 {formatDelta(r.baselineDelta)}
               </td>
               <td className="whitespace-nowrap px-3 py-2">
-                {r.opGen === 'success' && <span className="text-emerald-600" title="算子生成成功">✓</span>}
-                {r.opGen === 'failure' && <span className="text-red-600" title="算子生成失败">✗</span>}
+                {r.opGen === 'success' && <span className="text-emerald-600" title="任务成功">✓</span>}
+                {r.opGen === 'failure' && <span className="text-red-600" title="任务失败">✗</span>}
                 {r.opGen == null && <span className="text-neutral-300">·</span>}
               </td>
               <td className="whitespace-nowrap px-3 py-2">

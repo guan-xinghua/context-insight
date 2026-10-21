@@ -406,7 +406,7 @@ export async function setParadigmTarget(
   }, 'paradigm target');
 }
 
-/** 修正上传时标注的算子生成结果：改写 meta.json 信封 data.opGen（null=清除标注） */
+/** 修正上传时标注的任务结果：改写 meta.json 信封 data.opGen（null=清除标注） */
 export async function setOpGen(s: SessionLoc, value: OpGenValue, remote: LakeRemote = defaultLakeRemote()): Promise<void> {
   await enqueueWrite(s, metaPath(s), remote, old => {
     if (!old) return null;

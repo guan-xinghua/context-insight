@@ -397,11 +397,11 @@ function validateCategory(remote: LakeRemote, category?: string): string | undef
 }
 
 // 上传时补丁 meta（cc-session-meta 可选字段，spec §4.4"加可选字段不升版本"）：
-// ① opGen——算子生成结果标注（人工勾选），列表"算子生成"列消费；
+// ① opGen——任务结果标注（人工勾选），列表"任务结果"列消费；
 // ② 会话指标快照 startTime/endTime/durationMs/activeMs/totalTokens + 主模型
 //   model——上传时刻从 DB 会话行取值，与导入后列表展示同源同值，lake
 //   viewer 未导入行也能显示
-//   开始/耗时/Token（含算子生成耗时优化图），无需先导入 insight。耗时快照
+//   开始/耗时/Token（含任务耗时优化图），无需先导入 insight。耗时快照
 //   优先 activeMs（活跃口径，与会话详情 Wall Clock 拆分同源），durationMs
 //   （墙钟）保留供回落。
 //   提交人/内容描述/备注（spec §4.4 可选字段，D 根治层）——列表归属的权威

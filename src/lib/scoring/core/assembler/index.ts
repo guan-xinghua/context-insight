@@ -28,8 +28,9 @@ export async function assembleInput(taskId: string, prisma: PrismaClient, framew
   const firstUser = raw.turns.find(t => !t.isSubagent && t.role === 'user');
   const taskType = classifyTask(workflowDecl, raw.toolCalls, firstUser?.content ?? firstUser?.contentSummary ?? '');
 
-  // 工具时长：wire 轮间隙推导优先（DB per-call duration 采集侧未回填，全库为 0）；
-  // 无 wire（原生导入）回落 DB——两处都空则 D4.toolTime 如实无法评判
+  // 工具时长：wire 轮间隙推导优先；无 wire 回落 DB per-call duration
+  // （adapter 已回填真实起止：claude-jsonl 行时间戳 / opencode part 时间列；
+  // 旧库存量行仍是 0——两处都空则 D4.toolTime 如实无法评判）
   const wireToolMs = raw.wire?.toolIntervals?.reduce((s, i) => s + (i.kind === 'local' ? i.endMs - i.startMs : 0), 0) ?? 0;
   const toolTimeMs = wireToolMs > 0
     ? wireToolMs
@@ -44,6 +45,7 @@ export async function assembleInput(taskId: string, prisma: PrismaClient, framew
       memoryDigest: (raw.fullContext?.memoryFiles ?? '').slice(0, 8000),
       userMessages,
       toolCalls: raw.toolCalls,
+      skillEvents: raw.skillEvents,
       turns: raw.turns,
       measures: {
         totalTokens: raw.session.totalTokens,

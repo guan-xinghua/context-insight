@@ -103,7 +103,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
     setEditText('');
   };
 
-  // 算子生成标注修正：改湖里 meta.json，提交成功后本地乐观更新（表格列刷新后同步）
+  // 任务结果标注修正：改湖里 meta.json，提交成功后本地乐观更新（表格列刷新后同步）
   const changeOpGen = async (value: 'success' | 'failure' | null) => {
     if (savingOpGen || value === opGen) return;
     setSavingOpGen(true);
@@ -150,7 +150,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
             <InfoRow label="Token" value={formatTokens(item.totalTokens)} />
             <InfoRow label="质量" value={formatScore(item.totalScore)} />
             <div className="flex items-center gap-2 text-xs">
-              <span className="w-16 shrink-0 text-neutral-400">算子生成</span>
+              <span className="w-16 shrink-0 text-neutral-400">任务结果</span>
               <span className="inline-flex overflow-hidden rounded border border-neutral-200">
                 {([['success', '✓ 成功', 'bg-emerald-50 text-emerald-700'], ['failure', '✗ 失败', 'bg-red-50 text-red-600'], [null, '· 清除', 'bg-neutral-100 text-neutral-600']] as const).map(([value, label, activeCls]) => (
                   <button
@@ -158,7 +158,7 @@ export function NotesDialog({ item, onClose }: { item: RunItemView; onClose: () 
                     type="button"
                     className={`px-2 py-0.5 ${opGen === value ? activeCls : 'text-neutral-400 hover:bg-neutral-50'} ${savingOpGen ? 'opacity-50' : ''}`}
                     disabled={savingOpGen}
-                    title={value == null ? '清除算子生成标注（未标注）' : `标注为${value === 'success' ? '成功' : '失败'}（写入数据湖 meta）`}
+                    title={value == null ? '清除任务结果标注（未标注）' : `标注为${value === 'success' ? '成功' : '失败'}（写入数据湖 meta）`}
                     onClick={() => void changeOpGen(value)}
                   >
                     {label}

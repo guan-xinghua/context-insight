@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       if (!taskId) {
         return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
       }
-      // opGen（算子生成结果标注）：只认 success/failure，其余值视为未标注
+      // opGen（任务结果标注）：只认 success/failure，其余值视为未标注
       const opGenValue = opGen === 'success' || opGen === 'failure' ? opGen : undefined;
       try {
         // framework：同 sid 双行（方案一）消歧——从捕获行页面上传必须带

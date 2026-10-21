@@ -7,10 +7,10 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // @vitest-environment happy-dom
-// 算子生成标注 UI IT：
-//   ① SessionList 上传弹窗——「算子生成结果」三态选择器（不标注/成功/失败），
+// 任务结果标注 UI IT：
+//   ① SessionList 上传弹窗——「任务结果」三态选择器（不标注/成功/失败），
 //      勾选"成功"后确认上传 → 请求体携带 opGen:'success'；缺省不携带
-//   ② LocalFileImport lake 列表——「算子生成」列渲染 成功/失败/— 徽标
+//   ② LocalFileImport lake 列表——「任务结果」列渲染 成功/失败/— 徽标
 
 import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest'
 import { createElement } from 'react'
@@ -92,8 +92,8 @@ const ITEM = {
   version: null, user: '张三', sourcePath: '/tmp/x.jsonl', importedAt: '2026-09-02T04:00:00Z', totalLatencyMs: 1000, totalToolCallCount: 2, totalSkillLoadCount: 0, totalSubagentCount: 0,
 }
 
-describe('算子生成标注 UI', () => {
-  it('① 上传弹窗：未选算子生成结果时确认上传禁用（必选）；选"成功"后可提交且携带 opGen:success', async () => {
+describe('任务结果标注 UI', () => {
+  it('① 上传弹窗：未选任务结果时确认上传禁用（必选）；选"成功"后可提交且携带 opGen:success', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -105,7 +105,7 @@ describe('算子生成标注 UI', () => {
     expect(uploadBtn, '上传按钮未找到').toBeTruthy()
     await act(async () => { click(uploadBtn) })
     await flush()
-    expect(document.body.textContent).toContain('算子生成结果')
+    expect(document.body.textContent).toContain('任务结果')
 
     // 填范式目录（默认仓必选）+ 提交人
     const select = document.querySelector('select') as HTMLSelectElement
@@ -121,7 +121,7 @@ describe('算子生成标注 UI', () => {
     })
     await flush()
 
-    // 未选算子生成结果 → 确认上传禁用（必选校验），无请求发出
+    // 未选任务结果 → 确认上传禁用（必选校验），无请求发出
     const submitBtn = findButtonByText('确认上传')!
     expect(submitBtn.disabled).toBe(true)
     await act(async () => { click(submitBtn) })
@@ -171,7 +171,7 @@ describe('算子生成标注 UI', () => {
     container.remove()
   })
 
-  it('② lake 列表：「算子生成」列 成功/失败/— 三态徽标', async () => {
+  it('② lake 列表：「任务结果」列 成功/失败/— 三态徽标', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -186,7 +186,7 @@ describe('算子生成标注 UI', () => {
     await act(async () => { click(findButtonByText('others')!) })
     await flush()
 
-    expect(document.body.textContent).toContain('算子生成')
+    expect(document.body.textContent).toContain('任务结果')
     const cells = [...document.querySelectorAll('td')]
     const has = (sid: string, text: string) => {
       const row = cells.find(c => c.textContent?.includes(sid))

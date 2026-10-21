@@ -58,7 +58,7 @@ export interface ScoreExecution {
 /** 上下文构成（D5 原料）；非 proxy 的 session 为 null */
 export interface WireSummary {
   declaredTools?: Array<{ name: string; approxTokens: number }>;
-  availableSkills?: Array<{ name: string; description: string; approxTokens: number }>;
+  availableSkills?: Array<{ name: string; description: string; approxTokens: number; origin?: string | null }>;
   /** 轮内重复注入副本（k 份计 k−1 份） */
   dupCopyTokens: number;
   /** 过期工具结果滞留 */
@@ -106,6 +106,9 @@ export interface AssembledInput {
   /** 用户消息原文表（喂 D6 分类） */
   userMessages: Array<{ turnIndex: number; text: string; at: string | null }>;
   toolCalls: ScoreToolCall[];
+  /** 技能事件（invoke/load/use/dispatch，含斜杠命令通道——无工具调用，只落
+   *  事件表）；D5.skills 的 used 集合消费。可选：无评分需要时构造方可不填 */
+  skillEvents?: Array<{ skillName: string; eventType: string }>;
   turns: ScoreTurn[];
   measures: Measures;
   taskType: 'operator' | 'general' | 'unknown';

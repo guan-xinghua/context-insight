@@ -9,7 +9,7 @@
 // @vitest-environment happy-dom
 // 会话页 lake 上传入口 IT：标题栏 Export HTML 旁新增 Upload to Lake
 // 按钮，唤醒与主页面共用的上传弹窗（UploadToLakeDialog 共享组件）——
-// 范式目录/提交人/内容描述（预填首问）/算子生成结果必选同款表单。驱动真实
+// 范式目录/提交人/内容描述（预填首问）/任务结果必选同款表单。驱动真实
 // session 页面组件 + 回放真实 API 数据（复用 session-turn-accumulate fixture），
 // 完成完整交互后断言上传请求体（taskId=当前会话 / category / opGen / 提交人
 // 预填链路）。同时锁主页 SessionList 行入口与弹窗的共用不改行为（opgen-ui
@@ -142,7 +142,7 @@ describe('会话页 lake 上传入口（共享弹窗）', () => {
     expect(document.body.textContent).toContain(`上传到 ${BAY_NAME}`)
     const dlg = document.querySelector('[data-slot="dialog-content"]') as HTMLElement
     expect(dlg, '上传弹窗未渲染').toBeTruthy()
-    for (const label of ['范式目录', '提交人', '内容描述', '算子生成结果']) {
+    for (const label of ['范式目录', '提交人', '内容描述', '任务结果']) {
       expect(dlg.textContent).toContain(label)
     }
     // 内容描述预填会话首问（fixture query 含 /ops-registry）
@@ -150,7 +150,7 @@ describe('会话页 lake 上传入口（共享弹窗）', () => {
     expect(textarea, '上传弹窗内容描述框未找到').toBeTruthy()
     expect(textarea!.value.includes('/ops-registry-invoke-glacier')).toBe(true)
 
-    // ③ 完整提交：范式 + 提交人 + 算子生成结果（必选）
+    // ③ 完整提交：范式 + 提交人 + 任务结果（必选）
     const select = dlg.querySelector('select') as HTMLSelectElement
     expect(select, '范式下拉未找到（默认仓形态）').toBeTruthy()
     const submitterInput = [...dlg.querySelectorAll('input')].find(i => i.placeholder?.includes('真实姓名')) as HTMLInputElement

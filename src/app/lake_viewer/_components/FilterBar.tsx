@@ -48,9 +48,9 @@ export function FilterBar({
         {facets.ccVersions.map(v => <option key={v} value={v}>{v}</option>)}
       </select>
       <select className={selectCls} value={filters.opGen} onChange={e => set({ opGen: e.target.value as Filters['opGen'] })}>
-        <option value="">算子生成：全部</option>
-        <option value="success">算子生成：成功</option>
-        <option value="failure">算子生成：失败</option>
+        <option value="">任务结果：全部</option>
+        <option value="success">任务结果：成功</option>
+        <option value="failure">任务结果：失败</option>
       </select>
       <select className={selectCls} value={filters.scored} onChange={e => set({ scored: e.target.value as Filters['scored'] })}>
         <option value="">评分：全部</option>

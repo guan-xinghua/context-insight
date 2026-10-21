@@ -175,15 +175,24 @@ class UnusedInjectionScorer extends Scorer {
   protected constructor(
     readonly id: string,
     private readonly label: string,
-    private readonly declaredOf: (input: ScorerContext['input']) => Array<{ name: string; approxTokens: number }> | null | undefined,
+    private readonly declaredOf: (input: ScorerContext['input']) => Array<{ name: string; approxTokens: number; origin?: string | null }> | null | undefined,
     private readonly usedOf: (input: ScorerContext['input']) => Set<string>,
+    // 不可控项剔除（如 CLI 内置技能——装了 CLI 就有，会话侧无法选择，不该
+    // 进评价口径）；excludedNote 非空时公式公示剔除数
+    private readonly exclude?: (t: { name: string; origin?: string | null }) => boolean,
+    private readonly excludedNote = '',
   ) {
     super();
   }
 
   async run(ctx: ScorerContext): Promise<SubItemResult> {
-    const declared = this.declaredOf(ctx.input);
-    if (!declared || declared.length === 0) return notApplicable(ctx.def, NO_WIRE);
+    const all = this.declaredOf(ctx.input);
+    if (!all || all.length === 0) return notApplicable(ctx.def, NO_WIRE);
+    const excluded = this.exclude ? all.filter(t => this.exclude!(t)) : [];
+    const declared = this.exclude ? all.filter(t => !this.exclude!(t)) : all;
+    if (declared.length === 0) {
+      return notApplicable(ctx.def, `全部为${this.excludedNote}（不可控），无可评价项`);
+    }
     const used = this.usedOf(ctx.input);
     const unusedItems = declared.filter(t => !used.has(t.name.toLowerCase()));
     const total = declared.reduce((s, t) => s + t.approxTokens, 0);
@@ -193,10 +202,11 @@ class UnusedInjectionScorer extends Scorer {
     // 公示全量清单（与公式计数一致）；超大工具集封顶 30 防刷屏，超出补一条计数说明
     const shown = unusedItems.slice(0, 30);
     const rest = unusedItems.length - shown.length;
+    const exclNote = excluded.length > 0 && this.excludedNote ? `（剔 ${excluded.length} 个${this.excludedNote}）` : '';
     return okResult(ctx.def, {
       value: ratio,
       unit: 'ratio',
-      formula: `${this.label} ${declared.length} 个、未用 ${unusedItems.length} 个，未用部分占注入 ${Math.round(ratio * 100)}%——只统计不扣分`,
+      formula: `${this.label} ${declared.length} 个${exclNote}、未用 ${unusedItems.length} 个（${unused}/${total} tok，${Math.round(ratio * 100)}%）——只统计不扣分`,
       evidence: [
         ...shown.map(t => ev(null, `未用：${t.name}`)),
         ...(rest > 0 ? [ev(null, `…还有 ${rest} 个未列出`)] : []),
@@ -222,6 +232,9 @@ class UnusedSkillsScorer extends UnusedInjectionScorer {
       input => input.wire?.availableSkills,
       input => {
         const used = new Set<string>();
+        // SkillEvent 通道（斜杠命令 invoke / 技能加载 / 派发）：斜杠调用无工具
+        // 调用，只扫 toolCalls 会把真实用过的技能算成未用（现场：day0-inference）
+        for (const se of input.skillEvents ?? []) used.add(se.skillName.toLowerCase());
         for (const tc of input.toolCalls) {
           const n = tc.toolName.toLowerCase();
           if (n === 'skill' || n === 'invoke_skill') {
@@ -232,6 +245,8 @@ class UnusedSkillsScorer extends UnusedInjectionScorer {
           if (m2) used.add(m2[1].toLowerCase());
         }
         return used;
-      });
+      },
+      t => t.origin === 'cli-builtin',
+      'CLI 内置');
   }
 }

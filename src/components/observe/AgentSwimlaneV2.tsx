@@ -49,10 +49,10 @@ function fmtClock(ms: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`
 }
 
-function fmtAxisLabel(ms: number, intervalMs: number): string {
+function fmtAxisLabel(ms: number, intervalMs: number, withDate = false): string {
   const d = new Date(ms)
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-  if (intervalMs >= 12 * 3_600_000) {
+  if (intervalMs >= 12 * 3_600_000 || withDate) {
     return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${hm}`
   }
   if (intervalMs >= 60_000) return hm
@@ -300,14 +300,19 @@ export function AgentSwimlaneV2({ agents, bridges, isProxy = false, onViewTurns,
   const tickInterval = computeTickInterval(totalDuration / zoom)
   // 刻度对齐本地午夜网格：87h 会话若从起点直接累加，间隔（如 15h）会把标签打到
   // 08:38/02:38 这类怪时刻；对齐后标签永远落在整点/半天/整天上
+  // 日期可见性：首个刻度与跨日后的首个刻度带 MM-DD（小时级刻度只看 HH:MM
+  // 不知道是哪天），≥12h 大间隔刻度维持原有整排带日期
   const ticks = useMemo(() => {
     const out: Array<{ pct: number; label: string }> = []
     const d0 = new Date(globalStartMs)
     const midnight = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime()
     const first = midnight + Math.ceil(Math.max(0, globalStartMs - midnight) / tickInterval) * tickInterval
     const gEnd = globalStartMs + totalDuration
+    let prevDay = -1
     for (let t = first; t <= gEnd; t += tickInterval) {
-      out.push({ pct: ((t - globalStartMs) / totalDuration) * 100, label: fmtAxisLabel(t, tickInterval) })
+      const day = new Date(t).getDate()
+      out.push({ pct: ((t - globalStartMs) / totalDuration) * 100, label: fmtAxisLabel(t, tickInterval, day !== prevDay) })
+      prevDay = day
     }
     return out
   }, [totalDuration, tickInterval, globalStartMs])

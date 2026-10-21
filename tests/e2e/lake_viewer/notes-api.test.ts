@@ -157,7 +157,7 @@ describe('notes api（本地 bare 湖 + 真测试库评分卡）', () => {
     expect(bareTree()).toContain('elementwise/baseline/ele-base0009/ele-base0009.notes.jsonl');
   });
 
-  it('opgen：修正算子生成标注（meta.json 落湖），清除后字段移除', async () => {
+  it('opgen：修正任务结果标注（meta.json 落湖），清除后字段移除', async () => {
     const { POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
     const metaRef = 'main:elementwise/ele-note0001/ele-note0001.meta.json';
     const metaJson = () => JSON.parse(execSync(`git -C "${BARE}" show "${metaRef}"`).toString('utf8')) as { x_cannbay: { data: Record<string, unknown> } };

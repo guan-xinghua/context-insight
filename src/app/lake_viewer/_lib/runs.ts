@@ -401,7 +401,7 @@ export async function listRuns(query: RunQuery): Promise<RunsResult> {
   // 评分卡 + 活跃时长：仅对排序后前 MAX_ITEMS 条已导入运行拉取（有界并发）。
   // 耗时列统一活跃时长口径：已导入行按 turns 聚类现算（无 turns 回落墙钟），
   // 未导入行用上传时刻写进 meta 的 activeMs 快照（旧 meta 无此字段回落墙钟
-  // durationMs）——算子生成耗时优化图同源切换
+  // durationMs）——任务耗时优化图同源切换
   rows.sort(byStartTimeDesc);
   const scoreTargets = rows.filter(r => r.imported).slice(0, MAX_ITEMS);
   await mapBounded(scoreTargets, SCORE_FETCH_LIMIT, async (r) => {

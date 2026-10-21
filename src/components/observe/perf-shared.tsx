@@ -256,9 +256,11 @@ const COLS: { key: SortKey; label: string }[] = [
   { key: "order", label: "SEQUENCE" },
 ]
 
-export function PerfTopTable({ subagents, onJumpToTurn }: {
+export function PerfTopTable({ subagents, onJumpToTurn, includeRoot }: {
   subagents: SubagentStat[]
   onJumpToTurn?: (turn: number) => void
+  /** 勾选「含 root」：列表含主 agent 聚合行，表头/空态文案随之切换 */
+  includeRoot?: boolean
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("ms")
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -288,7 +290,7 @@ export function PerfTopTable({ subagents, onJumpToTurn }: {
       <div className="min-w-[560px]">
         {/* Header */}
         <div className="grid grid-cols-[1fr_52px_80px_80px_80px_56px] bg-muted/30 px-3 py-2 text-xs font-semibold text-muted-foreground border-b">
-          <span>SUBAGENT</span>
+          <span>{includeRoot ? "AGENT" : "SUBAGENT"}</span>
           <span></span>
           {COLS.map(col => (
             <span
@@ -477,12 +479,12 @@ export function PerfTopTable({ subagents, onJumpToTurn }: {
             className="px-3 py-1.5 text-xs text-blue-600 cursor-pointer hover:underline select-none text-center"
             onClick={() => setShowAllSubagents(!showAllSubagents)}
           >
-            {showAllSubagents ? "收起" : `展开全部 (${sorted.length} subagents)`}
+            {showAllSubagents ? "收起" : `展开全部 (${sorted.length} ${includeRoot ? "agents" : "subagents"})`}
           </div>
         )}
 
         {sorted.length === 0 && (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">暂无子代理数据</div>
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground">{includeRoot ? "暂无 agent 数据" : "暂无子代理数据"}</div>
         )}
       </div>
     </div>

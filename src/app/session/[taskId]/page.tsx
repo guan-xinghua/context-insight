@@ -1279,8 +1279,11 @@ export default function SessionDetailPage({
               </div>
             )}
             {dispatchOnlyNames.size > 0 && (
-              <div className="text-[11px] text-muted-foreground mt-2">
-                已排除 {dispatchOnlyNames.size} 个仅分派的子代理（见 Audit · agent 面）
+              <div
+                className="text-[11px] text-muted-foreground mt-2 cursor-pointer hover:text-foreground"
+                onClick={() => navigate({ tab: "skills" })}
+              >
+                已排除 {dispatchOnlyNames.size} 个仅分派的子代理（见 Skills 页）
               </div>
             )}
           </CardContent>

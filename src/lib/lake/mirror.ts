@@ -248,7 +248,7 @@ export interface LakeSessionEntry {
   ccVersion: string | null;
   /** cc-session-meta 声明的生产者（cpx=proxy 捕获 / insight-export / insight-upload），无则 null */
   producer: string | null;
-  /** 算子生成结果标注（cc-session-meta 可选字段 opGen，上传时人工勾选），无则 null=未标注 */
+  /** 任务结果标注（cc-session-meta 可选字段 opGen，上传时人工勾选），无则 null=未标注 */
   opGen: 'success' | 'failure' | null;
   /** 所在顶层范式目录（全仓顶层目录即注册表，恒多根：rootDir 位置同普通
    *  目录名——rootDir 仅作上传缺省目录，不参与扫描分流）；根级会话（repo

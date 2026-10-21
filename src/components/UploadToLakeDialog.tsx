@@ -8,7 +8,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 数据仓上传弹窗（共享组件）：主页列表行与 会话页标题栏 两处入口共用同一
-// 弹窗（范式目录 / 提交人 / 内容描述 / 算子生成结果必选 / baseline）。受控
+// 弹窗（范式目录 / 提交人 / 内容描述 / 任务结果必选 / baseline）。受控
 // 组件——open/onOpenChange 由调用方管理，上传开始与结果经 onUploadStart /
 // onResult 回调交还调用方呈现（列表行状态图标 / 会话页 toast）。
 // 弹窗标题用 BAY_NAME（@/lib/branding）——context 双名发布时 Bay 显示名随品牌翻转。
@@ -88,7 +88,7 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
   const [uploadSubmitterTouched, setUploadSubmitterTouched] = useState(false)
   const [uploadCategory, setUploadCategory] = useState('')
   const [uploadBaseline, setUploadBaseline] = useState(false)
-  // 算子生成结果标注（随会话 meta 入仓，数据仓列表"算子生成"列展示）：
+  // 任务结果标注（随会话 meta 入仓，数据仓列表"任务结果"列展示）：
   // Web UI 必选（成功/失败，未选禁用上传）；'' 仅作初始未选态。数据层仍允许
   // 缺省（CLI 上传/历史数据 → 列表显示 —）
   const [uploadOpGen, setUploadOpGen] = useState<'' | 'success' | 'failure'>('')
@@ -279,7 +279,7 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
         </div>
         <div className="flex items-center justify-between gap-3">
           <label className="text-sm font-medium shrink-0">
-            算子生成结果 <span className="text-red-500">*</span>
+            任务结果 <span className="text-red-500">*</span>
           </label>
           <div className="flex gap-1 rounded-lg border bg-muted/40 p-1">
             {([

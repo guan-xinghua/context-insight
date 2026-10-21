@@ -18,6 +18,16 @@ import type { AvailableSkill } from '@/lib/skill-coverage';
 const CLAUDE_MEMORY_MARKER = '# claudeMd';
 const CLAUDE_SKILLS_MARKER = 'The following skills are available';
 
+// Claude Code CLI 内置技能（注入列表无分组/来源标记，只能按名单识别；跨版本
+// 取并集：2.1.304 的 8 个 + 新版增的 run/plugin-authoring/workflow-authoring/
+// security-review/init）。名单外的新内置会被当自定义——发现即补这里。
+// 评分 D5.skills 剔除它们（不可控项不进评价口径），覆盖度卡不受影响。
+const CLAUDE_CLI_BUILTIN_SKILLS = new Set([
+  'claude-api', 'code-review', 'dataviz', 'fewer-permission-prompts',
+  'keybindings-help', 'loop', 'simplify', 'update-config',
+  'run', 'plugin-authoring', 'workflow-authoring', 'security-review', 'init',
+]);
+
 /** memory 段：`# claudeMd` 起至下一节标记（`# currentDate` /
  * `</system-reminder>` / 文末）。native claude jsonl 的系统文本在 message
  * 行里，段边界由这些 claude 原生标记决定。 */
@@ -68,6 +78,8 @@ export function parseClaudeAvailableSkills(text: string): AvailableSkill[] {
     if (fromMatch) {
       origin = fromMatch[1];
       description = description.slice(0, fromMatch.index ?? 0).trim();
+    } else if (CLAUDE_CLI_BUILTIN_SKILLS.has(name)) {
+      origin = 'cli-builtin';
     }
     if (!name || seen.has(name)) continue;
     seen.add(name);

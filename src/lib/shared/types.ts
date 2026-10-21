@@ -48,6 +48,10 @@ export interface ToolCallInfo {
   argsJson: string | null;
   resultJson: string | null;
   state: string;
+  /** 工具发起时刻（ms epoch，源有则填；claude-jsonl=tool_use 行 ts，opencode=part.time_created） */
+  startedAt?: number | null;
+  /** 工具完成时刻（ms epoch，源有则填；claude-jsonl=tool_result 行 ts，opencode=终态 part.time_updated）。缺省 null=源无此信息，消费方降级 */
+  completedAt?: number | null;
 }
 
 export interface TokenUsage {

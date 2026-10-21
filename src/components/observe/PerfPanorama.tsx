@@ -268,8 +268,32 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent
     const subagents = [...m.values()]
 
     const dispatchTurnIds = new Set(bridges.map(b => b.dispatchTurnId).filter(Boolean) as string[])
-    const perfSeries = rootTurns
-      .filter(t => t.latencyMs > 0 && t.agentName !== "compaction" && t.agentName !== "continuation" && !dispatchTurnIds.has(t.turnId))
+    // 「含 root」勾选对 TopDown 同样生效：主 agent 的 assistant 轮聚合成一行
+    // 参与排序，口径与性能效率序列一致（剔 compaction/continuation、派发轮、
+    // 零时延轮）——无子代理的会话也能看到主 agent 的 turn 排序
+    // 性能效率曲线随之收窄为仅 assistant 轮（PR #140 review 点明）：result 轮
+    // tokens 恒 0（adapter result 分支不产 token usage），此前混入的 result 点
+    // 是 tps=0/tpot=0 零值噪声，属顺带修正
+    const rootStatTurns = rootTurns.filter(t =>
+      t.role === "assistant" && t.latencyMs > 0 &&
+      t.agentName !== "compaction" && t.agentName !== "continuation" &&
+      !dispatchTurnIds.has(t.turnId))
+    if (includeRoot && rootStatTurns.length > 0) {
+      const totalMs = rootStatTurns.reduce((s, t) => s + t.latencyMs, 0)
+      const totalTokens = rootStatTurns.reduce((s, t) => s + t.totalTokens, 0)
+      const totalGenTokens = rootStatTurns.reduce((s, t) => s + (t.outputTokens ?? 0) + (t.reasoningTokens ?? 0), 0)
+      const cacheRead = rootStatTurns.reduce((s, t) => s + t.cacheReadTokens, 0)
+      const inputTokens = rootStatTurns.reduce((s, t) => s + t.inputTokens, 0)
+      subagents.push({
+        sessionId: "root", name: "主 agent",
+        subagentType: null, taskDescription: null, turns: rootStatTurns,
+        totalMs, totalTokens, totalGenTokens,
+        tps: totalMs > 0 ? totalGenTokens / (totalMs / 1000) : 0,
+        cacheRead, inputTokens,
+        cacheHitRate: cacheRead + inputTokens > 0 ? (cacheRead / (cacheRead + inputTokens)) * 100 : 0,
+      })
+    }
+    const perfSeries = rootStatTurns
       .map(t => {
         const gen = (t.outputTokens ?? 0) + (t.reasoningTokens ?? 0)
         const tpot = gen > 0 ? t.latencyMs / gen : 0
@@ -277,7 +301,7 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent
         return { turnIndex: t.turnIndex, createdAt: t.createdAt, tpot, tps }
       })
     return { subagents, perfSeries }
-  }, [turns, bridges])
+  }, [turns, bridges, includeRoot])
 
   const model = useMemo<PerfModel | null>(() => {
     if (!items || items.length === 0) return null
@@ -395,11 +419,11 @@ export function PerfPanorama({ taskId, framework, onJumpToTurn, onJumpToSubagent
           {/* duration + token charts */}
           <TripleChart model={model} onJumpToSubagent={onJumpToSubagent} />
 
-          {/* perf top — 子代理 Top 排序表(自 PerfPanorama) */}
+          {/* perf top — Top 排序表（默认子代理；勾选「含 root」加入主 agent 行） */}
           {perfTop.subagents.length > 0 && (
             <div>
               <h4 className="text-sm font-semibold text-muted-foreground mb-1.5">Perf TopDown</h4>
-              <PerfTopTable subagents={perfTop.subagents} onJumpToTurn={onJumpToTurn} />
+              <PerfTopTable subagents={perfTop.subagents} onJumpToTurn={onJumpToTurn} includeRoot={includeRoot} />
             </div>
           )}
 

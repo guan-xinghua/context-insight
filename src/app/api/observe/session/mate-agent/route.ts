@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
 
         // 截断 → 整卡出局：与 LLM 路径同口径（不评、不落盘，前端按「评价中止」呈现）
         if (ruleCard.status === 'aborted') {
+          logInfo('route:observe/session/mate-agent', 'mate 评审中止（会话截断，整卡出局）', { taskId: body.taskId, tool });
           send({ type: 'done', card: deriveItemScores(await applyOverlays(ruleCard, registry.defs, registry.profile), registry.defs) });
           return;
         }
@@ -78,6 +79,12 @@ export async function POST(request: NextRequest) {
         const usable = parsed?.dimensions?.some(d => (d.items ?? []).length > 0) ?? false;
         if (!usable) {
           const detail = Object.entries(failures).map(([k, v]) => `${DIM_NAMES[k] ?? k}：${v}`).join('；');
+          // 该出口走 send+return，不经 catch——此前无日志行，现场只留"评审开始"
+          // 后静默（ENOENT 案例日志里查不到错就在这）
+          logError('route:observe/session/mate-agent', 'mate 评审未产出任何子项', {
+            taskId: body.taskId, tool, durationMs,
+            failures: Object.entries(failures).map(([k, v]) => `${DIM_NAMES[k] ?? k}: ${v.slice(0, 200)}`).join(' | '),
+          });
           send({ type: 'error', message: `Mate Agent 未产出任何子项评审${detail ? `（${detail}）` : ''}` });
           return;
         }

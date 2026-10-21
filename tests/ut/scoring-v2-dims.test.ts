@@ -1073,6 +1073,43 @@ describe('D5 重复尝试（重派 + 原样重复）', () => {
     expect(skills.score).toBeUndefined();
     expect(skills.formula).toContain('只统计不扣分');
   });
+
+  it('D5.skills：斜杠调用（skillEvents，无工具调用）算已用；CLI 内置（origin=cli-builtin）剔除出评价口径', async () => {
+    const wire = {
+      requestTokens: 100000, dupCopyTokens: 0, staleResultTokens: 0,
+      availableSkills: [
+        { name: 'day0-inference', description: '', approxTokens: 500, origin: null },
+        { name: 'ops-analysis', description: '', approxTokens: 300, origin: null },
+        { name: 'code-review', description: '', approxTokens: 400, origin: 'cli-builtin' },
+        { name: 'dataviz', description: '', approxTokens: 600, origin: 'cli-builtin' },
+      ],
+    };
+    const item = await runItem(input({
+      wire,
+      toolCalls: [],   // 斜杠通道无工具调用——此前 used 恒空，全部误判未用
+      skillEvents: [{ skillName: 'day0-inference', eventType: 'invoke' }],
+    }), 'D5.skills');
+    expect(item.status).toBe('ok');
+    expect(item.formula).toContain('skill 2 个');
+    expect(item.formula).toContain('剔 2 个CLI 内置');
+    expect(item.formula).toContain('未用 1 个');
+    expect(item.value).toBe(0.38);                   // round2(300/800)——仅 ops-analysis 未用 / 自定义合计
+    const evidenceText = (item.evidence ?? []).map(e => `${e.label ?? ''}${e.quote ?? ''}`).join(' ');
+    expect(evidenceText).toContain('ops-analysis');
+    expect(evidenceText).not.toContain('day0-inference');
+  });
+
+  it('D5.skills：全部为 CLI 内置（不可控）→ 整项不适用', async () => {
+    const wire = {
+      requestTokens: 100000, dupCopyTokens: 0, staleResultTokens: 0,
+      availableSkills: [
+        { name: 'code-review', description: '', approxTokens: 400, origin: 'cli-builtin' },
+      ],
+    };
+    const item = await runItem(input({ wire, toolCalls: [] }), 'D5.skills');
+    expect(item.status).not.toBe('ok');
+    expect(String(item.formula ?? '') + String(item.note ?? '')).toContain('不可控');
+  });
 });
 
 // ── D5.toolErrors 工具调用出错（自 D3 迁入）：可避免错误率 ×10 线性扣，环境类豁免，原样重发只计首错 ──

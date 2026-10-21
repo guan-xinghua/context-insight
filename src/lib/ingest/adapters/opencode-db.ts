@@ -468,8 +468,8 @@ function _readSession(db: Database.Database, sessionId: string): RawInteraction[
   ).all(...msgIds) as { message_id: string; data: string }[];
 
   const allToolParts = db.prepare(
-    `SELECT message_id, data FROM part WHERE message_id IN (${msgIds.map(() => '?').join(',')}) AND json_extract(data, '$.type') = 'tool' ORDER BY time_created`
-  ).all(...msgIds) as { message_id: string; data: string }[];
+    `SELECT message_id, time_created, time_updated, data FROM part WHERE message_id IN (${msgIds.map(() => '?').join(',')}) AND json_extract(data, '$.type') = 'tool' ORDER BY time_created`
+  ).all(...msgIds) as { message_id: string; time_created: number; time_updated: number; data: string }[];
 
   const allCompactionParts = db.prepare(
     `SELECT message_id, data FROM part WHERE message_id IN (${msgIds.map(() => '?').join(',')}) AND json_extract(data, '$.type') = 'compaction' ORDER BY time_created`
@@ -539,7 +539,17 @@ function _readSession(db: Database.Database, sessionId: string): RawInteraction[
         resultJson = normalizeToolResultPayload(pd.state.output);
       }
 
-      const tc: ToolCallInfo = { toolCallId: callID, toolName, argsJson, resultJson, state };
+      // 工具真实起止：part.time_created=发起，终态时 time_updated=完成（时间随状态
+      // 流转刷新，非终态的 time_updated 不是完成时刻 → completedAt 置 null 降级）
+      // 「终态会刷新 time_updated」已实证（PR #140 review）：真实 v1 活库
+      // 1.48GB、15745 条 tool part 全部 time_updated > time_created（无一仅
+      // 创建时落值），completed 态 Δ≈260-420ms 合理工具时长
+      const terminal = state === 'completed' || state === 'error';
+      const tc: ToolCallInfo = {
+        toolCallId: callID, toolName, argsJson, resultJson, state,
+        startedAt: p.time_created ?? null,
+        completedAt: terminal ? (p.time_updated ?? null) : null,
+      };
       if (!toolCallsByMsg.has(p.message_id)) toolCallsByMsg.set(p.message_id, []);
       toolCallsByMsg.get(p.message_id)!.push(tc);
     } catch { /* skip */ }

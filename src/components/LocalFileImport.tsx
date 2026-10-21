@@ -99,7 +99,7 @@ interface LakeSession {
   paradigm?: string | null
   /** 范式 baseline 会话（位置即身份：<paradigm>/baseline/<sid>/，路径推导） */
   isBaseline?: boolean
-  /** 算子生成结果标注（cc-session-meta 可选字段 opGen，上传时勾选），null/缺省 = 未标注 */
+  /** 任务结果标注（cc-session-meta 可选字段 opGen，上传时勾选），null/缺省 = 未标注 */
   opGen?: 'success' | 'failure' | null
   /** 记录类（同 sid 双记录）：native = <sid>.native/ 原生 claude 会话；capture = 裸 <sid>/（wire 捕获 / 主位） */
   recording?: 'capture' | 'native'
@@ -1110,7 +1110,7 @@ export function LocalFileImport() {
                           <TableHead className="w-[36px] px-2"></TableHead>
                           <TableHead className="w-[170px] px-2">First Query</TableHead>
                           <TableHead className="w-[120px] px-2">Type</TableHead>
-                          <TableHead className="w-[64px] px-2">算子生成</TableHead>
+                          <TableHead className="w-[64px] px-2">任务结果</TableHead>
                           <TableHead className="w-[90px] px-2">用户名</TableHead>
                           <TableHead className="w-[110px] px-2">时间</TableHead>
                           <TableHead className="px-2">提交信息</TableHead>
@@ -1157,7 +1157,7 @@ export function LocalFileImport() {
                               </span>
                             </TableCell>
                             <TableCell className="px-2 text-xs py-2 align-middle">
-                              {/* 算子生成结果标注（上传时勾选，cc-session-meta 可选字段） */}
+                              {/* 任务结果标注（上传时勾选，cc-session-meta 可选字段） */}
                               {s.opGen === 'success' ? (
                                 <Badge variant="green" className="px-1 text-[10px]">成功</Badge>
                               ) : s.opGen === 'failure' ? (

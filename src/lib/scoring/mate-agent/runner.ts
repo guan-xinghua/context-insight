@@ -14,6 +14,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 import { exportMaterial, safeId } from './material';
+import { logWarn } from '@/lib/logger';
 import { CANNBOT_HOME } from '../core/store';
 import type { DimensionDefinition, ScoreItemSchema } from '../core/schema';
 import type { MateAgentItem } from './coerce';
@@ -129,10 +130,27 @@ export interface DimensionRunResult {
   durationMs: number;
 }
 
-const GUIDE_PATH = fileURLToPath(new URL('./GUIDE.md', import.meta.url));
+const GUIDE_ASSET_PATH = fileURLToPath(new URL('./GUIDE.md', import.meta.url));
+// 兜底：new URL('./GUIDE.md') 在 Next 生产构建里被改写到 .next/server/assets/
+// GUIDE.<hash>.md——安装包不带 .next（现场首启构建），构建中断/损坏时该
+// asset 缺失会让 Mate 评审五维全挂 ENOENT。src/ 随包发布，回落源文件
+// （同一份内容）。
+const GUIDE_SRC_PATH = path.join(process.cwd(), 'src', 'lib', 'scoring', 'mate-agent', 'GUIDE.md');
+
+export async function readGuideFile(primary: string, fallback: string): Promise<string> {
+  try {
+    return await fs.readFile(primary, 'utf-8');
+  } catch (e) {
+    // 留痕：构建产物损坏是行动信号（cbi -f 重建），静默回落会让现场一直带病跑
+    logWarn('scoring/mate-agent', 'GUIDE 构建产物缺失，回落随包源文件（建议 cbi -f 重建）', {
+      primary, error: e instanceof Error ? e.message : String(e),
+    });
+    return fs.readFile(fallback, 'utf-8');
+  }
+}
 
 export async function readGuide(): Promise<string> {
-  return fs.readFile(GUIDE_PATH, 'utf-8');
+  return readGuideFile(GUIDE_ASSET_PATH, GUIDE_SRC_PATH);
 }
 
 async function runCommand(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {

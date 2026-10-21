@@ -45,6 +45,8 @@ export interface CollectedData {
   };
   turns: ScoreTurn[];
   toolCalls: ScoreToolCall[];
+  /** 技能事件（斜杠命令 invoke 等无工具调用通道；D5.skills used 集合消费） */
+  skillEvents: Array<{ skillName: string; eventType: string }>;
   executions: ScoreExecution[];
   bridges: BridgeRow[];
   wire: WireSummary | null;
@@ -422,6 +424,12 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
     },
   });
 
+  // 技能事件（斜杠命令 invoke 等无工具调用的通道只在这里有记录；D5.skills 消费）
+  const skillEventRows = await prisma.skillEvent.findMany({
+    where: { turn: { sessionId: session.id } },
+    select: { skillName: true, eventType: true },
+  });
+
   const executionRows = await prisma.execution.findMany({
     where: { sessionId: session.id },
     select: { agentName: true, isSubagent: true, tokens: true, cost: true, latencyMs: true, toolCallCount: true, toolCallErrorCount: true },
@@ -454,6 +462,7 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
         name: s.name,
         description: s.description,
         approxTokens: approxTokens(s.description.length + s.name.length + 8),
+        origin: s.origin,
       })),
       memoryTokens: fullContext?.memoryFiles ? approxTokens(fullContext.memoryFiles.length) : undefined,
     }
@@ -475,6 +484,7 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
     },
     turns,
     toolCalls,
+    skillEvents: skillEventRows,
     executions: executionRows.map(e => ({
       agentName: e.agentName ?? '',
       isSubagent: e.isSubagent,

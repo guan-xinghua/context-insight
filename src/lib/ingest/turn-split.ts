@@ -243,9 +243,11 @@ export function splitIntoTurns(
     const completedAt = timeInfo?.completed
       ? new Date(timeInfo.completed).toISOString()
       : null;
-    const latencyMs = timeInfo?.completed && timeInfo?.created
-      ? timeInfo.completed - timeInfo.created
-      : (interaction.latency ?? 0);
+    // 显式 latency 优先（adapter 的权威时长声明：proxy duration_ms / native
+    // 请求边界推导），行跨度（completed−created）仅作无声明时的兜底
+    const latencyMs = interaction.latency != null
+      ? interaction.latency
+      : (timeInfo?.completed && timeInfo?.created ? timeInfo.completed - timeInfo.created : 0);
 
     const agentName = interaction.agent ?? interaction.subagent_name ?? null;
     const subagentName = interaction.subagent_name ?? null;
@@ -389,6 +391,11 @@ export function splitIntoTurns(
         const isSkillRelated = isSkillToolCall(tc.toolName) || isAgentSkillDispatch(tc.toolName, tc.argsJson);
         const errMsg = extractErrorMessage(tc.resultJson);
 
+        // 工具起止：源携带真实时间戳（ToolCallInfo.startedAt/completedAt，claude-jsonl
+        // 与 opencode v1 填充）→ 落真实值 + durationMs；源没有（如 opencode v2 / 旧
+        // 导出件）→ 降级为既有行为（复制所属轮时间、durationMs=0），路径不劣化
+        const tcStartIso = tc.startedAt != null ? new Date(tc.startedAt).toISOString() : createdAt_ts;
+        const tcEndIso = tc.completedAt != null ? new Date(tc.completedAt).toISOString() : (completedAt ?? createdAt_ts);
         const toolCallRow: ToolCallRow = {
           id: toolCallRowId,
           turnId,
@@ -399,9 +406,11 @@ export function splitIntoTurns(
           state: tc.state,
           errorType: classifyError(tc.state, errMsg),
           errorMessage: errMsg,
-          startedAt: createdAt_ts,
-          completedAt: completedAt ?? createdAt_ts,
-          durationMs: 0,
+          startedAt: tcStartIso,
+          completedAt: tcEndIso,
+          durationMs: tc.startedAt != null && tc.completedAt != null
+            ? Math.max(0, tc.completedAt - tc.startedAt)
+            : 0,
           dispatchBridgeId: null,
           isSkillRelated,
         };

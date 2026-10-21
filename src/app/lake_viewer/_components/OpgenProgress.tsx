@@ -8,7 +8,7 @@
 
 'use client';
 
-// 算子生成耗时优化图：run chart——x=运行开始时间，y=生成耗时；仅统计算子
+// 任务耗时优化图：run chart——x=运行开始时间，y=生成耗时；仅统计任务
 // 生成成功（✓）的运行，失败的会话不进优化曲线；基线/期望为水平参考线
 // （存湖 <paradigm>/<paradigm>.jsonl，面板可改）。
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -135,9 +135,9 @@ export function OpgenProgress({ paradigm, items }: { paradigm: string; items: Ru
   return (
     <div ref={cardRef} className="relative rounded-lg border border-neutral-200 bg-white px-4 pb-3 pt-2.5">
       <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="text-xs font-medium text-neutral-700">算子生成耗时优化</span>
+        <span className="text-xs font-medium text-neutral-700">任务耗时优化</span>
         <span className="flex items-center gap-1 text-[10px] text-neutral-500">
-          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: SUCCESS_FILL }} />仅算子生成成功（✓）的运行
+          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: SUCCESS_FILL }} />仅任务成功（✓）的运行
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[10px] text-neutral-500">
           基线
@@ -166,10 +166,10 @@ export function OpgenProgress({ paradigm, items }: { paradigm: string; items: Ru
 
       {series.length === 0 || geom == null ? (
         <div className="flex h-[110px] items-center justify-center text-xs text-neutral-300">
-          暂无「算子生成成功」且带耗时数据的运行
+          暂无「任务成功」且带耗时数据的运行
         </div>
       ) : (
-        <svg viewBox={`0 0 ${W} ${H}`} className="h-[150px] w-full" role="img" aria-label={`${paradigm} 算子生成耗时随时间变化`}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="h-[150px] w-full" role="img" aria-label={`${paradigm} 任务耗时随时间变化`}>
           {[0.25, 0.5, 0.75, 1].map(f => {
             const v = geom.yMax * f;
             const yy = geom.y(v);

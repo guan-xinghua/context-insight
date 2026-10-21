@@ -6,9 +6,9 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 算子生成结果标注（opGen）round-trip IT：上传时勾选"算子生成成功/失败" →
+// 任务结果标注（opGen）round-trip IT：上传时勾选"任务成功/失败" →
 // 写入 staging 的 cc-session-meta（可选字段，spec §4.4 不升版本）随仓上传 →
-// lake 列表「算子生成」列读回（success/failure/null=未标注）。
+// lake 列表「任务结果」列读回（success/failure/null=未标注）。
 // 本地 bare 仓（partial clone 全链路）+ 真实 prisma 会话 + 走 lake 路由
 // （action: upload / list），覆盖：标注成功、标注失败、不标注（缺省 null）、
 // 非法值按未标注处理（route 网关拦截）。
@@ -103,7 +103,7 @@ afterAll(async () => {
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* best-effort */ }
 });
 
-describe('lake 算子生成标注（opGen）round-trip', () => {
+describe('lake 任务结果标注（opGen）round-trip', () => {
   it('上传勾选 成功/失败 → 仓内 meta 携带 opGen → 列表读回对应标注', async () => {
     const up1 = await uploadViaRoute(SID_OK, 'success');
     expect(up1.ok, JSON.stringify(up1.data)).toBe(true);

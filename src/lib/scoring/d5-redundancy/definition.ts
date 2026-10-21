@@ -25,7 +25,7 @@ const PROFICIENCY_BANDS: Band[] = [
 
 const items: ScoreItemSchema[] = [
   { id: 'D5.tools', dimension: 'D5', name: '没用上的工具说明', scorerKind: 'rule', diagnostic: true, note: '声明了却从未调用——工具列表每会话全量注入，单会话没用不代表浪费；只统计不扣分' },
-  { id: 'D5.skills', dimension: 'D5', name: '没用上的 skill', scorerKind: 'rule', diagnostic: true, note: 'skill 列表每会话全量注入，单会话没用不代表浪费；只统计不扣分' },
+  { id: 'D5.skills', dimension: 'D5', name: '没用上的 skill', scorerKind: 'rule', diagnostic: true, note: 'CLI 内置技能不可控已剔除，只评用户/项目装的那部分；skill 每会话全量注入，单会话没用不代表浪费；只统计不扣分' },
   { id: 'D5.dup', dimension: 'D5', name: '重复塞进来的内容', scorerKind: 'baseline-compare', weight: 0.05, note: '只看单次请求内部（k 份相同算 k−1 份白背）；跨轮前缀重发不算——恒真无信息量' },
   { id: 'D5.stale', dimension: 'D5', name: '过期的旧结果', scorerKind: 'baseline-compare', weight: 0.05, note: '文件已改，旧工具结果还留在上下文里' },
   { id: 'D5.redispatch', dimension: 'D5', name: 'subagent 重派', scorerKind: 'rule', weight: 0.55, note: '同任务重派（编号聚簇，不要求连续）×50 当量——一次重派是十几 turn、M 级 token 的完整子会话，非常大的冗余；环境类重试豁免' },
