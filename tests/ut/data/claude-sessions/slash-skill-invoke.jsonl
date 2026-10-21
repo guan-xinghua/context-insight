@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"<command-message>day0-inference</command-message>\n<command-name>/day0-inference</command-name>\n<command-args>模型的路径为：/home/dev01/Kimi-K3（假权重，仅 dummy 测试），vllm-ascend 路径：/home/dev01/new/vllm-ascend；性能验收 tpot<40ms，tp=16</command-args>"}}
+{"type":"user","message":{"role":"user","content":"Base directory for this skill: /home/dev01/new/vllm-ascend/.claude/skills/day0-inference\n\n# Day0 推理四阶段流程控制（Stage Orchestrator）\n\n你是 Day0 四阶段流程控制者。每个阶段在前一阶段的出口证据上叠加一层能力。\n\n## Stage 1 Golden 基线\n\n- 跑通 dummy 权重\n- 采集 tpot 基线"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"开始 Stage 1：先用 dummy 权重跑通基线，再采集 tpot。"}],"model":"claude-sonnet-4-5-20250929","usage":{"input_tokens":1200,"output_tokens":80,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}},"duration_ms":1500}
+{"type":"user","message":{"role":"user","content":"<command-name>/skills</command-name>\n<command-message>skills</command-message>"}}
+{"type":"user","message":{"role":"user","content":"<local-command-stdout>No changes</local-command-stdout>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"内置命令，无技能注入跟随。"}],"model":"claude-sonnet-4-5-20250929","usage":{"input_tokens":60,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}},"duration_ms":400}

@@ -68,6 +68,20 @@ export function isContinuationTurn(text: string): boolean {
   return text.startsWith(CONTINUATION_MARKER)
 }
 
+/** 单轮解析 <command-name>/xxx</command-name> + <command-args>…</command-args>
+ * （skill 斜杠展开形态：标签与参数同在一条用户消息）。返回去斜杠的命令名与
+ * 参数；非命令轮或无斜杠前缀（部分内置命令无斜杠形态）返回 null。
+ * 是否为 skill 调用由调用侧判定（turn-split 以下一条 skill 注入 system 轮
+ * 为准——内置本地命令无注入跟随）。 */
+export function parseSlashCommandTurn(text: string): { name: string; args: string } | null {
+  const nameMatch = COMMAND_PATTERNS.commandName.exec(text)
+  if (!nameMatch) return null
+  const raw = nameMatch[1].trim()
+  if (!raw.startsWith('/')) return null
+  const argsMatch = COMMAND_PATTERNS.commandArgs.exec(text)
+  return { name: raw.slice(1), args: argsMatch ? argsMatch[1].trim() : '' }
+}
+
 export function parseCommandTurns(texts: string[]): CommandInfo {
   let name = "unknown"
   let args = ""

@@ -2,6 +2,11 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [Unreleased]
+
+### Fixed
+- 【斜杠命令技能调用计入统计】Claude Code 以 `/技能名` 展开加载的技能（如 `/day0-inference`）此前不计入会话技能统计（该通道无工具调用）——现识别「命令标签用户轮 + 技能注入系统轮」形态并按 invoke 计数；内置本地命令（/clear /skills 等）不受影响，存量会话重导入后自动恢复
+
 ## [0.2.39] - 2026-10-20
 
 ### Changed

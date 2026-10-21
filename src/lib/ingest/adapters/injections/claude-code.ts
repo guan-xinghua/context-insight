@@ -91,12 +91,10 @@ export function classifyAgentInjection(raw: string): AgentInjection | null {
 // skill 注入指纹（claude-code Skills 机制；opencode ≥1.17 同款格式，故
 // opencode 家族分类器复用本谓词）。Markers: <skill-format> / 'Base directory
 // for this skill' / 'Launching skill' distinguish skill injections from /compact.
-export function isSkillInjectionText(text: string): boolean {
-  return text.includes('Base directory for this skill') ||
-    text.includes('<skill-format>') ||
-    text.startsWith('Launching skill:') ||
-    text.startsWith('Launching skill ');
-}
+// 谓词本体移至 @/lib/tool-conventions（读侧 turn-split 斜杠命令计数共用），
+// 此处 re-export 保持原引用面（claude-jsonl / opencode 分类器不改）。
+import { isSkillInjectionText } from '../../../tool-conventions';
+export { isSkillInjectionText };
 
 // skill 注入首条例外：此前无任何记录的会话首条不重分类、保持 user——
 // opencode ≥1.17 把 skill 规程自动注入为首条消息（规程 + Base directory

@@ -88,6 +88,17 @@ export function skillEventTypeOf(toolName: string): 'load' | 'invoke' | 'use' {
   return 'use';
 }
 
+/** skill 注入正文指纹（读侧单源）：classifyUserInjection 把含这些 marker 的
+ * 用户行重分类为 system 轮。injections/claude-code.ts 从此处 re-export——
+ * claude-jsonl/opencode 分类器（写侧合并）与 turn-split 斜杠命令计数（读侧）
+ * 共用同一词表，marker 集合改动必须双侧同步。 */
+export function isSkillInjectionText(text: string): boolean {
+  return text.includes('Base directory for this skill') ||
+    text.includes('<skill-format>') ||
+    text.startsWith('Launching skill:') ||
+    text.startsWith('Launching skill ');
+}
+
 /**
  * 提取技能名：依次查参数键候选；无 args / 无命中时回落工具名去
  * skill/ 前缀（如 skill/ops-spec-gen → ops-spec-gen）。

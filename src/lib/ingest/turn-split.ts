@@ -9,7 +9,7 @@
 import type { RawInteraction } from '../shared/types';
 import { truncateUtf16Safe } from '../shared/text-strip';
 import { getContextWindowLimit } from '@/lib/context-window-config';
-import { isContinuationTurn } from '@/lib/shared/command-parser';
+import { isContinuationTurn, parseSlashCommandTurn } from '@/lib/shared/command-parser';
 
 export interface TurnRow {
   id: string;
@@ -100,7 +100,31 @@ function truncateTo200(text: string | null): string | null {
 }
 
 import { stripThinkingAndReminder } from '../shared/text-strip';
-import { isSkillToolCall, skillEventTypeOf, extractSkillName, extractSkillVersion } from '../tool-conventions';
+import { isSkillToolCall, skillEventTypeOf, extractSkillName, extractSkillVersion, isSkillInjectionText } from '../tool-conventions';
+
+/** 斜杠命令技能调用（claude-code `/skill` 展开形态）：用户轮内嵌
+ * <command-name>/<skill> 标签、紧随 skill 注入 system 轮（"Base directory
+ * for this skill: …"）——该通道无工具调用，SkillEvent 计数唯一入口在此。
+ * 内置本地命令（/clear /skills 等）无注入跟随，不会误触发；Skill 工具通道
+ * 的注入已被 adapter skill-merge 折进 tool_result（system 轮被移除），双通道不重复计数。 */
+function slashSkillInvocation(
+  interactions: RawInteraction[], i: number
+): { name: string; args: string } | null {
+  const cur = interactions[i];
+  if (cur.role !== 'user' || cur.subagent_session_id) return null;
+  const cmd = parseSlashCommandTurn(cur.content ?? '');
+  if (!cmd) return null;
+  for (let j = i + 1; j <= i + 2 && j < interactions.length; j++) {
+    const nx = interactions[j];
+    if (nx.role === 'assistant' || nx.role === 'user') break;
+    const c = nx.content ?? '';
+    if (nx.role === 'system' && isSkillInjectionText(c)) {
+      const byDir = c.match(/\/skills\/([^/\s<]+)/);
+      return { name: cmd.name || (byDir?.[1] ?? 'unknown'), args: cmd.args };
+    }
+  }
+  return null;
+}
 
 function isAgentSkillDispatch(toolName: string, argsJson: string | null): boolean {
   const lower = toolName.toLowerCase();
@@ -341,6 +365,23 @@ export function splitIntoTurns(
     };
 
     turns.push(turn);
+
+    const slashSkill = slashSkillInvocation(interactions, i);
+    if (slashSkill) {
+      skillEvents.push({
+        id: generateId(),
+        turnId,
+        skillName: slashSkill.name,
+        skillVersion: null,
+        eventType: 'invoke',
+        success: true,
+        errorMessage: null,
+        argsJson: slashSkill.args ? JSON.stringify({ args: slashSkill.args }) : null,
+        startedAt: createdAt_ts,
+        completedAt: createdAt_ts,
+        durationMs: 0,
+      });
+    }
 
     if (interaction.tool_calls) {
       for (const tc of interaction.tool_calls) {
