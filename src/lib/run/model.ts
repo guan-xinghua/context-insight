@@ -20,6 +20,10 @@ export const BUNDLE_VERSION = 1 as const;
  * （run/import-service）共用这一真身，避免两处硬编码静默分叉。 */
 export const MANIFEST_FILENAMES = ['workflow.json', 'manifest.json'] as const;
 
+/** bundle 随包的权威 JSON Schema（draft-07）文件名，与 workflow.json 并列。
+ * 导入时用它做结构校验（避免 insight 手写校验与 opsbot 漂移），缺文件即拒绝。 */
+export const WORKFLOW_SCHEMA_FILE = 'workflow.schema.json' as const;
+
 export type MemberKind = 'process' | 'session' | 'workflow';
 export type MemberRole = 'execute' | 'verify';
 

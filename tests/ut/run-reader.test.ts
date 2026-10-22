@@ -83,11 +83,7 @@ describe('reader：结构样例全量断言', () => {
 
 describe('reader：校验矩阵（错误 = 拒绝导入）', () => {
   it.each([
-    ['bad-schema', (m: Record<string, unknown>) => { m.schema = 'other'; }],
     ['unsupported-version', (m: Record<string, unknown>) => { m.version = 99; }],
-    ['bad-id', (m: Record<string, unknown>) => { m.id = ''; }],
-    ['bad-kind', (m: Record<string, unknown>) => { m.kind = 'process'; }],
-    ['members-missing', (m: Record<string, unknown>) => { delete (m.data as Record<string, unknown>).members; }],
     ['dup-member-id', (m: Record<string, unknown>) => {
       const members = (m.data as { members: unknown[] }).members;
       (members[1] as Record<string, unknown>).id = (members[0] as Record<string, unknown>).id;

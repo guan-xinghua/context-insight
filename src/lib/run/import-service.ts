@@ -19,7 +19,8 @@ import type { PrismaClient } from '@prisma/client';
 import { importSession } from '@/lib/ingest/data-service';
 import { logInfo, logError } from '@/lib/logger';
 import { parseManifest, buildIndex, type RunIndex } from './reader';
-import { MANIFEST_FILENAMES, type RunManifest } from './model';
+import { MANIFEST_FILENAMES, WORKFLOW_SCHEMA_FILE, type RunManifest } from './model';
+import { validateWithBundleSchema } from './schema-validate';
 import { saveRun, runsRoot, readRun, isSafeRunId } from './run-store';
 
 export interface BundleValidation {
@@ -38,8 +39,11 @@ export function bundleManifestFile(dirPath: string): string {
   return MANIFEST_FILENAMES.find(n => fs.existsSync(path.join(dirPath, n))) ?? MANIFEST_FILENAMES[0];
 }
 
-/** 校验 bundle 目录（同步、可 4xx 快速失败，不起 job）。结构校验走完整
- * parse + index（含关系端点解析），坏清单在入口拒绝而不是 job 中途炸。 */
+/** 校验 bundle 目录（同步、可 4xx 快速失败，不起 job）。结构校验走包内
+ * workflow.schema.json + parse + index（含关系端点解析），坏清单在入口拒绝
+ * 而不是 job 中途炸。schema 是随包权威：导入时落盘 runs/<id>、上传时原样
+ * 进仓，lake 重导入的包同样带 schema——不设豁免分支（存量无 schema 的仓
+ * 内包不再兼容）。 */
 export function validateBundleDir(dirPath: string): BundleValidation {
   if (!dirPath || typeof dirPath !== 'string') {
     return { ok: false, status: 400, error: 'Missing required field: dirPath' };
@@ -74,8 +78,19 @@ export function validateBundleDir(dirPath: string): BundleValidation {
       reason: 'bundle-manifest-invalid-json',
     };
   }
+  // 结构校验只走包内 workflow.schema.json（单一权威随包分发）；缺 schema 或
+  // 结构不符都在此拒绝，不回落手写结构校验。
+  const schemaCheck = validateWithBundleSchema(dirPath, raw);
+  if (!schemaCheck.ok) {
+    return {
+      ok: false,
+      status: 400,
+      error: `workflow.json 结构校验失败: ${schemaCheck.errors.join('；')}`,
+      reason: 'bundle-manifest-schema-invalid',
+    };
+  }
   try {
-    // parseManifest（信封/成员/关系结构）+ buildIndex（关系端点解析）双闸
+    // parseManifest（version 前向兼容闸 + 类型归一）+ buildIndex（关系端点解析）
     const manifest = parseManifest(raw);
     // id 即 run 目录名（runs/<id>）：入口同步拒绝非法目录名，避免 job 中途在 saveRun 炸
     if (!isSafeRunId(manifest.id)) {
@@ -271,7 +286,7 @@ export async function runImportJob(
   //    渲染"正文缺失"，重新导入即补齐）
   state.step = 'store';
   const startedAt = new Date().toISOString();
-  saveRun(
+  const runDirPath = saveRun(
     manifest,
     {
       schema: 'insight-run-import',
@@ -289,6 +304,12 @@ export async function runImportJob(
     },
     rootDir,
   );
+  // 随包 schema 原样落盘（与 manifest 同存 run 目录）：上传链路据此把
+  // schema 带进数据仓包。缺文件 = 结构校验未过，正常导入不会到这。
+  const schemaSrc = path.join(dirPath, WORKFLOW_SCHEMA_FILE);
+  if (fs.existsSync(schemaSrc)) {
+    fs.copyFileSync(schemaSrc, path.join(runDirPath, WORKFLOW_SCHEMA_FILE));
+  }
 
   // 2. import：全量立即导入（用户决策 #2）
   state.step = 'import';

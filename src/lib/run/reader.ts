@@ -27,19 +27,8 @@ import {
 
 export type ManifestRejectReason =
   | 'not-an-object'
-  | 'bad-schema'
   | 'unsupported-version'
-  | 'bad-version'
-  | 'bad-id'
-  | 'bad-kind'
-  | 'data-missing'
-  | 'members-missing'
-  | 'relations-missing'
-  | 'workflow-data-missing'
-  | 'bad-member'
-  | 'bad-member-kind'
   | 'dup-member-id'
-  | 'bad-relation'
   | 'dangling-relation';
 
 export class ManifestParseError extends Error {
@@ -89,67 +78,43 @@ function nullableString(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
 }
 
-/** 严格解析：结构不合法即抛（带 reason 的可行动错误）。 */
+/** 解析 + 类型归一。结构/枚举/条件必填已由包内 schema 承担（validateBundleDir
+ * 先行），此处不再手写结构校验，只保留 schema 表达不了的 version 前向兼容闸
+ * （schema 的 const 给不出「请升级 insight」的可行动提示）。 */
 export function parseManifest(json: unknown): RunManifest {
   if (!isObj(json)) {
     throw new ManifestParseError('not-an-object', 'workflow.json 根必须是 JSON 对象');
   }
-  if (json.schema !== BUNDLE_SCHEMA) {
-    throw new ManifestParseError(
-      'bad-schema',
-      `schema 必须是 "${BUNDLE_SCHEMA}"，实际为 ${JSON.stringify(json.schema)}`,
-    );
-  }
-  if (typeof json.version !== 'number' || !Number.isInteger(json.version) || json.version < 1) {
-    throw new ManifestParseError('bad-version', `version 必须是正整数，实际为 ${JSON.stringify(json.version)}`);
-  }
-  if (json.version > BUNDLE_VERSION) {
+  if (typeof json.version === 'number' && json.version > BUNDLE_VERSION) {
     throw new ManifestParseError(
       'unsupported-version',
       `清单格式 version ${json.version} 超出当前支持（${BUNDLE_VERSION}）；请升级 insight 后重试`,
     );
   }
-  if (typeof json.id !== 'string' || json.id.length === 0) {
-    throw new ManifestParseError('bad-id', '根 workflow id 必须是非空字符串');
-  }
-  if (json.kind !== 'workflow') {
-    throw new ManifestParseError('bad-kind', `根 kind 必须是 "workflow"，实际为 ${JSON.stringify(json.kind)}`);
-  }
-  if (!isObj(json.data)) {
-    throw new ManifestParseError('data-missing', '根 data 缺失或不是对象');
-  }
-  const data = parseWorkflowData(json.data, `根 workflow ${json.id}`);
+  const rawData = (json.data ?? {}) as Record<string, unknown>;
 
   return {
     ...json,
     schema: BUNDLE_SCHEMA,
-    version: json.version,
-    id: json.id,
+    version: json.version as number,
+    id: json.id as string,
     kind: 'workflow',
     name: nullableString(json.name),
     startedAt: nullableString(json.startedAt),
     finishedAt: nullableString(json.finishedAt),
     // 缺失保留 undefined（区别于显式 false），由 buildIndex 产出「缺失」警告
     data: {
-      ...data,
-      exportDataComplete: json.data.exportDataComplete === undefined
+      ...parseWorkflowData(rawData),
+      exportDataComplete: rawData.exportDataComplete === undefined
         ? undefined
-        : json.data.exportDataComplete === true,
+        : rawData.exportDataComplete === true,
     },
   } as RunManifest;
 }
 
-function parseWorkflowData(raw: Record<string, unknown>, where: string): RunWorkflowData {
-  if (!Array.isArray(raw.members)) {
-    throw new ManifestParseError('members-missing', `${where} 的 data.members 缺失或不是数组`);
-  }
-  if (!Array.isArray(raw.relations)) {
-    throw new ManifestParseError('relations-missing', `${where} 的 data.relations 缺失或不是数组（无关系写 []）`);
-  }
-  return { ...raw, members: raw.members, relations: raw.relations } as RunWorkflowData;
+function parseWorkflowData(raw: Record<string, unknown>): RunWorkflowData {
+  return raw as unknown as RunWorkflowData;
 }
-
-const MEMBER_KINDS = new Set(['process', 'session', 'workflow']);
 
 interface WalkResult {
   members: IndexedMember[];
@@ -157,25 +122,14 @@ interface WalkResult {
   warnings: string[];
 }
 
-/** 全树遍历：校验每个成员/关系，收集扁平结构与警告。 */
+/** 全树遍历：收集扁平结构、跨节点不变量（id 唯一）与警告。成员/关系结构
+ * 已由包内 schema 保证，此处不做结构复检。 */
 function walkTree(data: RunWorkflowData, ownerWorkflowId: string | null, out: WalkResult): void {
   for (const raw of data.members) {
-    if (!isObj(raw)) {
-      throw new ManifestParseError('bad-member', `成员必须是对象，实际为 ${JSON.stringify(raw)}`);
-    }
-    if (typeof raw.id !== 'string' || raw.id.length === 0) {
-      throw new ManifestParseError('bad-member', `成员 id 必须是非空字符串：${JSON.stringify(raw).slice(0, 80)}`);
-    }
     if (out.members.some(m => m.member.id === raw.id)) {
       throw new ManifestParseError('dup-member-id', `成员 id "${raw.id}" 在整棵树中重复`);
     }
-    if (typeof raw.kind !== 'string' || !MEMBER_KINDS.has(raw.kind)) {
-      throw new ManifestParseError(
-        'bad-member-kind',
-        `成员 ${raw.id} 的 kind 必须是 process/session/workflow，实际为 ${JSON.stringify(raw.kind)}`,
-      );
-    }
-    const kind = raw.kind as RunMember['kind'];
+    const kind = raw.kind;
 
     // graph 注解：五键字段齐且合法才收；坏注解降级为普通成员（容忍 + 警告）
     let graph: RunGraphAnnotation | null = null;
@@ -217,18 +171,11 @@ function walkTree(data: RunWorkflowData, ownerWorkflowId: string | null, out: Wa
 
     // 子图递归：嵌套 workflow 的成员 ownerWorkflowId 指向该 workflow 成员
     if (kind === 'workflow') {
-      if (!isObj(raw.data)) {
-        throw new ManifestParseError('workflow-data-missing', `workflow 成员 ${raw.id} 缺少 data（members/relations 必填，空写 []）`);
-      }
-      const nested = parseWorkflowData(raw.data, `workflow 成员 ${raw.id}`);
-      walkTree(nested, raw.id, out);
+      walkTree(raw.data as RunWorkflowData, raw.id, out);
     }
   }
   for (const raw of data.relations) {
-    if (!isObj(raw) || typeof raw.from !== 'string' || typeof raw.to !== 'string' || raw.from.length === 0 || raw.to.length === 0) {
-      throw new ManifestParseError('bad-relation', `关系必须是 {from, to}（成员 id），实际为 ${JSON.stringify(raw).slice(0, 80)}`);
-    }
-    out.relations.push(raw as RunRelation);
+    out.relations.push(raw);
   }
 }
 

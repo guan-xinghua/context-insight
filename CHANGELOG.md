@@ -13,9 +13,11 @@
 
 ### Changed
 - 【工具真实时长采集】工具调用不再显示恒零时长——claude 会话从 tool_use/tool_result 行时间戳、opencode 会话从 part 时间列恢复每次工具的真实起止与执行时长（此前是所属轮时间的复制品）；无时间信息的源（opencode 2.x、旧导出件）自动降级维持原行为，评分 D4 工具时长与性能分析的区间推算自此有据可依
+- 【workflow bundle 结构校验改为随包 schema】insight 导入 workflow bundle 时改用包内 `workflow.schema.json`（draft-07，ajv）做结构校验，与 opsbot 同源、不再各写各的校验漂移；手写校验收缩为 JSON Schema 表达不了的跨节点检查（成员 id 全树唯一、关系端点解析）与 version 前向兼容闸。包内缺 `workflow.schema.json` 直接拒绝（不回落手写）
 
 ### Fixed
 - 【斜杠命令技能调用计入统计】Claude Code 以 `/技能名` 展开加载的技能（如 `/day0-inference`）此前不计入会话技能统计（该通道无工具调用）——现识别「命令标签用户轮 + 技能注入系统轮」形态并按 invoke 计数；内置本地命令（/clear /skills 等）不受影响，存量会话重导入后自动恢复
+- 【bundle schema 全程携带】导入时随包 `workflow.schema.json` 落盘 run 目录、上传数据仓时原样进仓——cannbay 包恒带 schema，重导入不再豁免结构校验；存量无 schema 的仓内包不再兼容（用带 schema 的包重新导入后上传）
 
 ## [0.2.39] - 2026-10-20
 

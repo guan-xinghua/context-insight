@@ -63,6 +63,10 @@ fs.writeFileSync(path.join(FIXTURE, 'workflow.json'), JSON.stringify({
     relations: [{ from: SID, to: 'M1', annotation: { type: 'depends_on' } }],
   },
 }));
+fs.writeFileSync(
+  path.join(FIXTURE, 'workflow.schema.json'),
+  fs.readFileSync(path.resolve(__dirname, '../data/run/workflow-bundle.v1.schema.json'), 'utf-8'),
+);
 fs.writeFileSync(path.join(FIXTURE, 'sessions', SID, `${SID}.jsonl`), [
   JSON.stringify({ type: 'user', message: { role: 'user', content: 'viewer bundle 导入' }, timestamp: '2026-10-10T03:00:00.000Z' }),
   JSON.stringify({ type: 'assistant', message: { id: `msg_${SID}`, role: 'assistant', content: [{ type: 'text', text: '完成' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-10-10T03:00:05.000Z' }),

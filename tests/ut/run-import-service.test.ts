@@ -35,6 +35,13 @@ const prisma = new PrismaClient();
 const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-run-import-'));
 const MINI_SIDS = ['ses_mini_a', 'ses_mini_b', 'ses_mini_c', 'ses_mini_unref'];
 
+// 结构校验权威：临时构造的 bundle 也要带 workflow.schema.json（与真实导出件同源）
+const SCHEMA_TEXT = fs.readFileSync(path.resolve(__dirname, './data/run/workflow-bundle.v1.schema.json'), 'utf-8');
+
+function writeBundleSchema(dir: string): void {
+  fs.writeFileSync(path.join(dir, 'workflow.schema.json'), SCHEMA_TEXT, 'utf-8');
+}
+
 function freshState(runId: string, dirPath: string): ImportJobState {
   return {
     jobId: 'test-job',
@@ -89,6 +96,7 @@ describe('validateBundleDir：入口校验', () => {
         path.join(dir, 'workflow.json'),
         JSON.stringify({
           schema: 'cannbot.workflow-bundle', version: 1, id: 'badbundle', kind: 'workflow', name: 'bad',
+          startedAt: null, finishedAt: null,
           data: {
             exportDataComplete: true,
             members: [{ id: 'M1', kind: 'process', name: 'x', startedAt: null, finishedAt: null }],
@@ -96,6 +104,7 @@ describe('validateBundleDir：入口校验', () => {
           },
         }),
       );
+      writeBundleSchema(dir);
       expect(validateBundleDir(dir)).toMatchObject({ ok: false, status: 400, reason: 'bundle-manifest-invalid' });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -111,9 +120,11 @@ describe('validateBundleDir：入口校验', () => {
           path.join(dir, 'workflow.json'),
           JSON.stringify({
             schema: 'cannbot.workflow-bundle', version: 1, id: badId, kind: 'workflow', name: 'bad-id',
+            startedAt: null, finishedAt: null,
             data: { exportDataComplete: true, members: [], relations: [] },
           }),
         );
+        writeBundleSchema(dir);
         expect(validateBundleDir(dir)).toMatchObject({ ok: false, status: 400, reason: 'bundle-invalid-run-id' });
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -129,9 +140,11 @@ describe('validateBundleDir：入口校验', () => {
         path.join(dir, 'manifest.json'),
         JSON.stringify({
           schema: 'cannbot.workflow-bundle', version: 1, id: 'alias01', kind: 'workflow', name: 'alias',
+          startedAt: null, finishedAt: null,
           data: { exportDataComplete: true, members: [], relations: [] },
         }),
       );
+      writeBundleSchema(dir);
       const v = validateBundleDir(dir);
       expect(v.ok).toBe(true);
       expect(v.manifestFile).toBe('manifest.json');

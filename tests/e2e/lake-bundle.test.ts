@@ -51,6 +51,9 @@ process.env.LAKE_LFS = '0';
 process.env.LAKE_CACHE_DIR = CACHE;
 process.env.CANNBOT_INSIGHT_HOME = HOME;
 
+// 结构校验权威随包分发：本地组装 bundle 也带 workflow.schema.json（与真实导出件同源）
+const SCHEMA_TEXT = fs.readFileSync(path.resolve(__dirname, '../ut/data/run/workflow-bundle.v1.schema.json'), 'utf-8');
+
 // ── fixture 构造 ──────────────────────────────────────────────────────
 
 const RUN_ID = 'bndit01';
@@ -104,6 +107,7 @@ function buildBundle(dir: string, runId: string, opts: { manifestName?: string; 
     ? members.filter(m => m.kind === 'session').map(m => ({ from: m.id, to: processId }))
     : [];
   fs.writeFileSync(path.join(dir, opts.manifestName ?? 'workflow.json'), opts.manifestOverride ?? manifestJson(runId, members, relations));
+  fs.writeFileSync(path.join(dir, 'workflow.schema.json'), SCHEMA_TEXT);
   for (const sid of opts.sids) {
     fs.mkdirSync(path.join(dir, 'sessions', sid), { recursive: true });
     fs.writeFileSync(path.join(dir, 'sessions', sid, `${sid}.jsonl`), sessionJsonl(sid, '正文'));
@@ -195,6 +199,9 @@ describe('bundle 上传（run → 数据仓）', () => {
     const files = treeFiles();
     const prefix = `opsbot-bundle/${RUN_ID}/`;
     expect(files).toContain(`${prefix}workflow.json`);
+    expect(files).toContain(`${prefix}workflow.schema.json`);
+    // schema 随包权威进仓：与测试同源文本逐字一致
+    expect(git(`git show main:${prefix}workflow.schema.json`, BARE)).toBe(SCHEMA_TEXT);
     expect(files).toContain(`${prefix}bundle.meta.json`);
     expect(files).toContain(`${prefix}sessions/S1/S1.jsonl.7z`);
     expect(files).toContain(`${prefix}sessions/S1/S1.meta.json`);

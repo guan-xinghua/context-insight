@@ -30,7 +30,7 @@ import { envelopeFields } from '../shared/envelope';
 import { decompressToPlain, compressCaptureFile } from '@/lib/compression';
 import { validateBundleDir, createImportJob, getImportJob, type ImportJobState } from '@/lib/run/import-service';
 import { readRun, runsRoot, runDir } from '@/lib/run/run-store';
-import type { RunWorkflowData, RunMember } from '@/lib/run/model';
+import { WORKFLOW_SCHEMA_FILE, type RunWorkflowData, type RunMember } from '@/lib/run/model';
 import { createLogger } from '@/lib/logger';
 import type { PrismaClient } from '@prisma/client';
 import { BUNDLE_MANIFEST_FILE, BUNDLE_META_FILE } from './bundle-layout';
@@ -124,8 +124,10 @@ function governStagedBundle(stagingBundle: string, runId: string): void {
     fs.writeFileSync(plain, output);
   }
   // .json（manifest/report/meta/会话 meta）：深度清洗（结构层值域，JSON 结构
-  // 保持）→ 复检。manifest 里的 output.text 成员输出摘要同样是不可信输入
-  for (const rel of files.filter(f => f.endsWith('.json'))) {
+  // 保持）→ 复检。manifest 里的 output.text 成员输出摘要同样是不可信输入。
+  // workflow.schema.json 是随包权威件（非不可信捕获内容）：redact/重格式化
+  // 会破坏与 opsbot 内置权威的字节一致性，整组豁免。
+  for (const rel of files.filter(f => f.endsWith('.json') && path.basename(f) !== WORKFLOW_SCHEMA_FILE)) {
     const file = path.join(stagingBundle, rel);
     let parsed: unknown;
     try {
@@ -208,6 +210,14 @@ export async function uploadLakeBundle(
     fs.mkdirSync(stagingBundle, { recursive: true });
     // manifest：run 目录落盘件原样出仓（仓内锚定名 workflow.json，字节保真）
     fs.copyFileSync(path.join(dir, 'manifest.json'), path.join(stagingBundle, BUNDLE_MANIFEST_FILE));
+    // schema：随包权威原样出仓（导入时已随 manifest 落盘 run 目录）；数据仓
+    // 内的 bundle 恒带 schema，重导入不再豁免。旧版本导入的 run 缺 schema
+    // → 显式拒绝（存量无需兼容，用带 schema 的 bundle 重新导入即可）。
+    const schemaSrc = path.join(dir, WORKFLOW_SCHEMA_FILE);
+    if (!fs.existsSync(schemaSrc)) {
+      throw new Error(`Run "${runId}" 缺 ${WORKFLOW_SCHEMA_FILE}（旧版本导入的 run，无随包 schema）——请用带 schema 的 bundle 重新导入后上传`);
+    }
+    fs.copyFileSync(schemaSrc, path.join(stagingBundle, WORKFLOW_SCHEMA_FILE));
 
     const missingSessions: string[] = [];
     let sessionCount = 0;
