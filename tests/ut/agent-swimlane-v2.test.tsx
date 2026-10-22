@@ -264,7 +264,9 @@ describe('AgentSwimlaneV2 点击二元性：跳转 × 测时距', () => {
   })
 
   it('跨天会话时间轴：刻度对齐本地午夜整点并带日期（不再出现 08:38 这类怪时刻）', async () => {
-    const start = Date.parse('2026-09-16T12:38:20Z')
+    // 本地时间构造（评审意见）：组件按本地午夜对齐 + 本地时区格式化，绝对
+    // 时刻（…Z）只在整小时偏移时区成立，TZ=UTC 下终点距末刻度变化导致断言漂移
+    const start = new Date(2026, 8, 16, 12, 38, 20).getTime()
     const agents = [
       mkAgent({ executionId: 'root', span: { start, end: start + 87 * 3_600_000 }, isSubagent: false, agentName: 'build' }),
       mkAgent({ executionId: 'subA', span: { start: start + 20 * 3_600_000, end: start + 24 * 3_600_000 }, agentSessionId: 'ses_g1' }),
@@ -272,13 +274,22 @@ describe('AgentSwimlaneV2 点击二元性：跳转 × 测时距', () => {
     const el = await renderV2(agents, mkBridges([{ sub: 'ses_g1', type: 'design-merger' }]), () => {})
 
     const labels = [...el.querySelectorAll<HTMLElement>('.tabular-nums')].map(e => e.textContent ?? '')
-    const tickLabels = labels.filter(t => /^\d{2}-\d{2} \d{2}:\d{2}$|^\d{2}:\d{2}/.test(t))
-    expect(tickLabels.length).toBeGreaterThanOrEqual(3)
-    for (const t of tickLabels) {
+    // 天级间隔下网格刻度全带日期前缀；两端会话起止边界标签（纯 HH:MM）分开看
+    const gridLabels = labels.filter(t => /^\d{2}-\d{2} \d{2}:\d{2}$/.test(t))
+    expect(gridLabels.length).toBeGreaterThanOrEqual(3)
+    for (const t of gridLabels) {
       expect(t).toMatch(/^\d{2}-\d{2} \d{2}:00$/) // 天级间隔：日期 + 整点
     }
-    expect(tickLabels).toContain('09-17 00:00')
-    expect(tickLabels).toContain('09-19 00:00')
+    expect(gridLabels).toContain('09-17 00:00')
+    expect(gridLabels).toContain('09-19 00:00')
+    // 会话起点（距首个网格刻度 ~11.4h，>6%）以边界标签形态出现；
+    // 终点（本地 03:38，距末个网格刻度 ~3.6h，lastPct≥94%）被去重不出现
+    const hm = (ms: number) => {
+      const d = new Date(ms)
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    }
+    expect(labels).toContain(hm(start))
+    expect(labels).not.toContain(hm(start + 87 * 3_600_000))
   })
 
   it('车道钉死：声明 lanes 后 base/group/empty 各占固定槽，跨波次不漂移', async () => {

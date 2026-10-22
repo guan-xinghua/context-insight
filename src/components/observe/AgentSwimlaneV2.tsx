@@ -466,9 +466,36 @@ export function AgentSwimlaneV2({ agents, bridges, isProxy = false, onViewTurns,
             <div ref={scrollRef} className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
               <div style={{ width: `${zoom * 100}%`, minWidth: "100%" }} className="relative">
                 <div className="relative h-[20px]">
+                  {(() => {
+                    // 会话起止边界时刻：网格刻度只落整点（首格 18:00 前的 17:3x、
+                    // 末格 20:00 后的尾巴从不显示）——两端补真实起止 HH:MM，
+                    // 与近邻网格刻度太近（<6% 轴宽）时去重防叠字
+                    const firstPct = ticks[0]?.pct ?? 0
+                    const lastPct = ticks[ticks.length - 1]?.pct ?? 100
+                    const hm = (ms: number) => {
+                      const d = new Date(ms)
+                      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+                    }
+                    const edge = "absolute text-[10px] text-muted-foreground/60 tabular-nums whitespace-nowrap"
+                    return (
+                      <>
+                        {firstPct > 6 && (
+                          <div className={edge} style={{ left: 0 }}>{hm(globalStartMs)}</div>
+                        )}
+                        {lastPct < 94 && (
+                          <div className={edge} style={{ left: "100%", transform: "translateX(-100%)" }}>{hm(globalEndMs)}</div>
+                        )}
+                      </>
+                    )
+                  })()}
                   {ticks.map((t, i) => (
                     <div key={i} className="absolute text-[10px] text-muted-foreground tabular-nums whitespace-nowrap"
-                      style={{ left: `${t.pct}%`, transform: "translateX(-50%)" }}>{t.label}</div>
+                      style={{
+                        left: `${t.pct}%`,
+                        // 首刻度左对齐/末刻度右对齐：居中位移会把 pct=0/100 的标签
+                        // 切掉一半（带日期后标签更长，截断更明显）
+                        transform: i === 0 ? "none" : i === ticks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
+                      }}>{t.label}</div>
                   ))}
                 </div>
                 <div className="h-px bg-border" />
