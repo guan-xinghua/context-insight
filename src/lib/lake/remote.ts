@@ -52,6 +52,13 @@ export interface LakeRemote {
    * anonymously (public repos / local test bare).
    */
   pullAuth: PushAuth | null;
+  /**
+   * 凭据来源为持久单源（lake-auth.json，resolveLakeRemote 独有）：镜像层
+   * syncMirrorCredentials 据此把凭据固化进镜像仓级配置（partial clone 的
+   * promisor 懒取认证）。编辑态表单值（resolveAdhocRemote）不固化——瞬态
+   * 凭据不得持久化进镜像缓存。缺省 false。
+   */
+  storedAuth?: boolean;
   branch: string;
   /** 上传缺省目录（无 category 时的落盘位）。'' = 仓库根（默认——根级
    *  <sid>/；'sessions' 存量区默认已退役）。列表/导入恒多根全仓扫描。 */
@@ -193,6 +200,10 @@ export function resolveLakeRemote(): LakeRemote {
     rootDir: normalizeDirectory(cfg.directory),
     cacheDir,
     lfs: envLfs() ?? cfg.lfs ?? true,
+    // 持久单源标记：凭据（含"已存为空"）来自 lake-auth.json——镜像层据此把
+    // 凭据固化进镜像仓级配置（syncMirrorCredentials）。null 与 true 并存是
+    // 语义而非矛盾：单源查过且无凭据 → 镜像侧卸载自持凭据
+    storedAuth: true,
   };
 }
 
@@ -230,7 +241,8 @@ export function resolveAdhocRemote(input?: LakeRemoteInput): LakeRemote {
   })();
   const pushUrl = parseUrlCreds(pullUrl).credless;
   const pushAuth = requestAuth ?? getStoredCredentials(credlessPull);
-  // 表单凭据已内嵌 pullUrl 时 pullAuth 置空（不双重供给）
+  // 表单值不落盘：编辑态瞬态凭据（试连即弃）不得固化进镜像缓存——storedAuth
+  // 缺省 false，镜像层 syncMirrorCredentials 对 adhoc 远端零动作
   const pullAuth = parseUrlCreds(pullUrl).auth ? null : pushAuth;
   return {
     pullUrl,

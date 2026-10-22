@@ -334,7 +334,7 @@ describe('lake schema：④ 混排容错（native / legacy-proxy / 纯 x_cannbay
     const turns = await prisma.turn.findMany({ where: { sessionId: s!.id, role: 'assistant' }, orderBy: { turnIndex: 'asc' } });
     expect(turns.length).toBe(3);
     const [native, legacy, xb] = turns;
-    expect(native.latencyMs).toBe(50000);               // native 单行无显式 latency → gap 回填（到下一轮的间隔；曾因 ?? 0 短路回填恒为 0，修复后生效——工具区间/D4 时长依赖它）
+    expect(native.latencyMs).toBe(10000);               // native 单行无显式 latency → 边界推导（用户输入边界 06:00:00 到本组末行 06:00:10，覆盖排队+prefill+生成全程；旧「到下一轮间隔」回填语义已被工具真实时长采集取代）
     expect(legacy.latencyMs).toBe(1500);               // duration_ms 通道
     expect(xb.latencyMs).toBe(2222);                    // x_cannbay 通道（未受时间戳差污染）
     expect(xb.finishReason).toBe('end_turn');

@@ -216,13 +216,104 @@ function tryFetchMirror(dir: string, remote: LakeRemote): boolean {
  *  自愈只删自身 cacheDir，不动兄弟远端缓存。 */
 export function ensureMirror(remote: LakeRemote = defaultLakeRemote()): string {
   const dir = path.resolve(remote.cacheDir);
-  if (tryFetchMirror(dir, remote)) return dir;
+  if (tryFetchMirror(dir, remote)) {
+    syncMirrorCredentials(dir, remote);
+    return dir;
+  }
   withMirrorInitLock(dir, () => {
     if (!tryFetchMirror(dir, remote)) {
       cloneMirror(dir, remote);
     }
   });
+  syncMirrorCredentials(dir, remote);
   return dir;
+}
+
+// ── 镜像仓级凭据自持 ─────────────────────────────────────────────────
+// partial clone 的 promisor 懒取（checkout/reset 物化稀疏锥、cat-file 补漏、
+// sparse-checkout 应用）由 git 内部回源，凭据取自 git 配置链（system →
+// global → repo → -c），不走 insight 的一次性 helper——后者只覆盖显式包裹
+// 的命令。干净机器（无全局 credential helper）上私有远端的懒取恒匿名 401
+// （现场形态：上传弹「令牌无效或已过期」，实为 checkout -B 物化懒取被拒，
+// 经 classifyLakeError 分诊成 auth-failed）。
+// 根治 = 镜像仓自持凭据：lake-auth.json 单源凭据固化进镜像本地配置——
+//   .git/lake-cred-helper.sh（0700，与一次性 helper 同 heredoc 协议）
+//   repo config: credential.helper=""（清 system/global 继承链，确定性）
+//               + credential.helper=<helper 路径>
+// 此后镜像内一切 git 进程——显式命令、内部懒取、LFS 钩子（git-lfs 的
+// credential fill 同读仓级配置）、用户手工进镜像操作——都从仓级配置解析
+// 凭据，与机器环境解耦。一次性 helper（clone 在镜像成形前仍必需；显式
+// fetch/push 的确定性通道）保留，两层互不冲突（-c 链优先，同源同值）。
+
+const CRED_HELPER_NAME = 'lake-cred-helper.sh';
+
+/** 与一次性 helper 同款 heredoc 协议（username/password 字面量已在
+ *  runGitWithAuth 同款校验里拒过换行；此处再拒一次防御内部构造路径）。 */
+function credHelperScript(auth: { username: string; password: string }): string {
+  if (/[\r\n]/.test(auth.username) || /[\r\n]/.test(auth.password)) {
+    throw new Error('git credentials contain newline (invalid for credential helper protocol)');
+  }
+  return `#!/bin/sh\ncat <<'INSIGHTEOF'\nusername=${auth.username}\npassword=${auth.password}\nINSIGHTEOF\n`;
+}
+
+/** 仓级 credential.helper 值清单（保序，含空值清位项；[] = 未配置）。
+ *  --local 限定：幂等比较只看镜像自己的配置，不混入机器 ambient 链。 */
+function localCredHelpers(dir: string): string[] {
+  try {
+    const out = runGit('git config --local --get-all credential.helper', dir).toString('utf8');
+    // 只剥结尾换行，保留中间的空行——空值清位项是配置的一部分
+    return out.replace(/\n$/, '').split('\n');
+  } catch { return []; }
+}
+
+/** 仓级 credential.helper 配置落位（幂等：已一致零 git 调用）。
+ *  helperPath=null → 卸载（凭据撤销后镜像必须停止认证）。
+ *  argv 形态 spawn：helper 路径可含空格，不经 shell。 */
+function setLocalCredHelpers(dir: string, helperPath: string | null): void {
+  const want = helperPath ? ['', helperPath] : [];
+  const cur = localCredHelpers(dir);
+  if (cur.length === want.length && cur.every((v, i) => v === want[i])) return;
+  const run = (args: string[]): void => {
+    const r = spawnSync('git', args, {
+      cwd: dir, stdio: 'pipe', timeout: 10_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    // exit 5 = unset 目标不存在（首次安装/已清理），预期内
+    if (r.status !== 0 && r.status !== 5) {
+      throw new Error(`git config ${args.join(' ')} failed (exit ${r.status})`);
+    }
+  };
+  run(['config', '--local', '--unset-all', 'credential.helper']);
+  if (helperPath) {
+    run(['config', '--local', '--add', 'credential.helper', '']);
+    run(['config', '--local', '--add', 'credential.helper', helperPath]);
+  }
+}
+
+/** 镜像凭据同步（ensureMirror 双栈收敛点，幂等）：
+ *  - storedAuth 且有凭据 → helper 内容变化才重写（临时文件 + rename 原子
+ *    落位，并发 ensureMirror 不撕裂），仓级配置落位；轮换即随下次
+ *    ensureMirror 生效
+ *  - storedAuth 且无凭据（单源查过为空/已清除）→ 卸载 helper 与配置
+ *  - 非 storedAuth（adhoc 编辑态）→ 零动作：镜像绑定的始终是持久单源凭据，
+ *    表单瞬态值不落盘（上次安装的状态不受 adhoc 调用影响） */
+function syncMirrorCredentials(dir: string, remote: LakeRemote): void {
+  if (remote.storedAuth !== true) return;
+  const helperPath = path.join(dir, '.git', CRED_HELPER_NAME);
+  if (remote.pullAuth) {
+    const content = credHelperScript(remote.pullAuth);
+    let cur: string | null = null;
+    try { cur = fs.readFileSync(helperPath, 'utf8'); } catch { /* 未安装 */ }
+    if (cur !== content) {
+      const tmp = `${helperPath}.tmp-${process.pid}-${Date.now()}`;
+      fs.writeFileSync(tmp, content, { mode: 0o700 });
+      fs.renameSync(tmp, helperPath);
+    }
+    setLocalCredHelpers(dir, helperPath);
+  } else {
+    fs.rmSync(helperPath, { force: true });
+    setLocalCredHelpers(dir, null);
+  }
 }
 
 export function revParseMain(dir: string, remote: LakeRemote = defaultLakeRemote()): string | null {
@@ -1439,6 +1530,7 @@ async function cloneAndSwapAsync(dir: string, remote: LakeRemote): Promise<void>
 async function ensureMirrorUncached(dir: string, remote: LakeRemote): Promise<string> {
   if (await tryFetchMirrorAsync(dir, remote)) {
     lastFreshAt.set(dir, Date.now());
+    syncMirrorCredentials(dir, remote);
     return dir;
   }
   // 锁定区只做本地判定（毫秒级）：fetch 失败后他人是否已克隆好镜像；
@@ -1456,6 +1548,7 @@ async function ensureMirrorUncached(dir: string, remote: LakeRemote): Promise<st
     await cloneAndSwapAsync(dir, remote);
   }
   lastFreshAt.set(dir, Date.now());
+  syncMirrorCredentials(dir, remote);
   return dir;
 }
 

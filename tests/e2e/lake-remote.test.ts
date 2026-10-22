@@ -297,6 +297,20 @@ describe('parseUrlCreds：内嵌凭据拆分（push 走 helper 通道的前提�
   });
 });
 
+/** 一次性 helper 临时目录（insight-lake-auth-*）用后即删的收敛断言辅助：
+ *  瞬时快照对并行用例敏感——其他 worker 同刻持有/清理的目录会闯进快照，
+ *  两个方向（新增闯入 / 快照内条目被他人清理）都会假红。等"不再有快照之外
+ *  新目录"的收敛态；快照内目录消失不影响判定——本用例自己的泄漏目录不在
+ *  快照里且用后仍在，等待窗口（10s）内必然可见。 */
+const authDirsSettled = (before: string[]): boolean => {
+  for (let i = 0; i < 40; i++) {
+    const fresh = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-lake-auth-') && !before.includes(n));
+    if (fresh.length === 0) return true;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  }
+  return false;
+};
+
 describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
   it('pushAuth 存在：一次性 helper 构造/清理 + push 成功（本地传输不咨询凭据，锁命令构造与生命周期）', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-pushmirror-it-'));
@@ -317,8 +331,7 @@ describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
       mirrorMod.pushMirror(work, withAuth);
       expect(execSync('git rev-parse main', { cwd: bare, stdio: 'pipe' }).toString().trim())
         .toBe(execSync('git rev-parse HEAD', { cwd: work, stdio: 'pipe' }).toString().trim());
-      const after = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-lake-auth-'));
-      expect(after).toEqual(before); // helper 临时目录用后即删
+      expect(authDirsSettled(before)).toBe(true); // helper 临时目录用后即删
       // pushAuth=null 直推路径
       fs.writeFileSync(path.join(work, 'g.txt'), 'y');
       git('git -c user.name=t -c user.email=t@x add -A');
@@ -352,11 +365,10 @@ describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
       // helper 的价值在 https 挑战-应答，此处锁命令构造与临时目录生命周期）
       expect(execSync('git rev-parse --verify -q refs/remotes/origin/main', { cwd: dir, stdio: 'pipe' }).toString().trim())
         .toBe(execSync('git rev-parse main', { cwd: bare, stdio: 'pipe' }).toString().trim());
-      const after = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-lake-auth-'));
-      expect(after).toEqual(before); // helper 临时目录用后即删
+      expect(authDirsSettled(before)).toBe(true); // helper 临时目录用后即删
       // 二次 ensure 走 fetch 路径同样带 helper 生命周期（无残留即证）
       mirrorMod.ensureMirror(withPullAuth);
-      expect(fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-lake-auth-'))).toEqual(before);
+      expect(authDirsSettled(before)).toBe(true);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -366,7 +378,7 @@ describe('pushMirror：401 挑战-应答通道（本地 bare IT）', () => {
     const bad: LakeRemote = { ...r, pushAuth: { username: 'u', password: 'p\nq' } };
     const before = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-lake-auth-'));
     expect(() => mirrorMod.pushMirror('/tmp', bad)).toThrow('newline');
-    expect(fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('insight-lake-auth-'))).toEqual(before);
+    expect(authDirsSettled(before)).toBe(true);
   });
 });
 
