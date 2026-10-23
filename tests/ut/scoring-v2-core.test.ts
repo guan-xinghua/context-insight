@@ -110,13 +110,13 @@ describe('聚合引擎 · weighted-average / count-deduction / direct', () => {
 describe('整卡聚合：否决 + 覆盖度 + 权重归一', () => {
   const defs: DimensionDefinition[] = [
     dimDef('D1', 'veto', [scoreItem('D1.stopReason'), scoreItem('D1.selfReport')], { kind: 'three-state', rules: [], fallback: '完成' }),
-    dimDef('D3', 'weighted', [scoreItem('D3.testResults'), scoreItem('D3.nakedWrite'), scoreItem('D3.cannBench')], { kind: 'weighted-average' }, 0.35),
+    dimDef('D3', 'weighted', [scoreItem('D3.testResults'), scoreItem('D3.nakedWrite'), scoreItem('D3.benchScore')], { kind: 'weighted-average' }, 0.35),
     dimDef('D4', 'weighted', [scoreItem('D4.1'), scoreItem('D4.2')], { kind: 'weighted-average' }, 0.15),
   ];
 
   const dims: DimensionResult[] = [
     { dimensionId: 'D1', name: 'D1', english: 'D1', role: 'veto', status: 'scored', verdict: '完成', items: [item('D1.stopReason', { verdict: 'x' }), item('D1.selfReport', { verdict: 'y' })] },
-    { dimensionId: 'D3', name: 'D3', english: 'D3', role: 'weighted', status: 'scored', score: 1, items: [item('D3.testResults', { score: 1 }), item('D3.nakedWrite', { score: 1 }), item('D3.cannBench', { status: 'not-applicable' })] },
+    { dimensionId: 'D3', name: 'D3', english: 'D3', role: 'weighted', status: 'scored', score: 1, items: [item('D3.testResults', { score: 1 }), item('D3.nakedWrite', { score: 1 }), item('D3.benchScore', { status: 'not-applicable' })] },
     { dimensionId: 'D4', name: 'D4', english: 'D4', role: 'weighted', status: 'scored', score: 0.5, items: [item('D4.1', { score: 1 }), item('D4.2', { score: 0 })] },
   ];
 
@@ -129,7 +129,7 @@ describe('整卡聚合：否决 + 覆盖度 + 权重归一', () => {
 
   it('评审缺口 na（未开启 LLM 评审 / Mate 未给出）拉低覆盖度：6/7 = 0.86', () => {
     const gapped = dims.map(d => d.dimensionId === 'D3'
-      ? { ...d, items: d.items.map(i => i.itemId === 'D3.cannBench' ? item('D3.cannBench', { status: 'not-applicable', note: '未开启 LLM 评审，无法评判' }) : i) }
+      ? { ...d, items: d.items.map(i => i.itemId === 'D3.benchScore' ? item('D3.benchScore', { status: 'not-applicable', note: '未开启 LLM 评审，无法评判' }) : i) }
       : d);
     const f = aggregateCard(gapped, defs);
     expect(f.coverage).toBe(0.86);
@@ -138,7 +138,7 @@ describe('整卡聚合：否决 + 覆盖度 + 权重归一', () => {
 
   it('na 归因：显式 naKind 优先于 note 文案', () => {
     const explicit = dims.map(d => d.dimensionId === 'D3'
-      ? { ...d, items: d.items.map(i => i.itemId === 'D3.cannBench' ? item('D3.cannBench', { status: 'not-applicable', note: '缺少改代码后的测试运行，无法评判', naKind: 'gap' }) : i) }
+      ? { ...d, items: d.items.map(i => i.itemId === 'D3.benchScore' ? item('D3.benchScore', { status: 'not-applicable', note: '缺少改代码后的测试运行，无法评判', naKind: 'gap' }) : i) }
       : d);
     expect(aggregateCard(explicit, defs).coverage).toBe(0.86);   // naKind:'gap' 即使 note 是材料缺失
   });
@@ -543,7 +543,7 @@ describe('judge prompt 强制 CoT 契约', () => {
 describe('classifyTask · 任务文本兜底（opencode 原生无 system 的算子设计会话）', () => {
   it('首条用户消息含「算子/operator/kernel」→ operator（文档为主的流水线会话路径启发匹配不上）', async () => {
     const { classifyTask } = await import('../../src/lib/scoring/core/assembler/task-classifier');
-    expect(classifyTask(null, [], '开发 bn3d_training_update_grad 算子的设计文档，Ascend C，支持 Ascend 950，全自动执行不要确认。')).toBe('operator');
+    expect(classifyTask(null, [], '开发 bn3d_training_update_grad 算子的设计文档，Acme C，支持 Acme 950，全自动执行不要确认。')).toBe('operator');
     expect(classifyTask(null, [], 'Fusion design for confusion_mul_grad operator, run the design pipeline from P1.')).toBe('operator');
     expect(classifyTask(null, [], '/ops-registry-invoke-fusion-design /home/u/fused-op-dev/confusion_mul_grad/confusion_mul_grad/spec.yaml auto')).toBe('operator');
     // 普通任务文本不误判：无标签 + 无算子路径 → general/unknown 走原启发
@@ -551,7 +551,7 @@ describe('classifyTask · 任务文本兜底（opencode 原生无 system 的算�
   });
 });
 
-describe('cannbay 上报快照 · 溯源字段', () => {
+describe('lake 上报快照 · 溯源字段', () => {
   it('appendScorecard → parseRecords 往返：算式/模板/评审工具/耗时/覆盖度不丢', async () => {
     const { parseRecords } = await import('../../src/lib/lake/notes');
     const line = JSON.stringify({

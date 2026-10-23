@@ -27,7 +27,7 @@
       "verdict": "FAIL",
       "method": "LLM",
       "category": "prohibition",
-      "evidence": "调用 ascendc 时编了 backend=foo 参数",
+      "evidence": "调用 acme 时编了 backend=foo 参数",
       "transcript": "ses_cuid_abc",
       "seq": 2,
       "sources": ["CONSTRAINT"],

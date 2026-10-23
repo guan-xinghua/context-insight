@@ -67,7 +67,7 @@ describe("启动器端口编排（bin/ports.mjs）", () => {
     expect(await isHttpHealthy(port)).toBe(false)
   })
 
-  it("isSmartAgent 正身判定：通用 /health（2xx 但无服务标识）不认，带 cannbot-smart-agent 标识才认", async () => {
+  it("isSmartAgent 正身判定：通用 /health（2xx 但无服务标识）不认，带 context-smart-agent 标识才认", async () => {
     const dead = await ephemeralPort()
     expect(await isSmartAgent(dead)).toBe(false)
 
@@ -83,7 +83,7 @@ describe("启动器端口编排（bin/ports.mjs）", () => {
     const notFound = http.createServer((req, res) => res.writeHead(404).end())
     const agent = http.createServer((req, res) => {
       if (req.url === "/health") {
-        res.writeHead(200).end('{"status":"ok","service":"cannbot-smart-agent"}')
+        res.writeHead(200).end('{"status":"ok","service":"context-smart-agent"}')
       } else {
         res.writeHead(404).end()
       }

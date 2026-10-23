@@ -35,7 +35,7 @@ interface ApiAgent {
 }
 
 // 行载荷：proxy 版 = cpx 捕获的真实形状（wire 单行 assistant：顶层 duration_ms +
-// 行级 source + x_cannbay cc-wire-round 声明 + 同名 .meta.json）；native 版用同一组
+// 行级 source + x_lake cc-wire-round 声明 + 同名 .meta.json）；native 版用同一组
 // 时间戳与 duration_ms，但去掉全部 proxy 标记（= 原生 claude jsonl 形状）。
 // 两版只有 proxy 判定信号不同，用于把「展开与否」锁在 isProxyVersion 上，
 // 而不是锁在 latencyMs 有无上。
@@ -45,7 +45,7 @@ function writeCapture(name: string, sid: string, proxy: boolean): string {
   const user = (text: string, ts: string, round: number) => ({
     type: 'user', message: { role: 'user', content: text }, timestamp: ts,
     ...(proxy ? { source: 'cannbot-proxy' } : {}),
-    ...(proxy ? { x_cannbay: { schema: 'cc-wire-input', version: 1, data: { roundIndex: round, kind: 'user' } } } : {}),
+    ...(proxy ? { x_lake: { schema: 'cc-wire-input', version: 1, data: { roundIndex: round, kind: 'user' } } } : {}),
   });
   const assistant = (text: string, ts: string, round: number, durationMs: number) => ({
     type: 'assistant',
@@ -53,7 +53,7 @@ function writeCapture(name: string, sid: string, proxy: boolean): string {
     timestamp: ts, duration_ms: durationMs, stopReason: 'stop', ttftMs: 200 - round * 50,
     ...(proxy ? { source: 'cannbot-proxy', version: '1.1.2' } : {}),
     ...(proxy ? {
-      x_cannbay: {
+      x_lake: {
         schema: 'cc-wire-round', version: 1,
         data: { roundIndex: round, protocol: 'openai', latencyMs: durationMs, ttftMs: 200 - round * 50, stopReason: 'stop', status: 200 },
       },
@@ -67,7 +67,7 @@ function writeCapture(name: string, sid: string, proxy: boolean): string {
   ].map(l => JSON.stringify(l)).join('\n') + '\n');
   if (proxy) {
     fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({
-      x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid } },
+      x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid } },
     }));
   }
   return file;

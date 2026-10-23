@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS 设置时）先于一切文件读取——
+    // 白名单收紧（CONTEXT_INSIGHT_IMPORT_ROOTS 设置时）先于一切文件读取——
     // resolveSource/listSessions 都不得触碰白名单外的路径
     const pathDecision = checkImportablePath(filePath);
     if (!pathDecision.ok) {

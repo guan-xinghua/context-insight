@@ -8,7 +8,7 @@
 
 // @vitest-environment happy-dom
 
-// Runs 页渲染 IT：页面直读 run-store（CANNBOT_INSIGHT_HOME 可注入），已导入
+// Runs 页渲染 IT：页面直读 run-store（CONTEXT_INSIGHT_HOME 可注入），已导入
 // 的 run 必须出现在列表。回归锁：曾因未声明动态渲染被构建期静态预渲染成
 // 「空列表」缓存——导入成功后页面仍显示暂无 Run。此处在组件层锁数据接线
 // （store → page → RunList），构建产物层面的 force-dynamic 声明一并断言。
@@ -33,10 +33,10 @@ vi.mock('next/navigation', () => ({
 }))
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-runs-page-'));
-const ORIG_HOME = process.env.CANNBOT_INSIGHT_HOME;
+const ORIG_HOME = process.env.CONTEXT_INSIGHT_HOME;
 
 beforeAll(() => {
-  process.env.CANNBOT_INSIGHT_HOME = tmpHome;
+  process.env.CONTEXT_INSIGHT_HOME = tmpHome;
   const manifest = parseAndIndex(
     JSON.parse(fs.readFileSync(path.resolve(__dirname, './data/run/mini-bundle/workflow.json'), 'utf-8')),
   ).manifest;
@@ -64,8 +64,8 @@ afterEach(() => {
 
 afterAll(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
-  if (ORIG_HOME === undefined) delete process.env.CANNBOT_INSIGHT_HOME;
-  else process.env.CANNBOT_INSIGHT_HOME = ORIG_HOME;
+  if (ORIG_HOME === undefined) delete process.env.CONTEXT_INSIGHT_HOME;
+  else process.env.CONTEXT_INSIGHT_HOME = ORIG_HOME;
 })
 
 let root: Root | null = null

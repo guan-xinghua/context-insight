@@ -36,8 +36,8 @@ const eslintConfig = defineConfig([
     //   dist/**               ← npm run build-cli (prepack)
     "public/export-view.js",
     "dist/**",
-    // context 品牌变体打包工作区（scripts/pack-context.mjs 的 staging 复制树）
-    ".context-pack/**",
+    // cannbot 品牌变体打包工作区（scripts/pack-cannbot.mjs 的 staging 复制树）
+    ".cannbot-pack/**",
   ]),
 ]);
 

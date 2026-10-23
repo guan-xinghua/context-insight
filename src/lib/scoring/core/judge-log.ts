@@ -8,7 +8,7 @@
 
 // 评分 LLM 调用过程日志（可维护性）：逐 attempt 落盘请求/响应，超时/空正文这类
 // 偶发问题可事后复现。格式走 lake 捕获规范（docs/lake-schema-spec.md）：
-// 信封冻结 + 扩展进 x_cannbay（payload schema `cc-judge-round` v1）。
+// 信封冻结 + 扩展进 x_lake（payload schema `cc-judge-round` v1）。
 // 布局按捕获的 subagent 形态（并发 3 路交错写单流会把 request/response 配对打乱，
 // 子项各成一个子代理流则天然顺序配对）：
 //   score-judge-logs/<被评sid>/<ts>-<runId>/<ts>-<runId>.jsonl   主流：run 头、逐子项 派发(惰性)/结果、footer
@@ -22,7 +22,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { JudgeCallMeta } from './assembler/types';
-import { CANNBOT_HOME, migrateLegacyDir } from './store';
+import { CONTEXT_HOME, migrateLegacyDir } from './store';
 import { envelopeFields } from '@/lib/shared/envelope';
 
 export const JUDGE_SCHEMA = 'cc-judge-round';
@@ -80,12 +80,12 @@ export function judgeLogsDir(): string {
   if (process.env.SCORING_DATA_DIR) return path.join(process.env.SCORING_DATA_DIR, JUDGE_LOGS_DIR_NAME);
   if (!legacyJudgeLogsMigrated) {
     legacyJudgeLogsMigrated = true;
-    const target = path.join(CANNBOT_HOME, JUDGE_LOGS_DIR_NAME);
+    const target = path.join(CONTEXT_HOME, JUDGE_LOGS_DIR_NAME);
     // 两个旧位置都收：仓库 data/judge-logs（v2.07 前）与用户目录 judge-logs（v2.07~2.08 曾用名）
-    migrateLegacyDir(path.join(CANNBOT_HOME, 'judge-logs'), target);
+    migrateLegacyDir(path.join(CONTEXT_HOME, 'judge-logs'), target);
     migrateLegacyDir(path.join(process.cwd(), 'data', 'judge-logs'), target);
   }
-  return path.join(CANNBOT_HOME, JUDGE_LOGS_DIR_NAME);
+  return path.join(CONTEXT_HOME, JUDGE_LOGS_DIR_NAME);
 }
 
 /** native user 行（请求原文 / 弃权结果 / run 头尾摘要共用） */

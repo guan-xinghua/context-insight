@@ -15,7 +15,7 @@
 //   ③ 错误分类 classifyLakeError 五分类（与 cpx 同链）
 //   ④ PUT 探测零 shell（spawnSync 数组参）+ 元字符前置校验（CWE-78：请求体
 //      URL 绝不进 shell——旧 execSync 模板串拼接会被 $()/; 注入）
-// 隔离：CANNBOT_PROXY_DIR 重定向到临时目录；本地 bare 仓做探测目标（零网络）。
+// 隔离：CONTEXT_PROXY_DIR 重定向到临时目录；本地 bare 仓做探测目标（零网络）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import { execSync } from 'node:child_process';
@@ -32,11 +32,11 @@ execSync(`git init --bare -b main "${BARE}"`, { stdio: 'pipe' });
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
-  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN']) {
+  for (const k of ['CONTEXT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
 });
 
 afterAll(() => {
@@ -49,7 +49,7 @@ afterAll(() => {
 
 const authRoute = await import('../../src/app/api/settings/lake-auth/route');
 const lakeRoute = await import('../../src/app/api/ingest/lake/route');
-const { classifyLakeError, MissingPushCredentialsError, authFilePath, getStoredCredentials } = await import('../../src/lib/lake/auth');
+const { classifyLakeError, MissingPushCredentialsError, authFilePath, getStoredCredentials, listStoredRemotes } = await import('../../src/lib/lake/auth');
 
 function putRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/settings/lake-auth', {
@@ -174,5 +174,30 @@ describe('④ PUT 探测零 shell + 元字符前置校验（CWE-78：请求体 U
     expect(body.reachable).toBe(true);
     expect(typeof body.verifiedAt).toBe('string');
     expect(getStoredCredentials(parenBare)).toEqual({ username: 'u4', password: 't4-444555666777' });
+  });
+});
+
+describe('⑤ 旧名凭据文件读兜底（cannbay-auth.json → lake-auth.json 存量无感迁移）', () => {
+  it('新名缺失读旧名兜底；新名存在即权威（清空不复活旧凭据）', () => {
+    const dir = path.dirname(authFilePath());
+    const legacy = path.join(dir, 'cannbay-auth.json');
+    const current = authFilePath();
+    // 清场：从「两文件均无」起步，避免前序用例残留
+    fs.rmSync(current, { force: true });
+    fs.rmSync(legacy, { force: true });
+
+    // 旧名文件存在、新名缺失 → 读旧名兜底（存量凭据不丢）
+    fs.writeFileSync(legacy, JSON.stringify({
+      remotes: { 'https://legacy.example.com/repo.git': { username: 'old-user', token: 'old-token-112233' } },
+    }, null, 2));
+    expect(getStoredCredentials('https://legacy.example.com/repo.git')).toEqual({ username: 'old-user', password: 'old-token-112233' });
+    expect(listStoredRemotes().some((r) => r.url === 'https://legacy.example.com/repo.git')).toBe(true);
+
+    // 新名文件存在（即使空 remotes）即权威 → 不再读旧名（用户清空不复活旧凭据）
+    fs.writeFileSync(current, JSON.stringify({ remotes: {} }, null, 2));
+    expect(getStoredCredentials('https://legacy.example.com/repo.git')).toBeNull();
+
+    fs.rmSync(current, { force: true });
+    fs.rmSync(legacy, { force: true });
   });
 });

@@ -182,7 +182,7 @@ describe('主页 Sessions 客户端取数（搜索无刷新 + 数字翻页）', 
   })
 })
 
-describe('首页框架列带版本号（与 cannbay viewer 同款）', () => {
+describe('首页框架列带版本号（与 lake viewer 同款）', () => {
   const mk = (framework: string, version: string | null) => ({
     ...EMPTY_ITEM, framework, version,
   })

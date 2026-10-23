@@ -6,13 +6,13 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// profile 文件存储：~/.cannbot-insight/scoring-profiles/<id>.json + active.json（激活指针，null=默认口径）。
+// profile 文件存储：~/.context-insight/scoring-profiles/<id>.json + active.json（激活指针，null=默认口径）。
 // 坏文件跳过不阻塞；saveProfile 前统一 sanitizeProfile（硬错抛中文异常 → API 400，软伤进 warnings）。
 
 import { promises as fs } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { CANNBOT_HOME } from '../store';
+import { CONTEXT_HOME } from '../store';
 import { BUILTIN_DIMENSIONS } from '../../definitions';
 import { applyProfile } from './apply';
 import { findPreset, isPresetId } from './presets';
@@ -30,7 +30,7 @@ const CUSTOM_WEIGHT_REQUIRED = ['D4', 'D5'];
 export function profilesDir(): string {
   if (process.env.SCORING_PROFILE_DIR) return process.env.SCORING_PROFILE_DIR;
   if (process.env.SCORING_DATA_DIR) return path.join(process.env.SCORING_DATA_DIR, 'scoring-profiles');
-  return path.join(CANNBOT_HOME, 'scoring-profiles');
+  return path.join(CONTEXT_HOME, 'scoring-profiles');
 }
 
 export interface SanitizeResult {

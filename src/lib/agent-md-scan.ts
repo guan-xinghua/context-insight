@@ -28,7 +28,7 @@ export interface AgentDir {
 
 /**
  * 解析扫描根：AGENTS_SCAN_ROOT env 优先；未配则自动探测 skills-dev 根
- * （cannbot-insight 位于 <skills-dev>/tests/cannbot-insight，process.cwd()../.. 即根，
+ * （context-insight 位于 <skills-dev>/tests/context-insight，process.cwd()../.. 即根，
  *  若该根下有 plugins-official/ 则用）。探测不到 → null（route 据 503 关 agent 对账）。
  */
 export function resolveScanRoot(): string | null {

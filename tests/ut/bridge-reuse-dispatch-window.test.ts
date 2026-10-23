@@ -72,13 +72,13 @@ beforeAll(() => {
     // 首发派发（17:12 等价时刻）
     mainAt(T0, [{
       toolCallId: 'call-first', toolName: 'task',
-      argsJson: JSON.stringify({ subagent_type: 'ascendc-ops-architect', description: 'P1 需求分析', prompt: '执行需求分析。' }),
+      argsJson: JSON.stringify({ subagent_type: 'acme-ops-architect', description: 'P1 需求分析', prompt: '执行需求分析。' }),
       resultJson: 'task_id: ' + SUB_REUSE, state: 'completed',
     }]),
     // 返工派发（+20min，复用同一会话）
     mainAt(REWORK_AT, [{
       toolCallId: 'call-rework', toolName: 'task',
-      argsJson: JSON.stringify({ subagent_type: 'ascendc-ops-architect', description: 'P1 返工 r1', prompt: '按审核意见返工。' }),
+      argsJson: JSON.stringify({ subagent_type: 'acme-ops-architect', description: 'P1 返工 r1', prompt: '按审核意见返工。' }),
       resultJson: 'task_id: ' + SUB_REUSE, state: 'completed',
     }]),
     // 子代理会话两段 turn：首发段 2 条（T0+10s / T0+10min），返工段 2 条（+20min10s / +25min）
@@ -114,12 +114,12 @@ describe('bridge-builder: 复用会话的派发窗配对', () => {
     const interactions: RawInteraction[] = [
       mainAt(T0, [{
         toolCallId: 'call-empty-a', toolName: 'task',
-        argsJson: JSON.stringify({ subagent_type: 'ascendc-ops-architect', description: 'P1 空窗首发' }),
+        argsJson: JSON.stringify({ subagent_type: 'acme-ops-architect', description: 'P1 空窗首发' }),
         resultJson: 'task_id: ' + SUB_REUSE, state: 'completed',
       }]),
       mainAt(REWORK_AT, [{
         toolCallId: 'call-empty-b', toolName: 'task',
-        argsJson: JSON.stringify({ subagent_type: 'ascendc-ops-architect', description: 'P1 空窗返工' }),
+        argsJson: JSON.stringify({ subagent_type: 'acme-ops-architect', description: 'P1 空窗返工' }),
         resultJson: 'task_id: ' + SUB_REUSE, state: 'completed',
       }]),
       subAt(REWORK_AT + 60_000, SUB_REUSE, 300),

@@ -261,7 +261,7 @@ export async function exportSession(
       throw new Error(`Session not found: "${taskId}"`);
     }
 
-    const outPath = outputPath ?? path.join(os.tmpdir(), `cannbot_session_${taskId}.db`);
+    const outPath = outputPath ?? path.join(os.tmpdir(), `context_session_${taskId}.db`);
     if (fs.existsSync(outPath)) {
       fs.unlinkSync(outPath);
     }

@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 /**
- * npm 全局启动器多人服务器行为 IT（bin/cannbot-insight.mjs，真实进程/真实 socket）。
+ * npm 全局启动器多人服务器行为 IT（bin/context-insight.mjs，真实进程/真实 socket）。
  *
  * 补齐 npm 形态的多人链路（与 start.sh 收口对齐）：
  *   - 固定端口语义：被占 fail-fast，绝不静默漂移（漂移断 cpx 发现与书签，
@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url"
 import { isTcpFree } from "../../bin/ports.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const LAUNCHER = path.resolve(__dirname, "../../bin/cannbot-insight.mjs")
+const LAUNCHER = path.resolve(__dirname, "../../bin/context-insight.mjs")
 const LAUNCHER_SRC = fs.readFileSync(LAUNCHER, "utf8")
 const PORTS_SRC = fs.readFileSync(path.resolve(__dirname, "../../bin/ports.mjs"), "utf8")
 
@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 function mkHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cbi-launcher-it-"))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxi-launcher-it-"))
   cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -71,7 +71,7 @@ function occupy(port: number): Promise<net.Server> {
 
 function runLauncher(cliArgs: string[], env: Record<string, string>) {
   return spawnSync(process.execPath, [LAUNCHER, ...cliArgs], {
-    env: { ...process.env, ...env, CANNBOT_NO_BROWSER: "1" },
+    env: { ...process.env, ...env, CONTEXT_NO_BROWSER: "1" },
     encoding: "utf8",
     timeout: 90_000,
   })
@@ -116,7 +116,7 @@ function fakeProc(argv0: string): ChildProcess {
   return child
 }
 
-describe("cbi --stop（击杀锚定：PID 文件 + 候选区间验明正身，绝不盲杀）", () => {
+describe("ctxi --stop（击杀锚定：PID 文件 + 候选区间验明正身，绝不盲杀）", () => {
   it("按 PID 文件击杀自家全家福：next/agent 死透，已死 PID 跳过，记录清除", async () => {
     const home = mkHome()
     const base = await freeBase()
@@ -134,7 +134,7 @@ describe("cbi --stop（击杀锚定：PID 文件 + 候选区间验明正身，�
       JSON.stringify({ launcher: dying.pid, next: fakeNext.pid, agents: [fakeAgent.pid], port: base }),
     )
 
-    const r = runLauncher(["--stop"], { CANNBOT_INSIGHT_HOME: home, CANNBOT_INSIGHT_PORT: String(base) })
+    const r = runLauncher(["--stop"], { CONTEXT_INSIGHT_HOME: home, CONTEXT_INSIGHT_PORT: String(base) })
     expect(r.status).toBe(0)
     expect(r.stdout).toContain("PID 记录")
     expect(await eventuallyDead(fakeNext.pid)).toBe(true)
@@ -151,7 +151,7 @@ describe("cbi --stop（击杀锚定：PID 文件 + 候选区间验明正身，�
       require("node:http").createServer((q, s) => {
         if (q.url === "/health") {
           s.writeHead(200, { "content-type": "application/json" })
-          s.end(JSON.stringify({ service: "cannbot-smart-agent" }))
+          s.end(JSON.stringify({ service: "context-smart-agent" }))
         } else { s.writeHead(404).end() }
       }).listen(${base + 1}, "127.0.0.1")
     `
@@ -161,13 +161,13 @@ describe("cbi --stop（击杀锚定：PID 文件 + 候选区间验明正身，�
     for (let i = 0; i < 40 && !ready; i++) {
       try {
         const res = await fetch(`http://127.0.0.1:${base + 1}/health`)
-        ready = res.ok && (await res.json()).service === "cannbot-smart-agent"
+        ready = res.ok && (await res.json()).service === "context-smart-agent"
       } catch { /* 未就绪 */ }
       if (!ready) await new Promise((r) => setTimeout(r, 100))
     }
     expect(ready).toBe(true)
 
-    const r = runLauncher(["--stop"], { CANNBOT_INSIGHT_HOME: home, CANNBOT_INSIGHT_PORT: String(base) })
+    const r = runLauncher(["--stop"], { CONTEXT_INSIGHT_HOME: home, CONTEXT_INSIGHT_PORT: String(base) })
     expect(r.status).toBe(0)
     expect(r.stdout).toContain("孤儿 smart-agent")
     expect(await eventuallyDead(agent.pid)).toBe(true)
@@ -177,7 +177,7 @@ describe("cbi --stop（击杀锚定：PID 文件 + 候选区间验明正身，�
     const home = mkHome()
     const base = await freeBase()
     const holder = await occupy(base) // 无 /health 契约的陌生 TCP 服务
-    const r = runLauncher(["--stop"], { CANNBOT_INSIGHT_HOME: home, CANNBOT_INSIGHT_PORT: String(base) })
+    const r = runLauncher(["--stop"], { CONTEXT_INSIGHT_HOME: home, CONTEXT_INSIGHT_PORT: String(base) })
     expect(r.status).toBe(1)
     expect(r.stderr).toContain("仍被占用")
     // 占用者毫发无损（若启动器误杀端口属主，本测试进程会被杀——双重负向锁）
@@ -190,10 +190,10 @@ describe("固定端口语义（多人服务器：每人固定端口，绝不静�
     const home = mkHome()
     const base = await freeBase()
     const holder = await occupy(base)
-    const r = runLauncher([], { CANNBOT_INSIGHT_HOME: home, CANNBOT_INSIGHT_PORT: String(base) })
+    const r = runLauncher([], { CONTEXT_INSIGHT_HOME: home, CONTEXT_INSIGHT_PORT: String(base) })
     expect(r.status).toBe(1)
     expect(r.stderr).toContain(`端口 ${base} 被占用`)
-    expect(r.stderr).toContain("CANNBOT_INSIGHT_PORT")
+    expect(r.stderr).toContain("CONTEXT_INSIGHT_PORT")
     // 重活（migrate/build）绝不在端口被占时启动——fail-fast 必须先于重活
     expect(r.stdout).not.toContain("Prisma migrations")
     expect(r.stderr).not.toContain("Prisma migrations")
@@ -207,13 +207,13 @@ describe("源断言（回归锁：多人零残留的关键路径）", () => {
     expect(LAUNCHER_SRC).toContain("process.on('SIGHUP'")
   })
 
-  it("端口登记写入发现契约（读侧 cpx/cbi，持久保留）", () => {
+  it("端口登记写入发现契约（读侧 cpx/ctxi，持久保留）", () => {
     expect(LAUNCHER_SRC).toContain("writeFileSync(registryPath(), `${port}\\n`)")
   })
 
-  it("登记路径回落 DATA_DIR（= CANNBOT_INSIGHT_HOME || ~/.cannbot-insight），与读侧一致", () => {
+  it("登记路径回落 DATA_DIR（= CONTEXT_INSIGHT_HOME || ~/.context-insight），与读侧一致", () => {
     expect(LAUNCHER_SRC).toContain("path.join(DATA_DIR, 'insight-port')")
-    expect(LAUNCHER_SRC).toContain("process.env.CANNBOT_INSIGHT_HOME || path.join(homedir(), '.cannbot-insight')")
+    expect(LAUNCHER_SRC).toContain("process.env.CONTEXT_INSIGHT_HOME || path.join(homedir(), '.context-insight')")
   })
 
   it("PID 全家福落盘——--stop 的击杀锚定", () => {

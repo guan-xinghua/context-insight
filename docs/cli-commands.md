@@ -19,7 +19,7 @@
   - [search - 搜索轮次](#search)
   - [turn - 查看轮次详情](#turn)
   - [import - 导入会话](#import)
-  - [upload - 上传会话到 CANNBay](#upload)
+  - [upload - 上传会话到 contextBay](#upload)
   - [delete - 删除会话](#delete)
   - [config - 配置管理](#config)
   - [analyze - AI 工作流分析](#analyze)
@@ -834,7 +834,7 @@ npx tsx src/cli/index.ts import --source claude-jsonl --dir ./logs/
 
 ### upload
 
-上传会话到 CANNBay 数据集仓（v2，git 仓）。支持两种来源：Insight DB 已导入
+上传会话到 contextBay 数据集仓（v2，git 仓）。支持两种来源：Insight DB 已导入
 会话（`--session <taskId>`）或源文件两步走（`--file`，先导入再上传）。
 
 #### 语法
@@ -876,7 +876,7 @@ npx tsx src/cli/index.ts upload --session ses_abc123 \
   --description "提交人: gxh
 内容描述: elementwise 基准会话"
 
-# 源文件两步走：先导入本地 Insight DB，再上传 CANNBay
+# 源文件两步走：先导入本地 Insight DB，再上传 contextBay
 npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db \
   --session-id ses_abc123 --paradigm elementwise \
   --description "提交人: gxh" --yes --json
@@ -898,7 +898,7 @@ Description:
 提交人: gxh
 内容描述: elementwise 基准会话
 
-✓ Uploaded session ses_abc123 → CANNBay
+✓ Uploaded session ses_abc123 → contextBay
   Folder: elementwise/baseline/ses_abc123/
 ```
 
@@ -1001,7 +1001,7 @@ npx tsx src/cli/index.ts config reset
 **config list**：
 
 ```
-CLI 配置 (~/.cannbot-insight/config.json)
+CLI 配置 (~/.context-insight/config.json)
 ══════════════════════════════════════════════════════════════
 
   server:      http://localhost:21025
@@ -1108,16 +1108,16 @@ Phase 0: analysis
 
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
-| `CANNBOT_SERVER` | Insight API 服务器地址 | `http://localhost:21025` |
-| `CANNBOT_TIMEOUT` | API 请求超时时间（毫秒） | `30000` |
-| `CANNBOT_TOKEN` | 认证 Token（预留） | - |
+| `CONTEXT_SERVER` | Insight API 服务器地址 | `http://localhost:21025` |
+| `CONTEXT_TIMEOUT` | API 请求超时时间（毫秒） | `30000` |
+| `CONTEXT_TOKEN` | 认证 Token（预留） | - |
 
 **示例**：
 
 ```bash
 # 设置环境变量
-export CANNBOT_SERVER=http://192.168.1.100:21025
-export CANNBOT_TIMEOUT=60000
+export CONTEXT_SERVER=http://192.168.1.100:21025
+export CONTEXT_TIMEOUT=60000
 
 # 使用环境变量
 npx tsx src/cli/index.ts sessions
@@ -1132,7 +1132,7 @@ CLI 支持通过配置文件进行持久化设置。
 ### 配置文件位置
 
 ```
-~/.cannbot-insight/config.json
+~/.context-insight/config.json
 ```
 
 ### 配置文件格式
@@ -1160,8 +1160,8 @@ CLI 支持通过配置文件进行持久化设置。
 配置优先级从高到低：
 
 1. **命令行参数** - `--server`, `--timeout`
-2. **环境变量** - `CANNBOT_SERVER`, `CANNBOT_TIMEOUT`
-3. **配置文件** - `~/.cannbot-insight/config.json`
+2. **环境变量** - `CONTEXT_SERVER`, `CONTEXT_TIMEOUT`
+3. **配置文件** - `~/.context-insight/config.json`
 4. **默认值** - 内置默认配置
 
 ---

@@ -778,7 +778,7 @@ export function LocalFileImport() {
                 {sourceType === "jsonl" && (
                   <>
                     <p>Claude 原生: ~/.claude/projects/&lt;hash&gt;/&lt;id&gt;.jsonl</p>
-                    <p>cpx proxy 捕获: ~/.cannbot-insight/proxy/cpx-&lt;sid&gt;.jsonl</p>
+                    <p>cpx proxy 捕获: ~/.context-insight/proxy/cpx-&lt;sid&gt;.jsonl</p>
                     <p>Codex 原生: ~/.codex/sessions/&lt;年&gt;/&lt;月&gt;/&lt;日&gt;/rollout-&lt;时间戳&gt;-&lt;会话id&gt;.jsonl</p>
                   </>
                 )}

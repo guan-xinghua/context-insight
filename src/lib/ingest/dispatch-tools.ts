@@ -19,7 +19,7 @@
 // 语义约定（与 cpx 捕获侧 meta 写入约定对齐——两包不互相 import，spec 语义
 // 手工对齐，见 opencode-emitter 的 taskDispatch 收集处）：
 //   displayName = description（展示名：任务一句话，UI badge / 泳道标签）
-//   agentType   = agent 身份键（如 'ascendc-ops-architect'；Execution/
+//   agentType   = agent 身份键（如 'acme-ops-architect'；Execution/
 //                 bridge 的 type，Turn.agentName 同源）
 //   sessionId   = 派发参数直连的目标子会话 id（复用/预知形态；同一子会话可
 //                 多次派发——复用续跑，此时名字取首个派发）
@@ -33,7 +33,7 @@ export interface DispatchToolSpec {
   nameIncludes?: string[];
   /** 派发参数键序（首个非空 string 生效，键查找大小写归一）→ 子会话 id 直连。 */
   sessionIdArgKeys: string[];
-  /** → agent 身份（'ascendc-ops-architect'）。 */
+  /** → agent 身份（'acme-ops-architect'）。 */
   agentTypeArgKeys: string[];
   /** → 展示名（cpx 约定：description 优先）。 */
   displayNameArgKeys: string[];
@@ -126,7 +126,7 @@ export interface DispatchRecord {
   spec: DispatchToolSpec;
   /** 派发参数直连的子会话 id（复用/预知形态；无则 null）。 */
   argSessionId: string | null;
-  /** agent 身份（'ascendc-ops-architect'）。 */
+  /** agent 身份（'acme-ops-architect'）。 */
   agentType: string | null;
   /** 展示名（cpx 约定 description 优先）。 */
   displayName: string | null;

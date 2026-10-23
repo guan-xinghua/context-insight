@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:workflow-bundle:v1",
-  "title": "cannbot.workflow-bundle v1",
+  "title": "context.workflow-bundle v1",
   "description": "Opsbot/Insight 工作流关系清单（workflow.json）结构契约；随导出包分发，与数据同版本。根 = workflow + schema/version 信封；data.members 每项按 kind 是 process/session/workflow 之一。",
   "allOf": [
     { "$ref": "#/definitions/workflow" },
     {
       "required": ["schema", "version"],
       "properties": {
-        "schema": { "const": "cannbot.workflow-bundle" },
+        "schema": { "const": "context.workflow-bundle" },
         "version": { "const": 1 }
       }
     }

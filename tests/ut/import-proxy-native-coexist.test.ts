@@ -44,24 +44,24 @@ function writeFixture(name: string, lines: unknown[]): string {
   return p;
 }
 
-// 原生 claude 会话文件：无 source 标记、无 x_cannbay / system / tools wire 字段
+// 原生 claude 会话文件：无 source 标记、无 x_lake / system / tools wire 字段
 const NATIVE_FILE = writeFixture('native.jsonl', [
   { type: 'user', message: { role: 'user', content: 'native-command-q' } },
   { type: 'assistant', message: { role: 'assistant', content: 'native-a1' } },
   { type: 'user', message: { role: 'user', content: 'native-q2' } },
 ]);
 
-// cpx wire 捕获：行级 source 标记 + x_cannbay wire 证据（分类器规则 2）；
-// x_cannbay 用未知 schema 只当分类证据，不进 adapter 的声明式分发
+// cpx wire 捕获：行级 source 标记 + x_lake wire 证据（分类器规则 2）；
+// x_lake 用未知 schema 只当分类证据，不进 adapter 的声明式分发
 const CAPTURE_FILE = writeFixture('capture.jsonl', [
-  { type: 'user', message: { role: 'user', content: 'wire-q1' }, source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } },
-  { type: 'assistant', message: { role: 'assistant', content: 'wire-a1' }, source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } },
+  { type: 'user', message: { role: 'user', content: 'wire-q1' }, source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } },
+  { type: 'assistant', message: { role: 'assistant', content: 'wire-a1' }, source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } },
 ]);
 
 // opencode 代理捕获（分叉守护用）：marker → 记录类 opencode-proxy
 const OPENCODE_CAPTURE_FILE = writeFixture('capture-opencode.jsonl', [
-  { type: 'user', message: { role: 'user', content: 'oc-wire-q1' }, source: 'opencode-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } },
-  { type: 'assistant', message: { role: 'assistant', content: 'oc-wire-a1' }, source: 'opencode-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } },
+  { type: 'user', message: { role: 'user', content: 'oc-wire-q1' }, source: 'opencode-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } },
+  { type: 'assistant', message: { role: 'assistant', content: 'oc-wire-a1' }, source: 'opencode-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } },
 ]);
 
 async function rows() {

@@ -1,8 +1,8 @@
-# CANNBot 使用手册（cpx 捕获代理 + insight 观测平台 + CANNBay 数据集仓）
+# CANNBot 使用手册（cpx 捕获代理 + insight 观测平台 + contextBay 数据集仓）
 
 > 本手册覆盖三个组件的安装与完整使用流程：**cpx**（捕获 agent↔模型明文流量，
 > 无需 insight 独立可用）、**insight**（导入分析平台，Web/TUI/CLI 三前端）、
-> **CANNBay**（会话数据集仓，上传/导入/baseline）。架构细节见
+> **contextBay**（会话数据集仓，上传/导入/baseline）。架构细节见
 > `docs/architecture.md` 与 `proxy/DESIGN.md`。
 
 ```
@@ -13,7 +13,7 @@
                                                      │ 上传（治理后）/ 导入
                                                      ▼
                                       ┌──────────────────────────────┐
-                                      │  CANNBay 数据集仓（git 仓）     │
+                                      │  contextBay 数据集仓（git 仓）  │
                                       │  范式目录 + baseline 基准       │
                                       └──────────────────────────────┘
 ```
@@ -28,7 +28,7 @@ insight 需要（可选，缺失时 smart-agent 后端静默降级）。
 ### 1.1 cpx 捕获代理（独立安装）
 
 ```bash
-cd cannbot-insight
+cd <insight 包目录>      # 源码仓内（如 packages/insight；npm 安装无需此步）
 ./proxy/install.sh        # 只装 cpx，捕获无需 insight
 # 或 ./start.sh           # 一体化安装 insight 时顺带装 cpx（内部委托上面的脚本）
 ```
@@ -49,17 +49,17 @@ cpx --help                # 验证安装；cpx status 查看状态（无需任�
                    # 浏览器打开 http://localhost:21025
 
 # 方式 B：npm 一键安装（无需克隆源码）
-npm install -g cannbot-insight
-cannbot-insight   # 首次自动 build + migrate，随后启动 + 开浏览器；CLI 子命令直接透传
-# 国内网络可用镜像：npm install -g cannbot-insight --registry=https://registry.npmmirror.com
-# 离线/内网备选：从 GitCode Release 获取 tgz 后 npm install -g ./cannbot-insight-<版本>.tgz
+npm install -g context-insight
+context-insight   # 首次自动 build + migrate，随后启动 + 开浏览器；CLI 子命令直接透传
+# 国内网络可用镜像：npm install -g context-insight --registry=https://registry.npmmirror.com
+# 离线/内网备选：从 GitCode Release 获取 tgz 后 npm install -g ./context-insight-<版本>.tgz
 ```
 
 `start.sh` 标志：`-u` 更新依赖 / `-f` 清构建缓存 / `-a` 显示高级 tab
 （wireRounds/replay）/ `-k` 历史别名（=默认：杀自家旧实例后重启）/ `-c tui`（后端 + TUI，退出即停）。
-可写状态：`~/.cannbot-insight/`（npm 形态的 SQLite 库 + 捕获产物 + 端口登记/PID 记录）；
+可写状态：`~/.context-insight/`（npm 形态的 SQLite 库 + 捕获产物 + 端口登记/PID 记录）；
 构建缓存在各自 checkout / 安装目录的 `.next/`。两种形态关终端、断 SSH 都会当场
-清干净全部子进程；npm 形态显式停止用 `cbi --stop`（多人服务器见
+清干净全部子进程；npm 形态显式停止用 `ctxi --stop`（多人服务器见
 `docs/multi-user-server.md`）。
 
 ---
@@ -87,13 +87,13 @@ cpx -- aichat "..."                 # 任意 OpenAI 兼容客户端
 （之后在 insight Web UI 导入，见 §2.4）。
 
 ```bash
-tail -F ~/.cannbot-insight/proxy/*.jsonl    # 另一终端实时观察捕获（.gz 用 zcat）
+tail -F ~/.context-insight/proxy/*.jsonl    # 另一终端实时观察捕获（.gz 用 zcat）
 ```
 
 ### 2.2 产物布局
 
 ```
-~/.cannbot-insight/proxy/
+~/.context-insight/proxy/
 ├── cpx-<sid>.jsonl.gz          verbatim 捕获（gzip at rest，zcat 即用）
 ├── cpx-<sid>.meta.json         会话级声明（框架/协议/版本，cc-session-meta）
 ├── <sid>/subagents/            子代理捕获 + meta.json
@@ -102,8 +102,8 @@ tail -F ~/.cannbot-insight/proxy/*.jsonl    # 另一终端实时观察捕获（.
     └── <sid>/subagents/…
 ```
 
-所有捕获 jsonl 同时携带声明式 `x_cannbay` 扩展命名空间（信封冻结 +
-`{schema, version, data}` 口袋，规范见 `docs/cannbay-schema-spec.md`）。
+所有捕获 jsonl 同时携带声明式 `x_lake` 扩展命名空间（信封冻结 +
+`{schema, version, data}` 口袋，规范见 `docs/lake-schema-spec.md`）。
 
 ### 2.3 查看捕获会话（cpx list）
 
@@ -130,7 +130,7 @@ cpx list              # 全部捕获会话，按时间降序（只读，不需�
 
 - **自动**：insight 在运行时，捕获退出即自动导入并打开浏览器
 - **手动**：insight Web UI 首页「Import Session → JSONL」选择
-  `~/.cannbot-insight/proxy/` 目录（支持扫描批量导）或单选某个文件；
+  `~/.context-insight/proxy/` 目录（支持扫描批量导）或单选某个文件；
   先用 `cpx list`（§2.3）确认要导的 sid
 - 导入幂等：同 taskId 走增量合并，重复导入安全
 
@@ -153,9 +153,9 @@ cpx normalize [<sid>]             # 重新生成 norm/（缺省=全部，幂等�
 
 | 源类型 | 覆盖范围 | 说明 |
 |--------|---------|------|
-| **JSONL (Claude / Proxy)** | Claude 原生 `.jsonl`（`~/.claude/projects/`，可指定目录扫描）/ cpx 捕获（`~/.cannbot-insight/proxy/cpx-<id>.jsonl`，含目录扫描） | 导入结果带框架徽标 + 黄色 `proxy` 标 |
+| **JSONL (Claude / Proxy)** | Claude 原生 `.jsonl`（`~/.claude/projects/`，可指定目录扫描）/ cpx 捕获（`~/.context-insight/proxy/cpx-<id>.jsonl`，含目录扫描） | 导入结果带框架徽标 + 黄色 `proxy` 标 |
 | **SQLite (auto)** | opencode.db / CANNBot 导出库（按库 schema 自动识别） | 一个文件按钮双覆盖 |
-| **CANNBay** | 数据集仓（见第五章） | 选范式 → 选会话，无需手动 clone |
+| **contextBay** | 数据集仓（见第五章） | 选范式 → 选会话，无需手动 clone |
 
 ### 3.2 会话分析（详情页 10 个 tab）
 
@@ -194,21 +194,21 @@ npx tsx src/cli/index.ts <命令>           # 源码方式（需先 npm install 
 ```
 
 命令：`sessions` `session` `turn` `search` `compare` `stats` `import` `delete`
-`config` `analyze` `export` `export-md` `upload`（CANNBay，见 §4.4）`tui`；
+`config` `analyze` `export` `export-md` `upload`（contextBay，见 §4.4）`tui`；
 全局选项 `--server <url>`。后端未起时导入/上传命令自动拉起。
 完整参考见 `docs/cli-commands.md`。
 
 ---
 
-## 四、CANNBay 数据集仓：上传
+## 四、contextBay 数据集仓：上传
 
-### 4.1 CANNBay 是什么
+### 4.1 数据湖是什么
 
-CANNBay v2 是托管会话数据集的 **git 仓**（默认远端 git 仓，
+数据湖是托管会话数据集的 **git 仓**（默认远端 git 仓，
 `main` 分支）。仓内布局：
 
 ```
-cannbay2/  (main)
+lake/  (main)
 ├── <范式>/                     ← 范式目录：数据仓顶层目录即范式注册表
 │   ├── <sid>/                  ← 一个会话一个文件夹（.jsonl.gz + meta + subagents/）
 │   │   └── subagents/
@@ -228,7 +228,7 @@ cannbay2/  (main)
 
 ### 4.2 Web UI 上传（首页 Sessions 表格）
 
-入口：会话行操作列的**云上传图标**（Upload to CANNBay）→ 弹窗「上传到 CANNBay」：
+入口：会话行操作列的**云上传图标**（Upload to contextBay）→ 弹窗「上传到 contextBay」：
 
 1. **范式目录**（必选下拉）：动态拉取数据仓顶层目录（排除存量 `sessions/`）
 2. **baseline 勾选**（可选）：「设为该范式的 baseline 会话」——已有 baseline
@@ -271,7 +271,7 @@ cannbay2/  (main)
 npx tsx src/cli/index.ts upload --session <taskId> \
   --paradigm elementwise --baseline --yes --json
 
-# 从源文件两步走：先导入本地 Insight DB，再上传 CANNBay（成功提示
+# 从源文件两步走：先导入本地 Insight DB，再上传 contextBay（成功提示
 # "✓ Imported & uploaded session"）
 npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db \
   --session-id <session-id> --paradigm elementwise \
@@ -295,7 +295,7 @@ npx tsx src/cli/index.ts upload --file ~/.local/share/opencode/opencode.db --lis
 | `--yes` / `--json` / `--list` | 跳过确认 / JSON 输出 / 仅列举 |
 
 后端未运行时自动拉起，命令结束自动停。tgz 安装方式下把 `npx tsx src/cli/index.ts`
-换成 `cannbot-insight` 即可。
+换成 `context-insight` 即可。
 
 #### CLI 上传 baseline（完整示例）
 
@@ -308,7 +308,7 @@ npx tsx src/cli/index.ts upload --session ses_abc123 \
 内容描述: elementwise 评分基准会话" --yes
 ```
 
-- 成功输出末尾显示落点：`✓ Uploaded session ses_abc123 → CANNBay` /
+- 成功输出末尾显示落点：`✓ Uploaded session ses_abc123 → contextBay` /
   `Folder: elementwise/baseline/ses_abc123/`
 - **换基准 = 重跑同款命令换 taskId**：新会话进 `<范式>/baseline/`，原
   baseline 在同一次 commit 内原子移回范式普通目录，无需手工干预
@@ -318,9 +318,9 @@ npx tsx src/cli/index.ts upload --session ses_abc123 \
 
 ---
 
-## 五、CANNBay 数据集仓：导入
+## 五、contextBay 数据集仓：导入
 
-### 5.1 Web UI 导入（首页「CANNBay」源类型）
+### 5.1 Web UI 导入（首页「contextBay」源类型）
 
 两步选择，无需手动 clone：
 
@@ -356,7 +356,7 @@ npx tsx src/cli/index.ts upload --session ses_abc123 \
 
 ### 5.4 自定义数据湖远端（设置页）
 
-设置页「CANNBay 数据之湖」区块可把远端从默认仓改为任意 git 地址（如
+设置页「contextBay 数据之湖」区块可把远端从默认仓改为任意 git 地址（如
 `https://example.com/trace_corpus`）：
 
 | 字段 | 说明 |
@@ -369,15 +369,15 @@ npx tsx src/cli/index.ts upload --session ses_abc123 \
 - **测试连接**：真实校验地址与凭据（表单留空时验证服务端已存凭据），成功时
   区分「凭据已验证 / 凭据未能验证 / 匿名访问」；选了认证方式但凭据为空直接失败。
   「选择分支」同样消费已存凭据——私有数据仓在表单留空时也能列出分支
-- 配置解析顺序：请求体 > 环境变量（`CANNBAY2_REMOTE_URL/PUSH_URL/BRANCH/CACHE_DIR`）
-  > 内置默认；多远端镜像缓存按 地址+分支 隔离
+- 远端配置单源落服务端 lake-config.json（设置页表单即其写入入口，全机生效）；
+  镜像缓存目录可用 `LAKE_CACHE_DIR` 覆盖，多远端镜像缓存按 地址+分支 隔离
 - 凭据仅存浏览器 localStorage、每次请求发给本机后端做 git 认证（不入库、
   不入日志，错误消息脱敏）
 - 两个限制：自定义远端**不启用范式目录**（维持 directory 单根机制）；
   语料仓现存的平铺布局（`<类别>/<月份>/<提交人>/<uuid>.jsonl`，无会话
   文件夹）不会被列出，列表/导入仅识别 `<目录>/<sid>/` 文件夹约定
 
-### 5.5 旧版 v1（CANNBay）
+### 5.5 旧版 v1（历史数据集仓）
 
 v1 的 `.db` 快照上传/解析 API 后端保留（读取历史数据），界面不再展示。
 
@@ -387,7 +387,7 @@ v1 的 `.db` 快照上传/解析 API 后端保留（读取历史数据），界�
 
 | 场景 | 步骤 |
 |---|---|
-| **只捕获，暂不分析** | `./proxy/install.sh` → `cpx claude`（捕获累积在 `~/.cannbot-insight/proxy/`） |
+| **只捕获，暂不分析** | `./proxy/install.sh` → `cpx claude`（捕获累积在 `~/.context-insight/proxy/`） |
 | **先看看捕了什么** | `cpx list`（按时间降序，含框架/子代理/大小，无需 insight） |
 | **捕获完立即看分析** | `./start.sh`（insight 在跑）→ 另一终端 `cpx claude` → 退出自动导入 + 开浏览器 |
 | **事后补导入** | `./start.sh` 起 insight → `cpx list` 确认 sid → Web UI「Import → JSONL」选 proxy 目录扫描导入 |
@@ -395,8 +395,8 @@ v1 的 `.db` 快照上传/解析 API 后端保留（读取历史数据），界�
 | **导入历史日志** | 首页「Import Session」选 `SQLite (auto)`（opencode.db）或 `JSONL`（Claude 原生，目录扫描） |
 | **沉淀会话到数据集仓** | 会话行云图标 → 选范式目录 → 填提交人/描述 → 确认上传（治理自动把关） |
 | **建范式评分基准** | 上传弹窗勾「设为该范式的 baseline 会话」；或 CLI 加 `--baseline` |
-| **从数据集仓取会话** | 首页「CANNBay」→ 选范式目录 → 勾会话 → Import Selected |
-| **团队共享会话库** | 配置同一 git 远端（设置页或 `CANNBAY2_REMOTE_URL` env）→ 各自上传/导入 |
+| **从数据集仓取会话** | 首页「contextBay」→ 选范式目录 → 勾会话 → Import Selected |
+| **团队共享会话库** | 配置同一 git 远端（设置页「contextBay 数据之湖」，全机生效）→ 各自上传/导入 |
 
 ---
 
@@ -407,10 +407,10 @@ v1 的 `.db` 快照上传/解析 API 后端保留（读取历史数据），界�
 | `cpx: command not found` | 新开终端（PATH 经 .bashrc 生效）；或直接 `./proxy/cpx-cli` |
 | Node 版本不符 | `nvm install 20 && nvm use 20`（安装脚本有 nvm 时自动切换） |
 | opencode 捕获报 "no provider to override" | 带 `-m <provider>/<model>`，或先 `opencode providers login` |
-| 捕获成功但想看分析 | `./start.sh` 启动 insight → Web UI「Import Session → JSONL」选 `~/.cannbot-insight/proxy/` 目录导入（下次捕获时 insight 已在跑则退出自动导入） |
+| 捕获成功但想看分析 | `./start.sh` 启动 insight → Web UI「Import Session → JSONL」选 `~/.context-insight/proxy/` 目录导入（下次捕获时 insight 已在跑则退出自动导入） |
 | 端口 21025 被占 | `./start.sh -k`，或自动换端口（21025+ 递增） |
 | 上传被熔断（422） | 治理检出疑似密钥残留：按错误里的 文件/行号/形态 排查会话内容，去除敏感内容后重传；**这不是 bug，是防线** |
 | 上传后重导入，Wire 轮次 / Full Context 面板为空 | 该会话是无 jsonl 源的 DB 导出件（保真边界：不含 system prompt / Full Context）；要全保真请用 cpx 捕获后直传 |
-| CANNBay 列表/导入不显示某会话 | 检查仓内布局是否符合 `<目录>/<sid>/` 文件夹约定（平铺文件不识别）；自定义远端确认「目录」前缀配置正确 |
+| contextBay 列表/导入不显示某会话 | 检查仓内布局是否符合 `<目录>/<sid>/` 文件夹约定（平铺文件不识别）；自定义远端确认「目录」前缀配置正确 |
 | 千级会话仓库会不会很慢 | 不会：列表只读元数据、导入单条按需下载 blob（partial clone），实测 2000 条热列表 ~1s |
-| 想换数据仓地址 | 设置页「CANNBay 数据之湖」填地址 + 认证 → 测试连接 → 保存；或环境变量 `CANNBAY2_REMOTE_URL/PUSH_URL/BRANCH` |
+| 想换数据仓地址 | 设置页「contextBay 数据之湖」填地址 + 认证 → 测试连接 → 保存（落服务端 lake-config.json，全机生效） |

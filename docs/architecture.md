@@ -1,4 +1,4 @@
-# CANNBot-Insight 架构图
+# Context-Insight 架构图
 
 > Session 级 LLM 编码 Agent(opencode)可观测性工具。Next.js 16 App Router + Prisma 6 + SQLite。
 
@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          外部数据源 (External Sources)                        │
-│   opencode sessions.db   │   Claude .jsonl   │   CANNBot-Insight 自有库       │
+│   opencode sessions.db   │   Claude .jsonl   │   Context-Insight 自有库       │
 └───────────┬──────────────────────┬──────────────────────┬──────────────────┘
             │ better-sqlite3 读      │ 文件读取             │
             ▼                       ▼                      ▼
@@ -15,7 +15,7 @@
 │                          适配器层 (Adapters)                                 │
 │       src/lib/ingest/adapters/  —  适配器注册表 index.ts                      │
 │   ┌─────────────────┐  ┌──────────────────┐  ┌────────────────────────┐     │
-│   │  opencode-db    │  │   claude-jsonl   │  │   cannbot-insight      │     │
+│   │  opencode-db    │  │   claude-jsonl   │  │   context-insight      │     │
 │   │ (N+1 子查询)    │  │  (流式解析)       │  │   (自有库读回)          │     │
 │   └────────┬────────┘  └────────┬─────────┘  └───────────┬────────────┘     │
 │            └──────────┬─────────┴────────────────────────┘                   │
@@ -127,13 +127,13 @@ flowchart TB
     subgraph SRC["外部数据源"]
         S1["opencode sessions.db"]
         S2["Claude .jsonl"]
-        S3["CANNBot-Insight 自有库"]
+        S3["Context-Insight 自有库"]
     end
 
     subgraph ADAPT["适配器层 adapters/"]
         A1["opencode-db<br/>(N+1 子查询)"]
         A2["claude-jsonl<br/>(流式解析)"]
-        A3["cannbot-insight"]
+        A3["context-insight"]
         REG["index.ts<br/>getAdapter()"]
         A1 --> REG
         A2 --> REG

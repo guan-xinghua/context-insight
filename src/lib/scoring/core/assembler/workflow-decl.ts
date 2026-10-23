@@ -12,6 +12,7 @@
 // 相关子项 not-applicable（设计 §7 已定项）。
 
 import type { FullContext } from '@/lib/ingest/adapters/claude-jsonl-full-context';
+import { taskClassRegexes } from './task-classes';
 import type { WorkflowDeclaration } from './types';
 
 const MAX_SECTION_CHARS = 4000;
@@ -46,7 +47,6 @@ function extractSections(text: string, keywordRe: RegExp): string[] {
 
 const ACCEPT_RE = /验收|测试用例清单|交付标准|acceptance/i;
 const REDLINE_RE = /红线|禁止|不得|严禁|不得违反|redline/i;
-export const OPERATOR_TAG_RE = /算子|operator|op 开发|kernel/i;
 
 export function parseWorkflowDeclaration(full: FullContext | null): WorkflowDeclaration | null {
   if (!full) return null;
@@ -56,7 +56,8 @@ export function parseWorkflowDeclaration(full: FullContext | null): WorkflowDecl
 
   const acceptance = extractSections(memory, ACCEPT_RE).join('\n\n') || undefined;
   const redlines = extractSections(declText, REDLINE_RE).join('\n\n') || undefined;
-  const taskTypeTags = OPERATOR_TAG_RE.test(declText) ? ['operator'] : undefined;
+  // 声明标签词表来自 task-classes.json（operator 类 declTagPattern）
+  const taskTypeTags = taskClassRegexes('operator')?.declTag.test(declText) ? ['operator'] : undefined;
 
   if (!acceptance && !redlines && !taskTypeTags) return null;
   return { acceptance, redlines, taskTypeTags, source: 'context' };

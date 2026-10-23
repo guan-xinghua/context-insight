@@ -32,7 +32,7 @@ function makeBundle(files: Record<string, string>): string {
 
 function validManifest(): Record<string, unknown> {
   return {
-    schema: 'cannbot.workflow-bundle', version: 1, id: 'schema01',
+    schema: 'context.workflow-bundle', version: 1, id: 'schema01',
     kind: 'workflow', name: 'n', startedAt: null, finishedAt: null,
     data: { exportDataComplete: true, members: [], relations: [] },
   };

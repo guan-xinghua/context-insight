@@ -42,19 +42,19 @@ function canonicalizePath(p: string): string {
 }
 
 // 可选导入路径白名单（默认不启用，本地自用任意位置可导入的功能不受影响）：
-// 环境变量 CANNBOT_INSIGHT_IMPORT_ROOTS（逗号分隔，支持 ~）设置后，
+// 环境变量 CONTEXT_INSIGHT_IMPORT_ROOTS（逗号分隔，支持 ~）设置后，
 // import-file / import-file/sessions / browse-directory 三个接收文件路径的路由
 // 只放行白名单根内的路径（合规收紧叙事：安全报告 0000021/0000036 的纵深选项）。
-// 数据主目录（~/.cannbot-insight，cpx 捕获落点）恒在允许范围——否则管理员只配
+// 数据主目录（~/.context-insight，cpx 捕获落点）恒在允许范围——否则管理员只配
 // 项目目录时，cpx 捕获退出的机会主义自动导入会静默 403。
 export function importRootsFromEnv(): string[] | null {
-  const raw = process.env.CANNBOT_INSIGHT_IMPORT_ROOTS;
+  const raw = process.env.CONTEXT_INSIGHT_IMPORT_ROOTS;
   if (raw == null || raw.trim() === '') return null;
   return raw.split(',').map(s => s.trim()).filter(Boolean).map(expandHome);
 }
 
 function importDataHome(): string {
-  return path.resolve(expandHome(process.env.CANNBOT_INSIGHT_HOME ?? '~/.cannbot-insight'));
+  return path.resolve(expandHome(process.env.CONTEXT_INSIGHT_HOME ?? '~/.context-insight'));
 }
 
 export type ImportPathDecision =

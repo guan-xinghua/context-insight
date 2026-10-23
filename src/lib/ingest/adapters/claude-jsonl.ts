@@ -68,8 +68,8 @@ export interface ClaudeJsonlLine {
   // attachment.prompt（不在 message.content），rendered 是发给模型的
   // system-reminder 包装。其余 attachment 子类型仍是纯元数据
   attachment?: AttachmentLike;
-  // x_lake/x_cannbay 信封字段：读方一律经 shared/envelope readEnvelope 双名
-  // 解析（键名与优先级单一真身），此处不再逐字段声明
+  // x_lake 信封字段：读方一律经 shared/envelope readEnvelope 解析
+  // （键名单一真身），此处不再逐字段声明
 }
 
 export interface XLake {
@@ -771,7 +771,7 @@ export function buildAssistantInteraction(
   // interaction.latency。native 行不受影响（native byte-identical）。
   let isProxy = false;
 
-  // x_cannbay cc-db-turn 声明的 reasoning tokens（legacy 通道无此信息，
+  // x_lake cc-db-turn 声明的 reasoning tokens（legacy 通道无此信息，
   // anthropic usage 也没有 reasoning 字段 —— opencode 来源经导出往返的恢复通道）
   let mergedReasoning = 0;
 

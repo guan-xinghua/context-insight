@@ -7,11 +7,11 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // Push-credential management (insight side): user-configured credentials
-// stored in ~/.cannbot-insight/lake-auth.json (0600 + atomic writes;
+// stored in ~/.context-insight/lake-auth.json (0600 + atomic writes;
 // 旧名 cannbay-auth.json 读兜底——存量凭据无感迁移，见 authFilePath 注释)。
 //
 // 凭据解析（单源架构）：lake-auth.json 按远端 URL 键控的服务端存储
-// （insight 设置页 / cbi auth 两个入口写同一份）。旧 env 凭据通道
+// （insight 设置页 / ctxi auth 两个入口写同一份）。旧 env 凭据通道
 // （LAKE_PUSH_URL / LAKE_USERNAME + LAKE_TOKEN，私仓世界 CI 形态）已退役
 // ——CI/脚本直接写 lake-auth.json（文件即接口）。全空 → null；https 远端
 // push 前由 requirePushCredentials fail-fast（指引配置入口，而不是让 git
@@ -38,21 +38,21 @@ export function parseUrlCreds(url: string): { credless: string; auth: PushAuth |
   };
 }
 
-// 凭据存储文件：与 proxy 捕获目录同根（CANNBOT_PROXY_DIR 重定向优先——测试/
-// 多实例隔离；'.cannbot-insight' 引号字面量是 pack-context 品牌翻转点，与
+// 凭据存储文件：与 proxy 捕获目录同根（CONTEXT_PROXY_DIR 重定向优先——测试/
+// 多实例隔离；'.context-insight' 引号字面量是 pack-cannbot 品牌翻转点，与
 // lfs-setup.ts 同款纪律）。读首选 lake-auth.json；旧名文件（历史版本产物）
 // 读兜底——存量凭据无感迁移：读旧写新，首次保存即落新文件，旧文件原地保留
 // （避免版本回滚丢凭据）。新文件存在即为权威（用户主动清空不复活旧凭据）。
 export function authFilePath(): string {
   return path.join(
-    path.dirname(process.env.CANNBOT_PROXY_DIR ?? path.join(os.homedir(), '.cannbot-insight', 'proxy')),
+    path.dirname(process.env.CONTEXT_PROXY_DIR ?? path.join(os.homedir(), '.context-insight', 'proxy')),
     'lake-auth.json',
   );
 }
 
 function legacyAuthFilePath(): string {
   return path.join(
-    path.dirname(process.env.CANNBOT_PROXY_DIR ?? path.join(os.homedir(), '.cannbot-insight', 'proxy')),
+    path.dirname(process.env.CONTEXT_PROXY_DIR ?? path.join(os.homedir(), '.context-insight', 'proxy')),
     'cannbay-auth.json',
   );
 }
@@ -87,7 +87,7 @@ function readAuthFile(): AuthFileShape {
 }
 
 // 原子写（tmp+rename）+ 0600：凭据文件权限纪律与 gh config / .npmrc 同级。
-// rename 生效后文件权限继承 tmp 件；整文件重写的读改写竞态（cbi auth 与
+// rename 生效后文件权限继承 tmp 件；整文件重写的读改写竞态（ctxi auth 与
 // insight 设置页同时写）按 last-writer-wins 收敛——两个入口都是人工低频操作
 function writeAuthFile(data: AuthFileShape): void {
   const file = authFilePath();
@@ -184,7 +184,7 @@ export interface StoredRemoteInfo {
   verifiedAt?: string;
 }
 
-/** 已配置远端清单（脱敏）——设置页状态展示 / cbi auth --status 共用。 */
+/** 已配置远端清单（脱敏）——设置页状态展示 / ctxi auth --status 共用。 */
 export function listStoredRemotes(): StoredRemoteInfo[] {
   const remotes = readAuthFile().remotes;
   return Object.entries(remotes)
@@ -213,8 +213,8 @@ export class MissingPushCredentialsError extends Error {
       `未配置数据仓推送凭据：${remoteUrl}\n` +
       '配置方式（任选其一，cpx 与 insight 同机共享同一份凭据）：\n' +
       '  1. insight Web UI「设置 → 数据之湖」填写推送凭据\n' +
-      '  2. 命令行运行 cbi auth 交互式配置（insight CLI：npm 安装后 cbi 直接可用）\n' +
-      '  3. 直接写 ~/.cannbot-insight/lake-auth.json（CI/脚本场景——文件即接口）',
+      '  2. 命令行运行 ctxi auth 交互式配置（insight CLI：npm 安装后 ctxi 直接可用）\n' +
+      '  3. 直接写 ~/.context-insight/lake-auth.json（CI/脚本场景——文件即接口）',
     );
     this.name = 'MissingPushCredentialsError';
   }

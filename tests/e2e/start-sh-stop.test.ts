@@ -72,7 +72,7 @@ function waitForExit(child: ChildProcess, ms = 10000): Promise<boolean> {
 
 function runStop(scriptDir: string, port: number): { status: number; stdout: string } {
   const r = spawnSync("bash", [path.join(scriptDir, "start.sh"), "--stop"], {
-    env: { ...process.env, CANNBOT_INSIGHT_PORT: String(port) },
+    env: { ...process.env, CONTEXT_INSIGHT_PORT: String(port) },
     encoding: "utf8",
     timeout: 30000,
   })
@@ -84,8 +84,8 @@ describe("start.sh --stop 与随会话清理（多人服务器）", () => {
     expect(startSrc).toContain("trap cleanup EXIT INT TERM HUP")
   })
 
-  it("源断言：BASE_PORT 可用 CANNBOT_INSIGHT_PORT 覆盖（每用户固定端口）", () => {
-    expect(startSrc).toContain('BASE_PORT="${CANNBOT_INSIGHT_PORT:-21025}"')
+  it("源断言：BASE_PORT 可用 CONTEXT_INSIGHT_PORT 覆盖（每用户固定端口）", () => {
+    expect(startSrc).toContain('BASE_PORT="${CONTEXT_INSIGHT_PORT:-21025}"')
   })
 
   it("源断言：cleanup 覆盖 BACKEND/NEXT/AGENT 三个子进程 PID", () => {
@@ -96,9 +96,9 @@ describe("start.sh --stop 与随会话清理（多人服务器）", () => {
     expect((startSrc.match(/echo "\$PORT" > "\$INSIGHT_PORT_REGISTRY"/g) ?? []).length).toBe(2)
   })
 
-  it("源断言：登记锚定跟随 CANNBOT_INSIGHT_HOME（与 npm 启动器/读侧一致）", () => {
+  it("源断言：登记锚定跟随 CONTEXT_INSIGHT_HOME（与 npm 启动器/读侧一致）", () => {
     expect(startSrc).toContain(
-      'CANNBOT_HOME_DIR="$(dirname "${CANNBOT_PROXY_DIR:-${CANNBOT_INSIGHT_HOME:-$HOME/.cannbot-insight}/proxy}")"',
+      'CONTEXT_HOME_DIR="$(dirname "${CONTEXT_PROXY_DIR:-${CONTEXT_INSIGHT_HOME:-$HOME/.context-insight}/proxy}")"',
     )
   })
 

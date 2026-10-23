@@ -7,7 +7,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 启动器端口工具（bin/cannbot-insight.mjs 与 tests/launcher-ports.test.ts 共用）。
+// 启动器端口工具（bin/context-insight.mjs 与 tests/launcher-ports.test.ts 共用）。
 // 修复背景：smart-agent 端口曾钉死 BASE_PORT+1 且先于 next start 启动——BASE_PORT
 // 被占时 next 滚到 BASE_PORT+1，smart-agent 抢先绑定同端口 → next start
 // EADDRINUSE 崩溃（客户实测 21026）。端口分配必须互相避让。
@@ -42,7 +42,7 @@ export async function isHttpHealthy(port, path = '/health', timeoutMs = 1500) {
 }
 
 /** smart-agent /health 响应体里的服务标识（正身依据，server.py 同步维护）。 */
-export const SMART_AGENT_SERVICE = 'cannbot-smart-agent'
+export const SMART_AGENT_SERVICE = 'context-smart-agent'
 
 /**
  * 端口上是否为本 smart-agent：/health 2xx 且响应体带服务标识。

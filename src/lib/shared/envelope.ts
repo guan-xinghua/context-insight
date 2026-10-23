@@ -6,13 +6,12 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 捕获/导出 jsonl 的扩展字段信封（声明式分发口袋）：新键 x_lake，旧键
-// x_cannbay 读兜底（线上存量数据零迁移——P3 双名决议）。写侧双写过渡
-// （老版本读方不丢），下个大版本退役旧键。中立位置（shared/）——ingest
-// 与 lake 两域都可引，无环。
+// 捕获/导出 jsonl 的扩展字段信封（声明式分发口袋）：键 x_lake（v0.1.8 起
+// 双写过渡，本版本起单轨——双写期的旧键读写轨已退役，存量数据需经
+// 0.2.40 前版本导入或重导）。中立位置（shared/）——ingest 与 lake 两域
+// 都可引，无环。
 
 export const ENVELOPE_KEY = 'x_lake';
-export const ENVELOPE_KEY_LEGACY = 'x_cannbay';
 
 export interface Envelope {
   schema: string;
@@ -29,14 +28,14 @@ function asEnvelope(v: unknown): Envelope | undefined {
   return e as Envelope;
 }
 
-/** 双名读：x_lake 优先，x_cannbay 兜底；形态不合法按无信封处理 */
+/** 读：x_lake 口袋；形态不合法按无信封处理 */
 export function readEnvelope(holder: unknown): Envelope | undefined {
   if (!holder || typeof holder !== 'object') return undefined;
   const h = holder as Record<string, unknown>;
-  return asEnvelope(h[ENVELOPE_KEY]) ?? asEnvelope(h[ENVELOPE_KEY_LEGACY]);
+  return asEnvelope(h[ENVELOPE_KEY]);
 }
 
-/** 双名写：同一信封对象挂两个键（返回写好的口袋对象，调用方展开进行对象） */
+/** 写：返回挂好口袋键的对象，调用方展开进行对象 */
 export function envelopeFields(envelope: Envelope): Record<string, Envelope> {
-  return { [ENVELOPE_KEY]: envelope, [ENVELOPE_KEY_LEGACY]: envelope };
+  return { [ENVELOPE_KEY]: envelope };
 }

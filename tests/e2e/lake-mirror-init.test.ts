@@ -29,7 +29,7 @@ import { seedLakeConfig } from '../helpers/lake-env';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'lake-mirror-init-'));
 // 单源种子：默认远端解析（子进程 : undefined 分支）走服务端配置——
-// CANNBOT_PROXY_DIR 经 spawn env 的 ...process.env 传递给子进程
+// CONTEXT_PROXY_DIR 经 spawn env 的 ...process.env 传递给子进程
 seedLakeConfig(TMP, { address: path.join(TMP, 'remote.git') });
 const BARE = path.join(TMP, 'remote.git');
 // 第二个可 fetch 的 bare（stale-origin 回归锁需要"错误但活着"的远端——

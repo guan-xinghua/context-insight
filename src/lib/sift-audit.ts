@@ -99,7 +99,7 @@ export function buildAuditArgs(opts: {
 }
 
 /**
- * `--transcript` 路的参数(cannbot-insight / claude-code framework 用):
+ * `--transcript` 路的参数(context-insight / claude-code framework 用):
  * 把 session 序列化成结构化 records JSON 喂 sift,绕开 `--db` 的 opencode-native 限制。
  * `kind` 必带:skill=按 Skill 调用切(skill 对账)、agent=按 agent 归属切(被 dispatch 的 agent 对账)。
  */

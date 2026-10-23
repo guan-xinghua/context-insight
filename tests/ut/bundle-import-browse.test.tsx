@@ -12,7 +12,7 @@
 // - 本地来源：Browse 进入目录浏览 → bundle 目录绿色高亮（Bundle 类型标签 +
 //   计数）→ 点击直接触发 import-bundle POST → 轮询到 done → Done 关闭 +
 //   router.refresh。普通目录点击只导航、文件点击不导入。
-// - 数据仓来源（与 sessions 页数据仓导入步同构的两阶段流）：CANNBay 按钮 →
+// - 数据仓来源（与 sessions 页数据仓导入步同构的两阶段流）：Bay 按钮 →
 //   目录选择阶段（顶层目录网格 + 专区计数）→ 进目录 → 过滤/全选/勾选 →
 //   批量导入 → 逐项状态（pending/importing/success）轮询到完成。
 
@@ -241,7 +241,7 @@ describe('BundleImport 数据仓来源：两阶段目录/列表（与 sessions �
   /** 打开弹窗 → 切数据仓源（点击即拉目录 + 列表）→ 停在目录选择阶段 */
   async function openLakePhase1(): Promise<void> {
     await openDialog()
-    click([...document.querySelectorAll('button')].find(b => b.textContent?.includes('CANNbay'))!)
+    click([...document.querySelectorAll('button')].find(b => b.textContent?.includes('contextBay'))!)
     await flush()
   }
 

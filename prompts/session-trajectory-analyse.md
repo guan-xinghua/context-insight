@@ -1,12 +1,12 @@
 # Session 轨迹分析提示词（喂给 Claude Code）
 
-> **用法**：在新的 Claude Code 会话里，先粘本文件全部内容，再把 CANNBot-Insight 导出的 `session_{taskId}.md`（"Export MD" 按钮）内容粘到文末 `<<<轨迹>>>` 处（或让 Claude Code 读该文件）。Claude Code 会输出纯 JSON，**用 Write 工具保存为 `{轨迹文件名}-analysis.json`**（具体输出目录由调用方在文末指定；自动化调用时已给出绝对路径，以该路径为准，不要自行改写到 `logs/`），再把它粘进 cannbot-insight 该 session 的「Workflow 分析」tab 文本框 → 渲染。
+> **用法**：在新的 Claude Code 会话里，先粘本文件全部内容，再把 Context-Insight 导出的 `session_{taskId}.md`（"Export MD" 按钮）内容粘到文末 `<<<轨迹>>>` 处（或让 Claude Code 读该文件）。Claude Code 会输出纯 JSON，**用 Write 工具保存为 `{轨迹文件名}-analysis.json`**（具体输出目录由调用方在文末指定；自动化调用时已给出绝对路径，以该路径为准，不要自行改写到 `logs/`），再把它粘进 context-insight 该 session 的「Workflow 分析」tab 文本框 → 渲染。
 
 ---
 
 # 角色
 
-你是 CANNBot Agent 平台的 workflow/skill 优化顾问。CANNBot-Insight 是 opencode session 的可观测工具。下面给你一个 session 的**实际工作流执行轨迹**（由 CANNBot-Insight 导出）。你的任务分两步：
+你是 LLM Agent 平台的 workflow/skill 优化顾问。Context-Insight 是 opencode session 的可观测工具。下面给你一个 session 的**实际工作流执行轨迹**（由 Context-Insight 导出）。你的任务分两步：
 
 1. **识别基准流程**：从轨迹中提取该 session 实际使用的 workflow skill 定义，以其作为分析基准。不预设 workflow 类型——以轨迹实际加载的 skill 定义为准。
 2. **对照分析**：对照基准流程，分析实际走了什么、哪里有问题，给出可执行的 skill 与 workflow 优化建议。
@@ -152,7 +152,7 @@
 ## 流程维度（执行层，非质量评分）
 
 **flow 节点设定规则（强制，降低重建非确定性）**：
-- flow 数组里只出现 4 种 type：`invoke`（仅 workflow skill 首次加载）、`dispatch`（派发子代理干活）、`gate`（verifier 验收）、`terminal`（dispatch 失败/超时）——**不要出现 invoke 知识库加载节点**（ascendc-regbase 等知识加载不是执行步骤，不进 flow）
+- flow 数组里只出现 4 种 type：`invoke`（仅 workflow skill 首次加载）、`dispatch`（派发子代理干活）、`gate`（verifier 验收）、`terminal`（dispatch 失败/超时）——**不要出现 invoke 知识库加载节点**（acme-regbase 等知识加载不是执行步骤，不进 flow）
 - **dispatch 类**（`*Skill: xxx (dispatch)`）= **恰好 1 个 flow 节点**（1:1，不归组、不省略、不合并）
 - verifier 的 dispatch + 其 `task_result`(PASS/FAIL) = **合并为 1 个 type=gate 节点**
 - 纯 bash/read/edit/webfetch turn（无 `*Skill:` 标记）= **不设** flow 节点

@@ -119,7 +119,7 @@ export async function runAuthAction(opts: AuthOptions, deps: AuthDeps = {}): Pro
     const remotes = listStoredRemotes();
     out(`凭据文件 : ${authFilePath()}`);
     if (remotes.length === 0) {
-      out('尚未配置任何远端凭据 —— 运行 cbi auth 开始配置');
+      out('尚未配置任何远端凭据 —— 运行 ctxi auth 开始配置');
       return 0;
     }
     for (const r of remotes) {
@@ -147,7 +147,7 @@ export async function runAuthAction(opts: AuthOptions, deps: AuthDeps = {}): Pro
   }
 
   if (!isTTY && !deps.question) {
-    log('非交互环境请用: cbi auth --remote <url> --username <u> --token <t>');
+    log('非交互环境请用: ctxi auth --remote <url> --username <u> --token <t>');
     return 2;
   }
 
@@ -176,10 +176,10 @@ export async function runAuthAction(opts: AuthOptions, deps: AuthDeps = {}): Pro
 }
 
 const USAGE_HINT = [
-  '用法: cbi auth                      交互式配置数据仓凭据（推荐）',
-  '      cbi auth --status             查看已配置远端（凭据脱敏）',
-  '      cbi auth --clear [url]        清除指定远端凭据（缺省全部）',
-  '      cbi auth --remote <url> --username <u> --token <t>   非交互配置',
+  '用法: ctxi auth                      交互式配置数据仓凭据（推荐）',
+  '      ctxi auth --status             查看已配置远端（凭据脱敏）',
+  '      ctxi auth --clear [url]        清除指定远端凭据（缺省全部）',
+  '      ctxi auth --remote <url> --username <u> --token <t>   非交互配置',
 ].join('\n');
 
 export function authCommand(): Command {

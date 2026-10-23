@@ -1,6 +1,6 @@
-# CANNBot-Insight WSL 环境搭建指南
+# Context-Insight WSL 环境搭建指南
 
-> 面向零基础用户，从一台干净的 Windows 10/11 电脑开始，在 WSL2（Linux 子系统）里把 CANNBot-Insight 跑起来。
+> 面向零基础用户，从一台干净的 Windows 10/11 电脑开始，在 WSL2（Linux 子系统）里把 Context-Insight 跑起来。
 >
 > 预计耗时：25–40 分钟（含 WSL 与 Node 安装）。
 >
@@ -30,7 +30,7 @@
 
 ## 1. 为什么用 WSL
 
-CANNBot-Insight 的 Web 服务本身跨平台，但用 WSL 有几个好处：
+Context-Insight 的 Web 服务本身跨平台，但用 WSL 有几个好处：
 
 - **与 opencode 同文件系统**：opencode 的 `~/.local/share/opencode/sessions.db` 在 WSL 里是原生路径，导入不用跨系统拷贝。
 - **与 start.sh 完全对齐**：项目主启动脚本是 `start.sh`，在 Linux 下行为最完整（自动起 smart-agent、自动用 Windows cmd 开浏览器）。
@@ -270,7 +270,7 @@ pip3 install -r requirements.txt
 
 ## 第六步：获取源码
 
-CANNBot-Insight 是 `cannbot-skills` 仓库里的一个子目录。建议放在 WSL 的 Linux 文件系统里（如 `~/`），**不要**放在 `/mnt/c/` 下（跨文件系统读写会慢很多）。
+Context-Insight 是 `cannbot-skills` 仓库里的一个子目录。建议放在 WSL 的 Linux 文件系统里（如 `~/`），**不要**放在 `/mnt/c/` 下（跨文件系统读写会慢很多）。
 
 ### 6.1 克隆
 
@@ -331,7 +331,7 @@ chmod +x start.sh
   ... Applied migration ...
 [start] Launching smart-agent (Python) on port 21026...
 [start] smart-agent ready at http://localhost:21026 (PID 12345)
-[start] Launching CANNBot-Insight on port 21025...
+[start] Launching Context-Insight on port 21025...
 [start] Waiting for server at http://localhost:21025...
 [start] Server ready — opening http://localhost:21025
 ```
@@ -383,7 +383,7 @@ Insight 能导入两种日志：
 npx tsx src/cli/index.ts upload --file ./sessions.db
 ```
 
-或在 TUI 里按 `u` 键上传。上传后交互式填描述，后端自动起停。之后在 Web UI 导入时点 **CANNBay** 按钮直接选库导入。
+或在 TUI 里按 `u` 键上传。上传后交互式填描述，后端自动起停。之后在 Web UI 导入时点 **contextBay** 按钮直接选库导入。
 
 ---
 
@@ -567,7 +567,7 @@ kill -9 <PID>
 - 读懂功能全貌：[README-zh.md](../README-zh.md)
 - 看整体架构：[docs/architecture.md](architecture.md)
 - 学 CLI 高级用法：[docs/cli-commands.md](cli-commands.md)
-- 在多机器间分享 session：用 Web UI 里的 **CANNBay** 上传 / 导入功能
+- 在多机器间分享 session：用 Web UI 里的 **contextBay** 上传 / 导入功能
 
 ---
 

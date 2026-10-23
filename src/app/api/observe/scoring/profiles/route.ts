@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 评分配置 profile 存取：~/.cannbot-insight/scoring-profiles/<id>.json + active.json（激活指针）。
+// 评分配置 profile 存取：~/.context-insight/scoring-profiles/<id>.json + active.json（激活指针）。
 // 全局单激活（activeId null = 默认口径）；内置模板只读（preset: 前缀）。
 // 保存/导入统一走 PUT（sanitizeProfile 硬错 400、软伤 warnings 透传）。
 

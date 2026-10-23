@@ -63,8 +63,8 @@ interface TimelineGanttProps {
 
 const TYPE_PALETTE: Record<string, { bar: string; hover: string; bg: string; text: string }> = {
   build: { bar: "bg-blue-500", hover: "bg-blue-400", bg: "bg-blue-50 dark:bg-blue-500/5", text: "text-blue-700 dark:text-blue-400" },
-  ascendc_kernel_architect: { bar: "bg-emerald-500", hover: "bg-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-500/5", text: "text-emerald-700 dark:text-emerald-400" },
-  ascendc_kernel_developer: { bar: "bg-violet-500", hover: "bg-violet-400", bg: "bg-violet-50 dark:bg-violet-500/5", text: "text-violet-700 dark:text-violet-400" },
+  acme_kernel_architect: { bar: "bg-emerald-500", hover: "bg-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-500/5", text: "text-emerald-700 dark:text-emerald-400" },
+  acme_kernel_developer: { bar: "bg-violet-500", hover: "bg-violet-400", bg: "bg-violet-50 dark:bg-violet-500/5", text: "text-violet-700 dark:text-violet-400" },
   general: { bar: "bg-gray-500", hover: "bg-gray-400", bg: "bg-gray-50 dark:bg-gray-500/5", text: "text-gray-700 dark:text-gray-400" },
   root: { bar: "bg-sky-600", hover: "bg-sky-500", bg: "bg-sky-50 dark:bg-sky-500/5", text: "text-sky-700 dark:text-sky-400" },
 }

@@ -256,7 +256,7 @@ interface ScoringProfile {
 | 工具调用表 | 全量 toolCalls（args/result） | 规则评分器全量扫描零抽样 |
 | 用户消息表 | role=user 的轮次 | 供 D6 逐条分类 |
 | 测量值 | token/时间/输入 token | 从 Session + toolCalls 聚合，v1 collect.ts 迁移 |
-| 任务类型 | 工作流声明标签 → 否则改文件路径启发 | D1.acceptance/D3 CANN-Bench 评分共用；CANN-Bench 评分仅作门控，值来自用户填报（不评轨迹） |
+| 任务类型 | 工作流声明标签 → 否则改文件路径启发 | D1.acceptance/D3 基准测试评分共用；基准测试评分仅作门控，值来自用户填报（不评轨迹） |
 | 结束原因 | wire stop_reason / 末轮状态 → normal/truncated/error | D1.stopReason 前置门的原料 |
 | 打断信号 | turn 状态/中断标记 → 打断轮次列表 | D6 规则层 |
 | 上下文构成（wire） | proxy：工具说明/skill 全集/重复注入/过期滞留/项目说明的 token 量；非 proxy 为 null | D5 五类的全部原料 |
@@ -394,7 +394,7 @@ structuredClone(BUILTIN_DIMENSIONS)     # 模块级常量绝不原地改
 | D3.testResults 测试结果 | 规则 | 工具输出（test-parser） | ❌ 新建 |
 | D3.nakedWrite 不读就写 | 规则 | 工具调用 | ✅ computeNakedWrite 迁移 |
 | D3 通用五项 | LLM | 轨迹摘要 + diff 材料 | 🔶 semantic-rubric 五项重组 |
-| D3 CANN-Bench 评分 | 用户填报 | CANN-Bench 总分 0-100 → 0-10；未填报默认 0.8 持平档（明标）；非算子任务不适用 | ❌ 新建（OpBenchScorer + 填报存储/API/对话框；不走 LLM） |
+| D3 基准测试评分 | 用户填报 | 基准测试总分 0-100 → 0-10；未填报默认 0.8 持平档（明标）；非算子任务不适用 | ❌ 新建（BenchReportScorer + 填报存储/API/对话框；不走 LLM） |
 | D4 token | 基线对比 | measures.totalTokens | 🔶 collect.ts 迁移 |
 | D4 工具时间 | 基线对比 | measures.toolTimeMs | 🔶 durationMs 求和 |
 | D4 浪费归因 | 规则（只诊断） | 返工/重复读/重试/缓存/隐性开销 | 🔶 metrics.ts 多函数迁移 |

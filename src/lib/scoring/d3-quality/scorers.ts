@@ -6,12 +6,12 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// D3 评分器：testResults/nakedWrite 代码直算 + 五项 LLM（BandJudge 实例化）+ CANN-Bench 评分（用户填报）。
+// D3 评分器：testResults/nakedWrite 代码直算 + 五项 LLM（BandJudge 实例化）+ 基准测试评分（用户填报）。
 
 import { Scorer, okResult, notApplicable, ev, round2, type ScorerContext } from '../core/scorer';
 import type { SubItemResult } from '../core/types';
 import { BandJudgeScorer } from '../core/judge';
-import { OpBenchScorer } from '../core/op-bench/scorer';
+import { BenchReportScorer } from '../core/bench-report/scorer';
 import { findLastVerifiedRun, lastWriteSeq, isCodeWrite } from '../core/test-parser';
 import { extractFilePath } from '@/lib/file-restore';
 
@@ -124,7 +124,7 @@ class NakedWriteScorer extends Scorer {
   }
 }
 
-// ── LLM 五项 + CANN-Bench 评分（用户填报）──────────────────
+// ── LLM 五项 + 基准测试评分（用户填报）──────────────────
 
 function bandScorer(id: string): Scorer {
   return new BandJudgeScorer(
@@ -144,6 +144,6 @@ export function d3Scorers(): Scorer[] {
     bandScorer('D3.robustness'),
     bandScorer('D3.maintainability'),
     bandScorer('D3.safeCoding'),
-    new OpBenchScorer({ id: 'D3.cannBench', dimension: 'D3', name: 'CANN-Bench 评分', scorerKind: 'user-input' }),
+    new BenchReportScorer({ id: 'D3.benchScore', dimension: 'D3', name: '基准测试评分', scorerKind: 'user-input' }),
   ];
 }

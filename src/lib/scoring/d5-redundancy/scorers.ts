@@ -233,7 +233,7 @@ class UnusedSkillsScorer extends UnusedInjectionScorer {
       input => {
         const used = new Set<string>();
         // SkillEvent 通道（斜杠命令 invoke / 技能加载 / 派发）：斜杠调用无工具
-        // 调用，只扫 toolCalls 会把真实用过的技能算成未用（现场：day0-inference）
+        // 调用，只扫 toolCalls 会把真实用过的技能算成未用（现场：demo-inference）
         for (const se of input.skillEvents ?? []) used.add(se.skillName.toLowerCase());
         for (const tc of input.toolCalls) {
           const n = tc.toolName.toLowerCase();

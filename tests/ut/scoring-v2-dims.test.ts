@@ -555,10 +555,10 @@ describe('LLM 层纪律（stub LlmClient）', () => {
 
   it('证据带一句话依据：evidence=[{turn,note}] → label 用 note（不再裸「评审证据 §N」）', async () => {
     const turns = [3, 45].map(turnIndex => ({ id: `t${turnIndex}`, turnIndex, role: 'assistant', agentName: null, isSubagent: false, subagentSessionId: null, contentSummary: null, content: null, totalTokens: 1, inputTokens: 0, inputMessagesTokens: 0, latencyMs: 0, createdAtISO: null, createdAtTsISO: null, model: null }));
-    const r = await runItem(input({ turns }), 'D3.correctness', stub('{"reason": "逐步核对：正确", "score": 8, "evidence": [{"turn": 3, "note": "确认无 CANN 安装"}, {"turn": 45, "note": "定位 GATE_LIB_DIR"}]}'));
+    const r = await runItem(input({ turns }), 'D3.correctness', stub('{"reason": "逐步核对：正确", "score": 8, "evidence": [{"turn": 3, "note": "确认无 ACME 安装"}, {"turn": 45, "note": "定位 GATE_LIB_DIR"}]}'));
     expect(r.status).toBe('ok');
     expect(r.evidence.map(e => e.turnIndex)).toEqual([3, 45]);
-    expect(r.evidence.map(e => e.label)).toEqual(['确认无 CANN 安装', '定位 GATE_LIB_DIR']);
+    expect(r.evidence.map(e => e.label)).toEqual(['确认无 ACME 安装', '定位 GATE_LIB_DIR']);
     // 旧格式 ["§N"] 兼容：note 缺失 → label 回退「评审依据」
     const legacy = await runItem(input({ turns }), 'D3.correctness', stub('{"reason": "ok", "score": 8, "evidence": ["§3"]}'));
     expect(legacy.evidence[0].turnIndex).toBe(3);
@@ -627,21 +627,21 @@ describe('LLM 层纪律（stub LlmClient）', () => {
     expect(authed.verdict).toBe('authorized');
   });
 
-  it('D3 CANN-Bench 评分：非算子任务不适用；算子任务未填报默认持平分 80', async () => {
-    const na = await runItem(input({ taskType: 'general' }), 'D3.cannBench');
+  it('D3 基准测试评分：非算子任务不适用；算子任务未填报默认持平分 80', async () => {
+    const na = await runItem(input({ taskType: 'general' }), 'D3.benchScore');
     expect(na.status).toBe('not-applicable');
     expect(na.note).toContain('非算子类任务');
 
-    const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dims-opbench-'));
-    process.env.SCORING_OP_BENCH_DIR = TMP;
+    const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dims-benchreport-'));
+    process.env.SCORING_BENCH_REPORT_DIR = TMP;
     try {
-      const unfilled = await runItem(input({ taskType: 'operator' }), 'D3.cannBench');
+      const unfilled = await runItem(input({ taskType: 'operator' }), 'D3.benchScore');
       expect(unfilled.status).toBe('ok');
       expect(unfilled.score).toBe(0.8);
       expect(unfilled.formula).toContain('默认 80');
       expect(unfilled.note).toContain('未填报');
     } finally {
-      delete process.env.SCORING_OP_BENCH_DIR;
+      delete process.env.SCORING_BENCH_REPORT_DIR;
       fs.rmSync(TMP, { recursive: true, force: true });
     }
   });
@@ -1078,7 +1078,7 @@ describe('D5 重复尝试（重派 + 原样重复）', () => {
     const wire = {
       requestTokens: 100000, dupCopyTokens: 0, staleResultTokens: 0,
       availableSkills: [
-        { name: 'day0-inference', description: '', approxTokens: 500, origin: null },
+        { name: 'demo-inference', description: '', approxTokens: 500, origin: null },
         { name: 'ops-analysis', description: '', approxTokens: 300, origin: null },
         { name: 'code-review', description: '', approxTokens: 400, origin: 'cli-builtin' },
         { name: 'dataviz', description: '', approxTokens: 600, origin: 'cli-builtin' },
@@ -1087,7 +1087,7 @@ describe('D5 重复尝试（重派 + 原样重复）', () => {
     const item = await runItem(input({
       wire,
       toolCalls: [],   // 斜杠通道无工具调用——此前 used 恒空，全部误判未用
-      skillEvents: [{ skillName: 'day0-inference', eventType: 'invoke' }],
+      skillEvents: [{ skillName: 'demo-inference', eventType: 'invoke' }],
     }), 'D5.skills');
     expect(item.status).toBe('ok');
     expect(item.formula).toContain('skill 2 个');
@@ -1096,7 +1096,7 @@ describe('D5 重复尝试（重派 + 原样重复）', () => {
     expect(item.value).toBe(0.38);                   // round2(300/800)——仅 ops-analysis 未用 / 自定义合计
     const evidenceText = (item.evidence ?? []).map(e => `${e.label ?? ''}${e.quote ?? ''}`).join(' ');
     expect(evidenceText).toContain('ops-analysis');
-    expect(evidenceText).not.toContain('day0-inference');
+    expect(evidenceText).not.toContain('demo-inference');
   });
 
   it('D5.skills：全部为 CLI 内置（不可控）→ 整项不适用', async () => {

@@ -2,7 +2,7 @@
   "toolUseId": "call_8ddabd3b15b74252b120f678",
   "name": "验收 Task19 黑盒用例",
   "agentType": "st-verifier",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

@@ -32,7 +32,7 @@ import {
   deriveSessionIdFromPath as deriveCodexSessionId,
 } from './codex-jsonl';
 import { isRolloutFileName } from './codex-naming';
-import { listSessions as cannbotInsightListSessions, readSession as cannbotInsightReadSession, readSessionMeta as cannbotInsightReadSessionMeta, detectContent as detectCannbotContent } from './cannbot-insight';
+import { listSessions as contextInsightListSessions, readSession as contextInsightReadSession, readSessionMeta as contextInsightReadSessionMeta, detectContent as detectContextContent } from './context-insight';
 import {
   listSessions as dshNativeListSessions,
   readSession as dshNativeReadSession,
@@ -49,7 +49,7 @@ import { detectContent as detectDshContent } from '../dsh-detect';
 // SourceDescriptor + 在下面 SOURCES 里加一行（清单见
 // docs/design/agent-source-framework/design.md §2.6）。
 //
-// SOURCES 的先后顺序 = 文件识别的优先级：按具体名字匹配的（cannbot_session_、
+// SOURCES 的先后顺序 = 文件识别的优先级：按具体名字匹配的（context_session_、
 // rollout- 前缀）必须排在只按扩展名匹配的（.db、.jsonl）前面，否则 codex 的
 // rollout-*.jsonl 会被当成 claude 的 .jsonl 文件。
 
@@ -117,24 +117,27 @@ const claudeJsonlSource: SourceDescriptor = {
   deriveSessionId: deriveClaudeSessionId,
 };
 
-// 容器型源（格式即搬运，身份轴无源级缺省）：cannbot-insight 导出件是
+// 容器型源（格式即搬运，身份轴无源级缺省）：context-insight 导出件是
 // insight 序列化既有会话的容器，不是会话的生产者——不声明 framework
-// （曾用容器身份冒充 agent 身份落库，framework='cannbot-insight' 误标史），
+// （曾用容器身份冒充 agent 身份落库的误标史，旧值随品牌契约退役），
 // 每个会话的身份（framework/version，可带 -proxy 记录类）从件内 Session
 // 行经 readSessionMeta 会话级声明读取
-const cannbotInsightSource: SourceDescriptor = {
+const contextInsightSource: SourceDescriptor = {
   sourceType: BRAND_SOURCE_TYPE,
-  listSessions: cannbotInsightListSessions,
-  readSession: cannbotInsightReadSession,
-  readSessionMeta: cannbotInsightReadSessionMeta,
-  sniffFile: (fileName) => isSqliteName(fileName) && fileName.startsWith('cannbot_session_'),
-  detectContent: detectCannbotContent,
+  listSessions: contextInsightListSessions,
+  readSession: contextInsightReadSession,
+  readSessionMeta: contextInsightReadSessionMeta,
+  // 前缀嗅探：context_session_ 为本品牌导出件；cannbot_session_ 为存量
+  // （≤0.2.40 cannbot 品牌）导出件读侧兜底——内容级 detectContent 仍会在
+  // 导入时纠正，文件名级分类不丢存量件
+  sniffFile: (fileName) => isSqliteName(fileName) && (fileName.startsWith('context_session_') || fileName.startsWith('cannbot_session_')),
+  detectContent: detectContextContent,
 };
 
 // 顺序 = 文件识别优先级（从上到先命中先用）：
-//   cannbot_session_*.db > 其它 .db > rollout-*.jsonl > session.v4.jsonl[.zstd] > 其它 .jsonl
+//   context_session_*/cannbot_session_*.db > 其它 .db > rollout-*.jsonl > session.v4.jsonl[.zstd] > 其它 .jsonl
 export const SOURCES: SourceDescriptor[] = [
-  cannbotInsightSource,
+  contextInsightSource,
   opencodeDbSource,
   codexJsonlSource,
   dshNativeSource,
@@ -147,7 +150,7 @@ export const KNOWN_SOURCE_TYPES: string[] = SOURCES.map(s => s.sourceType);
 // UI 按文件形态（jsonl / sqlite）给入口而非按框架；伞形 sourceType（族名）
 // 是 API 一等值——"JSONL (auto)" 按钮发 'jsonl'，解析层（resolveSource）
 // 在族内按内容探测落到具体源。声明序 = 探测优先级：特异源在前（rollout
-// 信封 / DSH 固定文件名 / cannbot 导出 schema）、扩展名兜底源在后（claude
+// 信封 / DSH 固定文件名 / insight 导出 schema）、扩展名兜底源在后（claude
 // 布局 / opencode db），与上方 SOURCES 的 sniffFile 序同一条原则。新 jsonl
 // 框架接入 = 适配器模块 + 在此注册一行，"(auto)" 入口/嗅探/纠偏自动覆盖。
 export const SOURCE_FAMILIES: Readonly<Record<string, readonly string[]>> = {
@@ -181,7 +184,7 @@ export function isKnownSource(sourceType: string): boolean {
 }
 
 /** sourceType → framework（源级身份缺省，仅单框架源有）。容器源
- *  （cannbot-insight 导出件）返回 null——会话身份是会话级数据，走
+ *  （context-insight 导出件）返回 null——会话身份是会话级数据，走
  *  readSessionMeta 件内声明，调用方不得用格式身份兜底会话身份。
  *  带 -proxy 后缀的不在这里处理（那是 cpx 捕获，由 data-service 加上后缀）。 */
 export function frameworkOfSource(sourceType: string): string | null {
@@ -191,7 +194,7 @@ export function frameworkOfSource(sourceType: string): string | null {
 /** framework → sourceType 的反查（deltaRefresh 等处的文件缺失兜底）。
  *  只认不带后缀的原生值；带 -proxy 后缀的要调用方先去掉后缀（cpx 抓
  *  下来的文件固定是 claude 格式）。容器源 framework 无源级声明 → null；
- *  存量 cannbot-insight 误标行由调用方的 `?? framework` 自身值兜底
+ *  存量容器身份误标行由调用方的 `?? framework` 自身值兜底
  *  （该值恰为 sourceType）。 */
 export function sourceOfFramework(framework: string): string | null {
   return SOURCES.find(s => s.framework === framework)?.sourceType ?? null;

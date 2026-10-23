@@ -12,7 +12,7 @@ import path from "node:path";
 const DEFAULT_ORCHESTRATOR_PATTERNS = ["workflow", "invoke-workflow"];
 const DEFAULT_FAMILY_SEGMENT_COUNT = 2;
 const DEFAULT_PHASE_GAP_TURNS = 40;
-const VENDOR_PREFIXES = ["ascendc-", "ops-", "npu-", "cann-"];
+const VENDOR_PREFIXES = ["acme-", "ops-"];
 
 export interface PhaseInfo {
   key: string;

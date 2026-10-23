@@ -20,7 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const PKG_DIR = path.resolve(here, '..')
 const require = createRequire(PKG_DIR + '/')
 
-function warn(msg) { console.warn(`[cannbot-insight postinstall] ${msg}`) }
+function warn(msg) { console.warn(`[context-insight postinstall] ${msg}`) }
 
 // 1) Prisma client 生成（运行时 @prisma/client 需要，否则 query 报错）
 try {

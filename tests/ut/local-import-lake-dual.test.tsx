@@ -27,7 +27,7 @@ import { BAY_NAME } from '@/lib/branding'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const SID = 'cc-dual-ui-0001'
-const HISTORY_KEY = 'cannbot-import-history'
+const HISTORY_KEY = 'context-import-history'
 
 let root: Root | null = null
 // import action 请求体留档（断言 recording 定位参数）

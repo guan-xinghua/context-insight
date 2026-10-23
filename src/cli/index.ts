@@ -40,7 +40,7 @@ export function createProgram(): Command {
     // 默认旗标不保留（多短旗 Commander 不支持），bin 透传名单仍放行 -V
     // 走 Commander 的 unknown option 提示，绝不误入"无参数 → 启动 Web UI"
     .version(`${BRAND_NAME} ${VERSION_DISPLAY}`, '-v, --version')
-    .option('--server <url>', 'Backend server URL (default: CANNBOT_SERVER env > config.json > port registry > http://localhost:21025)')
+    .option('--server <url>', 'Backend server URL (default: CONTEXT_SERVER env > config.json > port registry > http://localhost:21025)')
     .option('--timeout <ms>', 'Request timeout in ms', '15000');
 
   program

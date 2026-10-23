@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG: CliConfig = {
 };
 
 // Computed lazily (not at module load) so tests can isolate HOME without
-// nuking the real ~/.cannbot-insight (which holds the proxy/ capture dir).
+// nuking the real ~/.context-insight (which holds the proxy/ capture dir).
 function configDir(): string {
   return path.join(os.homedir(), BRAND_CONFIG_DIR_SUFFIX);
 }
@@ -49,14 +49,14 @@ function configFilePath(): string {
 // 用户级端口登记文件（发现契约读侧）：insight start.sh 服务就绪后写入、
 // 持久保留不随退出删除。多人服务器上每人各自固定端口，工具链零配置对准
 // 自己的实例；登记目录与 lake-config.json 同源锚定，与写侧（start.sh /
-// npm 启动器 registryPath）严格一致：dirname(CANNBOT_PROXY_DIR) →
-// CANNBOT_INSIGHT_HOME → ~/.cannbot-insight。契约细节见
+// npm 启动器 registryPath）严格一致：dirname(CONTEXT_PROXY_DIR) →
+// CONTEXT_INSIGHT_HOME → ~/.context-insight。契约细节见
 // docs/design/multi-user/design.md。
 function registryServerUrl(): string | null {
   try {
     const root = path.dirname(
-      process.env.CANNBOT_PROXY_DIR ?? path.join(
-        process.env.CANNBOT_INSIGHT_HOME ?? path.join(os.homedir(), BRAND_CONFIG_DIR_SUFFIX),
+      process.env.CONTEXT_PROXY_DIR ?? path.join(
+        process.env.CONTEXT_INSIGHT_HOME ?? path.join(os.homedir(), BRAND_CONFIG_DIR_SUFFIX),
         'proxy',
       ),
     );
@@ -86,8 +86,8 @@ export function loadConfig(globalOpts?: { server?: string; timeout?: string }): 
     } catch { /* ignore invalid config */ }
   }
 
-  if (process.env.CANNBOT_SERVER) {
-    config.server = process.env.CANNBOT_SERVER;
+  if (process.env.CONTEXT_SERVER) {
+    config.server = process.env.CONTEXT_SERVER;
     serverExplicit = true;
   }
 
@@ -102,8 +102,8 @@ export function loadConfig(globalOpts?: { server?: string; timeout?: string }): 
     config.server = registryServerUrl() ?? DEFAULT_SERVER_URL;
   }
 
-  if (process.env.CANNBOT_TIMEOUT) {
-    config.timeout = +process.env.CANNBOT_TIMEOUT;
+  if (process.env.CONTEXT_TIMEOUT) {
+    config.timeout = +process.env.CONTEXT_TIMEOUT;
   }
 
   if (globalOpts?.timeout) {
@@ -121,7 +121,7 @@ export function saveConfig(config: Partial<CliConfig>): void {
   // 只持久化显式值：server 键只在「文件里已有或本次显式设置」时落盘——
   // 基底不铺 DEFAULT.server（否则一次 config set 就把默认/登记端口冻结进
   // config.json，之后换端口/删登记都不再生效）。基底同样不经 loadConfig
-  // 的 env 解析，瞬时值（CANNBOT_SERVER）同样不落盘。
+  // 的 env 解析，瞬时值（CONTEXT_SERVER）同样不落盘。
   const base: Partial<CliConfig> = { ...DEFAULT_CONFIG };
   delete base.server;
   if (fs.existsSync(configFilePath())) {

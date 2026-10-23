@@ -11,7 +11,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 const FAKE_REPORT = {
-  skill_name: "ascendc-crash-debug",
+  skill_name: "acme-crash-debug",
   transcript_sources: ["opencode"],
   summary: { total: 2, pass: 1, fail: 1, na: 0 },
   findings: [
@@ -111,8 +111,8 @@ function seedSkillBody(): void {
   fakePrisma.toolCall.findMany.mockResolvedValue([
     {
       toolName: "skill",
-      argsJson: '{"name":"ascendc-crash-debug"}',
-      resultJson: '<skill_content name="ascendc-crash-debug">BODY</skill_content>',
+      argsJson: '{"name":"acme-crash-debug"}',
+      resultJson: '<skill_content name="acme-crash-debug">BODY</skill_content>',
     },
   ])
 }
@@ -136,12 +136,12 @@ describe("audit-skillsift route", () => {
     seedSkillBody()
     spawnMock.mockImplementation(happySpawn())
 
-    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "ascendc-crash-debug" }))
+    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "acme-crash-debug" }))
     expect(res.status).toBe(200)
     const events = await readNdjson(res)
     const last = events.at(-1) as { stage: string; report: { skill_name: string; summary: { fail: number } }; _html: string }
     expect(last.stage).toBe("result")
-    expect(last.report.skill_name).toBe("ascendc-crash-debug")
+    expect(last.report.skill_name).toBe("acme-crash-debug")
     expect(last.report.summary.fail).toBe(1)
     expect(last._html).toContain("STUB AUDIT HTML")
 
@@ -152,7 +152,7 @@ describe("audit-skillsift route", () => {
     expect(args).toContain("--session")
     expect(args).toContain("ses_1")
     expect(lastWrittenSkillMd?.startsWith("---")).toBe(true)
-    expect(lastWrittenSkillMd).toContain("name: ascendc-crash-debug")
+    expect(lastWrittenSkillMd).toContain("name: acme-crash-debug")
     expect(lastWrittenSkillMd).toContain("BODY")
   })
 
@@ -287,7 +287,7 @@ describe("audit-skillsift route", () => {
       setImmediate(() => child.emit("error", Object.assign(new Error("enoent"), { code: "ENOENT" })))
       return child
     })
-    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "ascendc-crash-debug" }))
+    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "acme-crash-debug" }))
     expect(res.status).toBe(200)
     const events = await readNdjson(res)
     const last = events.at(-1) as { stage: string; msg: string }
@@ -306,7 +306,7 @@ describe("audit-skillsift route", () => {
       })
       return child
     })
-    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "ascendc-crash-debug" }))
+    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "acme-crash-debug" }))
     expect(res.status).toBe(200)
     const events = await readNdjson(res)
     const last = events.at(-1) as { stage: string; msg: string }
@@ -314,15 +314,15 @@ describe("audit-skillsift route", () => {
     expect(last.msg).toMatch(/exit 2/)
   })
 
-  it("framework=cannbot-insight → --transcript 结构化 JSON(不走 --db)", async () => {
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", sourcePath: "/tmp/fake.jsonl", framework: "cannbot-insight" })
+  it("framework=context-insight → --transcript 结构化 JSON(不走 --db)", async () => {
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", sourcePath: "/tmp/fake.jsonl", framework: "context-insight" })
     seedSkillBody()
     fakePrisma.turn.findMany.mockResolvedValue([
       { id: "t1", turnIndex: 0, role: "assistant", content: "调用 skill", agentName: "kernel-developer" },
     ])
     spawnMock.mockImplementation(happySpawn())
     const res = await POST(
-      makeRequest({ taskId: "ses_1", skillName: "ascendc-crash-debug", framework: "cannbot-insight" }),
+      makeRequest({ taskId: "ses_1", skillName: "acme-crash-debug", framework: "context-insight" }),
     )
     expect(res.status).toBe(200)
     const [, args] = spawnMock.mock.calls[0]
@@ -344,7 +344,7 @@ describe("audit-skillsift route", () => {
       { id: "t1", turnIndex: 0, role: "assistant", content: "调用 skill", agentName: "kernel-developer" },
     ])
     spawnMock.mockImplementation(happySpawn())
-    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "ascendc-crash-debug" }))
+    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "acme-crash-debug" }))
     expect(res.status).toBe(200)
     const [, args] = spawnMock.mock.calls[0]
     expect(args).toContain("--transcript")
@@ -363,7 +363,7 @@ describe("audit-skillsift route", () => {
       { id: "t1", turnIndex: 0, role: "assistant", content: "调用 skill", agentName: "kernel-developer" },
     ])
     spawnMock.mockImplementation(happySpawn())
-    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "ascendc-crash-debug" }))
+    const res = await POST(makeRequest({ taskId: "ses_1", skillName: "acme-crash-debug" }))
     expect(res.status).toBe(200)
     const [, args] = spawnMock.mock.calls[0]
     expect(args).toContain("--transcript")

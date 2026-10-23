@@ -2,7 +2,7 @@
   "toolUseId": "call_1f3e2bcc7b5342259f0775c6",
   "name": "Task3 生成需求文档",
   "agentType": "req-analyst",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

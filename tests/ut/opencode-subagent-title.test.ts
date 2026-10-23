@@ -7,10 +7,10 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 子代理标题双格式解析回归锁：真机湖数据标题为
-// 'P1 需求分析 (@ascendc-ops-architect subagent)'（新序，连字符全名），旧版
+// 'P1 需求分析 (@acme-ops-architect subagent)'（新序，连字符全名），旧版
 // opencode 为 '@(build) subagent: scan logs'。旧代码只认 '@(name)' 序 → 新序
-// 永不命中；fallback @(\w+) 在首个连字符截断（'ascendc-ops-architect' →
-// 'ascendc'）。本用例经 v2 reader 全链验证双格式 + 全名捕获。
+// 永不命中；fallback @(\w+) 在首个连字符截断（'acme-ops-architect' →
+// 'acme'）。本用例经 v2 reader 全链验证双格式 + 全名捕获。
 
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -60,11 +60,11 @@ afterAll(() => {
 });
 
 describe('opencode 子代理标题双格式解析', () => {
-  it('新序（湖数据实测）：(@ascendc-ops-architect subagent) → 连字符全名', () => {
-    const db = buildDb('new-order.db', 'P1 需求分析 (@ascendc-ops-architect subagent)');
+  it('新序（湖数据实测）：(@acme-ops-architect subagent) → 连字符全名', () => {
+    const db = buildDb('new-order.db', 'P1 需求分析 (@acme-ops-architect subagent)');
     const rows = readSession(db, 'ses_title_sub');
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows[0]!.subagent_name).toBe('ascendc-ops-architect');
+    expect(rows[0]!.subagent_name).toBe('acme-ops-architect');
   });
 
   it('旧序（v2 夹具既有形态）：@(build) subagent: scan logs → build（回归）', () => {

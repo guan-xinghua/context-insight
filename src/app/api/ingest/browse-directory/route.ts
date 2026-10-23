@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS 设置时）先于一切目录读取
+    // 白名单收紧（CONTEXT_INSIGHT_IMPORT_ROOTS 设置时）先于一切目录读取
     const pathDecision = checkImportablePath(dirPath);
     if (!pathDecision.ok) {
       return NextResponse.json(
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
         const s = fs.statSync(full);
         const isDir = s.isDirectory();
         // importableType 单点判定（agent-source-framework 注册表嗅探）：
-        // 声明序即优先级——前缀精确嗅探（cannbot_session_ / rollout-）先于
+        // 声明序即优先级——前缀精确嗅探（context_session_ / rollout-）先于
         // 扩展名兜底（.db / .jsonl），codex 的 rollout-*.jsonl 不再误判成
         // claude 捕获件；压缩三形态（.jsonl.7z/.gz）由 claude 兜底覆盖
         const importableType = isDir ? null : sniffImportableFile(name);

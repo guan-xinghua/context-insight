@@ -51,7 +51,7 @@ export function runsCommand(): Command {
         return;
       }
       if (data.runs.length === 0) {
-        console.log(theme.muted('No runs imported. Use `cbi import-bundle <dir>` to import a workflow-bundle.'));
+        console.log(theme.muted('No runs imported. Use `ctxi import-bundle <dir>` to import a workflow-bundle.'));
         return;
       }
       console.log(formatHeader(`Runs (${data.runs.length})`));

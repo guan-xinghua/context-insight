@@ -15,7 +15,7 @@
 //   ② 卸载：单源凭据清除后，helper 文件与仓级配置一并移除（镜像停止认证）
 //   ③ 瞬态防护：编辑态表单凭据（resolveAdhocRemote，storedAuth 缺省）不落盘
 //   ④ 幂等：稳态下连续 ensureMirror 不改写 helper（mtime 不动）
-// 隔离：CANNBOT_PROXY_DIR/LAKE_CACHE_DIR 重定向临时目录；GIT_CONFIG_GLOBAL
+// 隔离：CONTEXT_PROXY_DIR/LAKE_CACHE_DIR 重定向临时目录；GIT_CONFIG_GLOBAL
 // 指向带诱饵的临时配置（同时天然构成 ① 的测试条件）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync } from 'node:child_process';
@@ -60,10 +60,10 @@ function credFill(cwd: string, url: string): { code: number; out: string } {
 }
 
 beforeAll(() => {
-  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']) {
+  for (const k of ['CONTEXT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']) {
     savedEnv[k] = process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
   process.env.LAKE_CACHE_DIR = path.join(TMP, 'cache');
   process.env.LAKE_LFS = '0';
   process.env.GIT_CONFIG_GLOBAL = DECOY_GLOBAL;

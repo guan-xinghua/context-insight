@@ -6,15 +6,15 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 运行日志服务端配置（enabled/level/file）：~/.cannbot-insight/logger-config.json
+// 运行日志服务端配置（enabled/level/file）：~/.context-insight/logger-config.json
 // （0600 + 原子写，与 lake-config.json 同款纪律）。设置页「运行日志」块读写
-// 此文件；env（CANNBOT_LOG*）优先于本文件——部署层约束不被 Web 设置页放开。
-// CANNBOT_LOG_CONFIG：整文件路径覆盖（测试隔离缝，SCORING_JUDGE_LOG_DIR 同语义）。
+// 此文件；env（CONTEXT_LOG*）优先于本文件——部署层约束不被 Web 设置页放开。
+// CONTEXT_LOG_CONFIG：整文件路径覆盖（测试隔离缝，SCORING_JUDGE_LOG_DIR 同语义）。
 
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CANNBOT_HOME } from './scoring/core/store';
+import { CONTEXT_HOME } from './scoring/core/store';
 
 export type LoggerLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -43,7 +43,7 @@ export function normalizeLoggerLevel(v: unknown): LoggerLevel | null {
 
 export function loggerConfigPath(): string {
   // || + trim：显式空串回默认（?? 会得到路径 '' → dirname('.') + rename ENOENT 500）
-  return process.env.CANNBOT_LOG_CONFIG?.trim() || path.join(CANNBOT_HOME, 'logger-config.json');
+  return process.env.CONTEXT_LOG_CONFIG?.trim() || path.join(CONTEXT_HOME, 'logger-config.json');
 }
 
 // 布尔/级别字段宽松回填默认（缺 stdout 的存量文件按开读，不整份判废）；

@@ -151,7 +151,7 @@ function truncate(s: string | null, len: number): string {
 }
 
 function shortSkill(s: string): string {
-  return s.replace(/^ascendc-ops-/, "").replace(/^ascendc-/, "").replace(/^ops-registry-invoke-/, "wf-")
+  return s.replace(/^acme-ops-/, "").replace(/^acme-/, "").replace(/^ops-registry-invoke-/, "wf-")
 }
 
 function categorizeTool(name: string): string {

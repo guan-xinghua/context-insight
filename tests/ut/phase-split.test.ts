@@ -58,30 +58,30 @@ function invokeTurn(turnIndex: number, skill: string): RawInteraction {
 
 const SKILL_TURNS: Array<[number, 'dispatch' | 'invoke', string | string[]]> = [
   [1, 'invoke', 'ops-registry-invoke-workflow'],
-  [27, 'dispatch', 'ascendc-ops-architect'],
-  [32, 'dispatch', 'ascendc-ops-design-reviewer'],
-  [37, 'dispatch', 'ascendc-ops-designer'],
-  [42, 'dispatch', ['ascendc-ops-design-overview', 'ascendc-ops-design-architecture', 'ascendc-ops-design-implementation', 'ascendc-ops-design-quality', 'ascendc-ops-design-plan']],
-  [76, 'dispatch', ['ascendc-ops-design-implementation', 'ascendc-ops-design-plan']],
-  [98, 'dispatch', 'ascendc-ops-designer'],
-  [106, 'dispatch', 'ascendc-ops-tester'],
-  [108, 'dispatch', 'ascendc-ops-design-reviewer'],
-  [109, 'dispatch', 'ascendc-ops-tester'],
-  [110, 'dispatch', 'ascendc-ops-design-reviewer'],
+  [27, 'dispatch', 'acme-ops-architect'],
+  [32, 'dispatch', 'acme-ops-design-reviewer'],
+  [37, 'dispatch', 'acme-ops-designer'],
+  [42, 'dispatch', ['acme-ops-design-overview', 'acme-ops-design-architecture', 'acme-ops-design-implementation', 'acme-ops-design-quality', 'acme-ops-design-plan']],
+  [76, 'dispatch', ['acme-ops-design-implementation', 'acme-ops-design-plan']],
+  [98, 'dispatch', 'acme-ops-designer'],
+  [106, 'dispatch', 'acme-ops-tester'],
+  [108, 'dispatch', 'acme-ops-design-reviewer'],
+  [109, 'dispatch', 'acme-ops-tester'],
+  [110, 'dispatch', 'acme-ops-design-reviewer'],
   [155, 'invoke', 'ops-spec-gen'],
   [187, 'invoke', 'ops-spec-gen'],
-  [188, 'invoke', 'npu-arch'],
-  [189, 'invoke', 'ascendc-env-check'],
-  [190, 'invoke', 'ascendc-docs-gen'],
-  [191, 'invoke', 'ascendc-docs-search'],
-  [204, 'invoke', 'ascendc-st-design'],
-  [205, 'invoke', 'ascendc-registry-invoke-template'],
-  [299, 'invoke', 'npu-arch'],
-  [301, 'invoke', 'ascendc-regbase-best-practice'],
-  [418, 'invoke', 'ascendc-st-design'],
-  [419, 'invoke', 'ascendc-registry-invoke-template'],
+  [188, 'invoke', 'acme-arch'],
+  [189, 'invoke', 'acme-env-check'],
+  [190, 'invoke', 'acme-docs-gen'],
+  [191, 'invoke', 'acme-docs-search'],
+  [204, 'invoke', 'acme-st-design'],
+  [205, 'invoke', 'acme-registry-invoke-template'],
+  [299, 'invoke', 'acme-arch'],
+  [301, 'invoke', 'acme-regbase-best-practice'],
+  [418, 'invoke', 'acme-st-design'],
+  [419, 'invoke', 'acme-registry-invoke-template'],
   [443, 'invoke', 'ops-registry-invoke-workflow'],
-  [455, 'invoke', 'ascendc-env-check'],
+  [455, 'invoke', 'acme-env-check'],
 ];
 
 const MAX_TURN = 460;
@@ -127,10 +127,10 @@ describe('splitWorkflow marker-driven phase division', () => {
     expect(wf.phases[0].fullLabel).toBe('阶段一：需求与设计');
     const names = stepNames(wf.phases[0]);
     expect(names).toContain('ops-registry-invoke-workflow');
-    expect(names).toContain('ascendc-ops-architect');
-    expect(names).toContain('ascendc-docs-search');
-    expect(names).toContain('ascendc-st-design');
-    expect(names).toContain('ascendc-ops-tester');
+    expect(names).toContain('acme-ops-architect');
+    expect(names).toContain('acme-docs-search');
+    expect(names).toContain('acme-st-design');
+    expect(names).toContain('acme-ops-tester');
   });
 
   it('does not split on future-tense 阶段二 mention ("后续可继续执行阶段二")', () => {
@@ -151,10 +151,10 @@ describe('splitWorkflow marker-driven phase division', () => {
     expect(wf.phases.map(p => p.fullLabel)).toEqual(['阶段一：需求与设计', '阶段二：开发']);
     const p1 = wf.phases[0];
     const p2 = wf.phases[1];
-    expect(stepNames(p1)).toContain('ascendc-ops-architect');
-    expect(stepNames(p1)).toContain('ascendc-ops-designer');
-    expect(stepNames(p2)).toContain('ascendc-docs-gen');
-    expect(stepNames(p2)).toContain('ascendc-st-design');
+    expect(stepNames(p1)).toContain('acme-ops-architect');
+    expect(stepNames(p1)).toContain('acme-ops-designer');
+    expect(stepNames(p2)).toContain('acme-docs-gen');
+    expect(stepNames(p2)).toContain('acme-st-design');
     expect(p1.turnIndexEnd ?? 0).toBeLessThan(p2.turnIndexStart ?? 0);
   });
 
@@ -167,7 +167,7 @@ describe('splitWorkflow marker-driven phase division', () => {
     const pg42 = groups.find(g => g.steps.length === 5);
     expect(pg42).toBeTruthy();
     expect(pg42!.steps.map(s => s.stepName).sort()).toEqual(
-      ['ascendc-ops-design-architecture', 'ascendc-ops-design-implementation', 'ascendc-ops-design-overview', 'ascendc-ops-design-plan', 'ascendc-ops-design-quality'],
+      ['acme-ops-design-architecture', 'acme-ops-design-implementation', 'acme-ops-design-overview', 'acme-ops-design-plan', 'acme-ops-design-quality'],
     );
   });
 

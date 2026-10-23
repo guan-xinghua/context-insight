@@ -113,7 +113,7 @@ export function makeBareLake(bareDir: string, commits: LakeSeedCommit[]): void {
       if (s.description) data.description = s.description;
       if (s.remark) data.remark = s.remark;
       fs.writeFileSync(path.join(dir, `${s.sid}.meta.json`), JSON.stringify({
-        x_cannbay: { schema: 'cc-session-meta', version: 1, data },
+        x_lake: { schema: 'cc-session-meta', version: 1, data },
       }, null, 2));
     }
     fs.writeFileSync(path.join(seed, `touch-${Date.now()}-${Math.random().toString(36).slice(2)}.stamp`), commit.time);

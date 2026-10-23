@@ -17,7 +17,7 @@ export function exportCommand(): Command {
   cmd
     .description('Export session to a standalone SQLite database file')
     .option('--session <taskId>', 'Session taskId to export')
-    .option('--output <path>', 'Output file path (default: ./cannbot_session_<taskId>.db)')
+    .option('--output <path>', 'Output file path (default: ./context_session_<taskId>.db)')
     .option('--json', 'Output result as JSON')
     .action(async (opts, command) => {
       const globalOpts = command.parent?.opts() ?? {};
@@ -31,7 +31,7 @@ export function exportCommand(): Command {
       }
 
       const taskId = opts.session;
-      const outputPath = opts.output ?? path.join(process.cwd(), `cannbot_session_${taskId}.db`);
+      const outputPath = opts.output ?? path.join(process.cwd(), `context_session_${taskId}.db`);
 
       if (!opts.json) {
         console.log(formatHeader(`Export Session: ${taskId}`));

@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 可选导入路径白名单 IT（安全报告 0000021/0000036 的纵深选项）：
-// CANNBOT_INSIGHT_IMPORT_ROOTS 未设置 → 任意位置可导入（既有功能零回归）；
+// CONTEXT_INSIGHT_IMPORT_ROOTS 未设置 → 任意位置可导入（既有功能零回归）；
 // 设置后 → import-file / import-file/sessions / browse-directory 三路由只放行
 // 白名单根内路径（403 先于一切文件读取），数据主目录（cpx 捕获落点）恒放行。
 
@@ -21,7 +21,7 @@ import { POST as importFileSessions } from '@/app/api/ingest/import-file/session
 import { POST as importFile } from '@/app/api/ingest/import-file/route';
 import { POST as browseDirectory } from '@/app/api/ingest/browse-directory/route';
 
-const ENV_KEYS = ['CANNBOT_INSIGHT_IMPORT_ROOTS', 'CANNBOT_INSIGHT_HOME'] as const;
+const ENV_KEYS = ['CONTEXT_INSIGHT_IMPORT_ROOTS', 'CONTEXT_INSIGHT_HOME'] as const;
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -45,18 +45,18 @@ function post(url: string, body: unknown): NextRequest {
 
 describe('checkImportablePath 纯函数矩阵', () => {
   it('未设置 / 空串 / 纯空白 → 不受限（默认行为）', () => {
-    delete process.env.CANNBOT_INSIGHT_IMPORT_ROOTS;
+    delete process.env.CONTEXT_INSIGHT_IMPORT_ROOTS;
     expect(checkImportablePath('/etc/passwd')).toEqual({ ok: true });
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = '';
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = '';
     expect(checkImportablePath('/etc/passwd')).toEqual({ ok: true });
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = '  ';
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = '  ';
     expect(checkImportablePath('/etc/passwd')).toEqual({ ok: true });
     expect(importRootsFromEnv()).toBeNull();
   });
 
   it('根内放行（含根本身），根外拒绝', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-a-'));
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = root;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = root;
     expect(checkImportablePath(root)).toEqual({ ok: true });
     expect(checkImportablePath(path.join(root, 'x', 'session.jsonl'))).toEqual({ ok: true });
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-b-'));
@@ -67,7 +67,7 @@ describe('checkImportablePath 纯函数矩阵', () => {
 
   it('多根逗号分隔、空白段忽略、~ 展开', () => {
     const rootA = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-c-'));
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = ` ${rootA} , ~/import-roots-home-x ,, `;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = ` ${rootA} , ~/import-roots-home-x ,, `;
     expect(checkImportablePath(path.join(rootA, 'a.db'))).toEqual({ ok: true });
     expect(checkImportablePath(path.join(os.homedir(), 'import-roots-home-x', 'a.db'))).toEqual({ ok: true });
     expect(checkImportablePath('/etc/passwd').ok).toBe(false);
@@ -76,8 +76,8 @@ describe('checkImportablePath 纯函数矩阵', () => {
   it('数据主目录恒放行（cpx 捕获自动导入不受白名单误伤）', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-d-'));
     const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-home-'));
-    process.env.CANNBOT_INSIGHT_HOME = dataHome;
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = root;
+    process.env.CONTEXT_INSIGHT_HOME = dataHome;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = root;
     expect(checkImportablePath(path.join(dataHome, 'proxy', 'cpx-sid.jsonl.7z'))).toEqual({ ok: true });
     expect(checkImportablePath(path.join(root, 'a.db'))).toEqual({ ok: true });
     expect(checkImportablePath('/etc/passwd').ok).toBe(false);
@@ -88,7 +88,7 @@ describe('checkImportablePath 纯函数矩阵', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-out-'));
     fs.writeFileSync(path.join(outside, 'secret.db'), 'x');
     fs.symlinkSync(outside, path.join(root, 'link'), 'dir');
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = root;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = root;
     // 词法上 root/link/secret.db 在 root 内，但 link 指向 outside——realpath 归一并比较后必须拒绝
     expect(checkImportablePath(path.join(root, 'link', 'secret.db')).ok).toBe(false);
   });
@@ -98,7 +98,7 @@ describe('checkImportablePath 纯函数矩阵', () => {
     const aliasRoot = path.join(os.tmpdir(), `import-roots-alias-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     fs.symlinkSync(realRoot, aliasRoot, 'dir');
     fs.writeFileSync(path.join(realRoot, 'a.db'), 'x');
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = aliasRoot;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = aliasRoot;
     // 请求经别名根或真实根，realpath 归一后都命中同一个根（macOS /tmp↔/private/tmp 同款别名形态）
     expect(checkImportablePath(path.join(aliasRoot, 'a.db'))).toEqual({ ok: true });
     expect(checkImportablePath(path.join(realRoot, 'a.db'))).toEqual({ ok: true });
@@ -108,7 +108,7 @@ describe('checkImportablePath 纯函数矩阵', () => {
     const realRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-real-deep-'));
     const aliasRoot = path.join(os.tmpdir(), `import-roots-alias-deep-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     fs.symlinkSync(realRoot, aliasRoot, 'dir');
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = aliasRoot;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = aliasRoot;
     // 目标不存在 → canonicalizePath 递归归一最近存在的祖先（aliasRoot → realRoot），
     // 与已 realpath 的根同侧比较，不得误判 403（旧实现回退词法形式 → 前缀永不相等 → 全红）
     expect(checkImportablePath(path.join(aliasRoot, 'x', 'session.jsonl'))).toEqual({ ok: true });
@@ -119,7 +119,7 @@ describe('checkImportablePath 纯函数矩阵', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-sym-miss-'));
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-out-miss-'));
     fs.symlinkSync(outside, path.join(root, 'link'), 'dir');
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = root;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = root;
     // link 指向 outside，目标本身不存在——realpath 失败后递归解析 link 到 outside
     // 再拼回不存在尾段 → 落在根外，必须拒绝（不得因「回退词法」而误放行）
     expect(checkImportablePath(path.join(root, 'link', 'secret.db')).ok).toBe(false);
@@ -132,7 +132,7 @@ describe('路由级 IT：白名单生效时三路由 403，默认时零回归', 
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-f-'));
     fs.writeFileSync(path.join(outside, 'leak.txt'), 'x');
 
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = inside;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = inside;
     const denied = await browseDirectory(post('http://localhost/api/ingest/browse-directory', { dirPath: outside }));
     expect(denied.status).toBe(403);
     const body = await denied.json();
@@ -149,14 +149,14 @@ describe('路由级 IT：白名单生效时三路由 403，默认时零回归', 
     fs.writeFileSync(path.join(outside, 'secret.db'), 'x');
     fs.symlinkSync(outside, path.join(root, 'link'), 'dir');
 
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = root;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = root;
     const denied = await browseDirectory(post('http://localhost/api/ingest/browse-directory', { dirPath: path.join(root, 'link') }));
     expect(denied.status).toBe(403);
     expect((await denied.json()).reason).toBe('path-outside-import-roots');
   });
 
   it('browse-directory：默认（未设置白名单）任意目录照常可浏览', async () => {
-    delete process.env.CANNBOT_INSIGHT_IMPORT_ROOTS;
+    delete process.env.CONTEXT_INSIGHT_IMPORT_ROOTS;
     const anywhere = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-g-'));
     const res = await browseDirectory(post('http://localhost/api/ingest/browse-directory', { dirPath: anywhere }));
     expect(res.status).toBe(200);
@@ -165,7 +165,7 @@ describe('路由级 IT：白名单生效时三路由 403，默认时零回归', 
 
   it('import-file：白名单外路径 403，且先于 file-not-found 404（不触碰文件系统）', async () => {
     const inside = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-h-'));
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = inside;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = inside;
     const res = await importFile(post('http://localhost/api/ingest/import-file', {
       source: 'claude-jsonl',
       sessionId: 'allowlist-it',
@@ -177,7 +177,7 @@ describe('路由级 IT：白名单生效时三路由 403，默认时零回归', 
 
   it('import-file/sessions：白名单外路径 403，且先于 adapter 打开文件', async () => {
     const inside = fs.mkdtempSync(path.join(os.tmpdir(), 'import-roots-i-'));
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = inside;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = inside;
     const res = await importFileSessions(post('http://localhost/api/ingest/import-file/sessions', {
       source: 'claude-jsonl',
       filePath: '/etc/definitely-outside.jsonl',
@@ -193,8 +193,8 @@ describe('路由级 IT：白名单生效时三路由 403，默认时零回归', 
     fs.mkdirSync(captureDir, { recursive: true });
     const capture = path.join(captureDir, 'cpx-allowlist-it.jsonl');
     fs.writeFileSync(capture, '');
-    process.env.CANNBOT_INSIGHT_HOME = dataHome;
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = root;
+    process.env.CONTEXT_INSIGHT_HOME = dataHome;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = root;
     const res = await importFileSessions(post('http://localhost/api/ingest/import-file/sessions', {
       source: 'claude-jsonl',
       filePath: capture,

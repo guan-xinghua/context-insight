@@ -12,7 +12,7 @@
  * 修两类"运行中被杀死/撞车"事故：
  * 1. start.sh 曾无差别击杀 AGENT_PORT 占用者（kill → kill -9），无关服务占 21026
  *    就会被误杀（"已杀死"事故来源之一）——现在 /health 应答体须带服务标识
- *    cannbot-smart-agent 才验明正身杀旧重启，否则错开端口（带通用 /health 的
+ *    context-smart-agent 才验明正身杀旧重启，否则错开端口（带通用 /health 的
  *    无关服务——Actuator、dev server 等——同样不认、不杀）；
  * 2. smart-agent 钉死 BASE+1，BASE 被占时 next 滚进 BASE+1 与之相撞（EADDRINUSE）——
  *    现在候选避让 next 实占端口。
@@ -135,7 +135,7 @@ describe("smart-agent 端口选择器（pick-smart-agent-port.sh）", () => {
     const child = execFileAsync("node", ["-e", `
       const http = require("node:http")
       const s = http.createServer((req, res) => req.url === "/health"
-        ? res.writeHead(200).end('{"status":"ok","service":"cannbot-smart-agent"}')
+        ? res.writeHead(200).end('{"status":"ok","service":"context-smart-agent"}')
         : res.writeHead(404).end())
       s.listen(${base + 1}, "127.0.0.1", () => console.log("up"))
     `], { timeout: 60_000 })
@@ -192,7 +192,7 @@ describe("smart-agent 端口选择器（pick-smart-agent-port.sh）", () => {
   it("正身契约：server.py /health 带服务标识；picker lsof 分支只取 LISTEN", () => {
     const py = fs.readFileSync(path.resolve(__dirname, "../..", "smart-agent", "server.py"), "utf8")
     // /health 服务标识是 shell picker 与 mjs 启动器共用的正身依据
-    expect(py).toContain('"service": "cannbot-smart-agent"')
+    expect(py).toContain('"service": "context-smart-agent"')
     const sh = fs.readFileSync(PICK, "utf8")
     // lsof -ti tcp:$port 默认匹配连接两端：ESTABLISHED 客户端 PID 可能被
     // head -1 取到而杀错进程（macOS 正走 lsof 分支），必须带 LISTEN 过滤

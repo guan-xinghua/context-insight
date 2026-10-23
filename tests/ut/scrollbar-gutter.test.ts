@@ -9,7 +9,7 @@
 // 跨页横向对齐回归锁（样式契约）：html 必须预留滚动条槽位
 // （scrollbar-gutter: stable）。否则内容长短不同的页面（Sessions 长列表有
 // 滚动条、Runs 短页无）可视宽度相差一个滚动条——居中容器与品牌块
-// （CANNBot-Insight v0.x）在域切换时横向跳动。与 font-offline 同款：直读
+// （Context-Insight v0.x）在域切换时横向跳动。与 font-offline 同款：直读
 // globals.css 锁规则存在。
 
 import { describe, it, expect } from 'vitest';

@@ -120,10 +120,10 @@ describe('applyProfile：覆盖变换', () => {
   it('维度/子项权重覆盖生效', () => {
     const { defs } = applyProfile(BUILTIN_DIMENSIONS, baseProfile({
       dimensionWeights: { D3: 0.5 },
-      itemWeights: { 'D3.cannBench': 3 },
+      itemWeights: { 'D3.benchScore': 3 },
     }));
     expect(defs.find(d => d.id === 'D3')!.weightInTotal).toBe(0.5);
-    expect(defs.find(d => d.id === 'D3')!.items.find(i => i.id === 'D3.cannBench')!.weight).toBe(3);
+    expect(defs.find(d => d.id === 'D3')!.items.find(i => i.id === 'D3.benchScore')!.weight).toBe(3);
   });
 
   it('自定义项注入：D2/D6 标 diagnostic、D1 进 completionScoreOf、评分器就位', () => {

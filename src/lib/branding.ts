@@ -6,19 +6,30 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-const BRAND_NAME = "CANNBot-Insight"
+const BRAND_NAME = "Context-Insight"
 const BRAND_SLUG = BRAND_NAME.toLowerCase().replace(/[^a-z0-9]+/g, "-")
 const BRAND_DESCRIPTION = `${BRAND_NAME} — LLM Agent Session Observability`
 const BRAND_CONFIG_DIR_SUFFIX = `.${BRAND_SLUG}`
-const BRAND_CLI_ALIAS = "cbi"
+const BRAND_CLI_ALIAS = "ctxi"
 
-// Data format identifier — always "cannbot-insight" regardless of branding
-const BRAND_SOURCE_TYPE = "cannbot-insight"
+// 数据格式标识 —— 恒为 "context-insight"（cannbot 变体打包期不翻转，
+// 见 scripts/pack-cannbot.mjs 的契约保留边界）
+const BRAND_SOURCE_TYPE = "context-insight"
 
-// 数据湖显示名：CANNBot 品牌用 "CANNbay"，其他品牌用 "contextBay"
-const BAY_NAME = BRAND_SLUG === "cannbot-insight" ? "CANNbay" : "contextBay"
+// 存量数据读侧兜底：容器身份冒充期落库的 framework 旧值 "cannbot-insight"
+// （≤0.2.40 品牌）——只读不写，新数据一律写 BRAND_SOURCE_TYPE。读侧把它与
+// 当前值同义识别，避免品牌更名把存量误标行误判为空显示/非已知源。
+const BRAND_SOURCE_TYPE_LEGACY = "cannbot-insight"
 
-// viewer 页显示名（首页入口按钮 + viewer 标题）：品牌配对（打包翻转规则见 pack-context）
-const BAY_VIEWER_NAME = BRAND_SLUG === "cannbot-insight" ? "CANNBay Viewer" : "contextBay Viewer"
+/** framework/sourceType 是否品牌容器标识（含存量旧值读侧兼容）。 */
+function isBrandSourceType(value: string | null | undefined): boolean {
+  return value === BRAND_SOURCE_TYPE || value === BRAND_SOURCE_TYPE_LEGACY
+}
 
-export { BRAND_NAME, BRAND_SLUG, BRAND_DESCRIPTION, BRAND_CONFIG_DIR_SUFFIX, BRAND_CLI_ALIAS, BRAND_SOURCE_TYPE, BAY_NAME, BAY_VIEWER_NAME }
+// 数据湖显示名：context 主体用 "contextBay"，cannbot 变体经 pack-cannbot 翻转为 "CANNbay"
+const BAY_NAME = "contextBay"
+
+// viewer 页显示名（首页入口按钮 + viewer 标题）
+const BAY_VIEWER_NAME = "contextBay Viewer"
+
+export { BRAND_NAME, BRAND_SLUG, BRAND_DESCRIPTION, BRAND_CONFIG_DIR_SUFFIX, BRAND_CLI_ALIAS, BRAND_SOURCE_TYPE, BRAND_SOURCE_TYPE_LEGACY, BAY_NAME, BAY_VIEWER_NAME, isBrandSourceType }

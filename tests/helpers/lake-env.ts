@@ -7,14 +7,14 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 单源架构测试种子：远端配置只从服务端 lake-config.json 来（env 地址/凭据
-// 通道已退役）。CANNBOT_PROXY_DIR 把 lake-config.json + lake-auth.json 都
+// 通道已退役）。CONTEXT_PROXY_DIR 把 lake-config.json + lake-auth.json 都
 // 隔离进临时目录（防读到开发机真实配置），writeServerLakeConfig 写入当前
 // 远端。在 lake 模块首次调用前执行（测试文件模块顶层）。
 import path from 'node:path';
 import { writeServerLakeConfig } from '../../src/lib/lake/server-config';
 
 export function seedLakeConfig(tmp: string, cfg: { address: string; branch?: string; directory?: string }): void {
-  process.env.CANNBOT_PROXY_DIR = path.join(tmp, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(tmp, 'proxy');
   writeServerLakeConfig(cfg);
 }
 

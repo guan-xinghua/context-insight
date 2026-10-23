@@ -16,11 +16,11 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-api-route-log-'));
-process.env.CANNBOT_LOG_DIR = path.join(TMP, 'logs');
-process.env.CANNBOT_LOG_CONFIG = path.join(TMP, 'logger-config.json');
+process.env.CONTEXT_LOG_DIR = path.join(TMP, 'logs');
+process.env.CONTEXT_LOG_CONFIG = path.join(TMP, 'logger-config.json');
 
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ['CANNBOT_LOG', 'CANNBOT_LOG_LEVEL', 'CANNBOT_LOG_FILE', 'CANNBOT_LOG_STDOUT', 'CANNBOT_LOG_DIR', 'CANNBOT_LOG_CONFIG'] as const;
+const ENV_KEYS = ['CONTEXT_LOG', 'CONTEXT_LOG_LEVEL', 'CONTEXT_LOG_FILE', 'CONTEXT_LOG_STDOUT', 'CONTEXT_LOG_DIR', 'CONTEXT_LOG_CONFIG'] as const;
 
 const { withRouteLog } = await import('../../src/lib/api-route');
 const logger = await import('../../src/lib/logger');
@@ -39,8 +39,8 @@ function req(url = 'http://localhost/api/test'): NextRequest {
 
 beforeAll(() => {
   for (const k of ENV_KEYS) { savedEnv[k] = process.env[k]; }
-  delete process.env.CANNBOT_LOG;   // 抵消 tests/setup.ts 的全局静音
-  delete process.env.CANNBOT_LOG_LEVEL;
+  delete process.env.CONTEXT_LOG;   // 抵消 tests/setup.ts 的全局静音
+  delete process.env.CONTEXT_LOG_LEVEL;
 });
 
 afterAll(() => {
@@ -80,19 +80,19 @@ describe('withRouteLog 包装器', () => {
     expect(await res.json()).toEqual({ error: 'Unknown error' });
   });
 
-  it('正常返回 → 默认 info 级无请求行；CANNBOT_LOG_LEVEL=debug 后有 done 行', async () => {
+  it('正常返回 → 默认 info 级无请求行；CONTEXT_LOG_LEVEL=debug 后有 done 行', async () => {
     const GET = withRouteLog('test/ok', async () => Response.json({ items: [] }));
     const res = await GET(req(), undefined);
     expect(res.status).toBe(200);
     expect(readLog()).toBe('');
 
-    process.env.CANNBOT_LOG_LEVEL = 'debug';
+    process.env.CONTEXT_LOG_LEVEL = 'debug';
     const res2 = await GET(req(), undefined);
     expect(res2.status).toBe(200);
     const out = readLog();
     expect(out).toContain('[DEBUG][route:test/ok]:GET /api/test done');
     expect(out).toContain('status=200');
-    delete process.env.CANNBOT_LOG_LEVEL;
+    delete process.env.CONTEXT_LOG_LEVEL;
   });
 
   it('动态路由 ctx 透传：handler 收到 { params: Promise<...> } 二参', async () => {

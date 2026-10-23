@@ -59,7 +59,7 @@ export type LakeRecord = NoteEntry | ScorecardEntry
 export interface SessionSubmitInfo { author: string | null; description: string | null; remark: string | null }
 
 // 提交人网关（会话与 bundle 上传共用）：commit message 需含「提交人:<姓名>」。
-// 提交人强制非空 —— 空提交人的 commit author 会顶替为机器身份 cannbot-insight，
+// 提交人强制非空 —— 空提交人的 commit author 会顶替为机器身份 context-insight，
 // 列表"用户名"列失真。网关层校验，Web/CLI/TUI 三端统一拦截。
 // 行内匹配：\s* 不跨行（\s 含 \n 会让"提交人:\n内容描述:x"吃下一行冒名通过）
 export function extractSubmitter(description: string | undefined): { submitter: string; error: string | null } {
@@ -92,7 +92,7 @@ export function notesPath(s: SessionLoc): string {
   return `${sessionDir(s)}/${s.sid}.notes.jsonl`;
 }
 
-/** 会话 meta（x_cannbay envelope）——opGen 等上传时标注落在这里 */
+/** 会话 meta（x_lake envelope）——opGen 等上传时标注落在这里 */
 export function metaPath(s: SessionLoc): string {
   return `${sessionDir(s)}/${s.sid}.meta.json`;
 }

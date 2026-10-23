@@ -18,7 +18,7 @@
 # 规则（修三类事故）：
 # 1. 避让 next 实占端口 NEXT_PORT——BASE 被占时 next 会滚进 BASE+1 起，smart-agent
 #    若钉死 BASE+1 会先绑定导致 next EADDRINUSE 崩溃（npm 启动器同款 bug 的 dev 版）；
-# 2. 端口被占时先验明正身：/health 应答体须带服务标识 "cannbot-smart-agent"
+# 2. 端口被占时先验明正身：/health 应答体须带服务标识 "context-smart-agent"
 #    （server.py 契约）——通用 /health 服务（Actuator、k8s 探针、dev server
 #    等）2xx 也绝不认。仅 clean 模式下杀旧重启（加载 *.py 变更，原语义）；
 #    无关进程任何模式都绝不击杀——此前无差别 kill → kill -9 会误杀运行中
@@ -53,7 +53,7 @@ port_pid() {
 # 只看 curl 退出码（2xx）不够——带 /health 的无关服务到处都是。
 is_smart_agent() {
   local port=$1
-  curl -s -m 2 "http://localhost:$port/health" 2>/dev/null | grep -q 'cannbot-smart-agent'
+  curl -s -m 2 "http://localhost:$port/health" 2>/dev/null | grep -q 'context-smart-agent'
 }
 
 # 自家 insight 残留实例判定（规则 3）：cmdline 含 next-server + cwd 在包内。

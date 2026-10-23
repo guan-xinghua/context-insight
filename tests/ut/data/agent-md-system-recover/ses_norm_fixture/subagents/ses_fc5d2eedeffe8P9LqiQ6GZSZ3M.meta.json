@@ -2,7 +2,7 @@
   "toolUseId": "call_c8c7e33a7a4944de80fcdb86",
   "name": "Task28 Branch-0 Kernel ST",
   "agentType": "developer",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

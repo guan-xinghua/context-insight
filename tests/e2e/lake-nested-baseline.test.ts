@@ -46,7 +46,7 @@ function placeSession(sid: string, baseline: boolean, marker: string): void {
     JSON.stringify({ type: 'assistant', message: { id: `m_${sid}`, role: 'assistant', content: [{ type: 'text', text: 'ok' }], model: 'test-model', usage: { input_tokens: 1, output_tokens: 1 } }, timestamp: '2026-09-29T03:00:05.000Z' }),
   ].join('\n') + '\n');
   fs.writeFileSync(path.join(dir, `${sid}.meta.json`), JSON.stringify({
-    x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', ccVersion: '9.9.9', sid } },
+    x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', ccVersion: '9.9.9', sid } },
   }));
 }
 placeSession(SID_BASELINE, true, '嵌套 baseline 会话内容');

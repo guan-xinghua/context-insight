@@ -2,7 +2,7 @@
   "toolUseId": "call_491141509214453f915355da",
   "name": "重新验收 Task4",
   "agentType": "spec-verifier",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

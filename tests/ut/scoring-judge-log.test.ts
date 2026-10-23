@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 评分 LLM 过程日志（cc-judge-round）IT：并发按 subagent 布局存放（交错单流会把
-// request/response 配对打乱）、形状锁（lake 规范：信封 + x_cannbay 声明式分发）、
+// request/response 配对打乱）、形状锁（lake 规范：信封 + x_lake 声明式分发）、
 // 重试链留痕、主流/子代理流可被 claude-jsonl 管线导入且结果与调用一一对应、
 // runner 端到端落盘、日志失败绝不阻断评分、用户目录迁移。
 
@@ -21,15 +21,15 @@ import { runScorecard } from '../../src/lib/scoring/core/runner';
 import { TrackedLlmClient } from '../../src/lib/scoring/core/llm';
 import { FileScorecardStore } from '../../src/lib/scoring/core/store';
 import { JudgeJournal, JUDGE_SYSTEM_USER_SPLIT } from '../../src/lib/scoring/core/judge-log';
-import { CANNBOT_HOME, migrateLegacyDir } from '../../src/lib/scoring/core/store';
+import { CONTEXT_HOME, migrateLegacyDir } from '../../src/lib/scoring/core/store';
 import { userDefinitionsDir } from '../../src/lib/scoring/user/loader';
 
 const prisma = new PrismaClient();
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-log-it-'));
 const LOG_DIR = path.join(TMP, 'score-judge-logs');
 process.env.SCORING_JUDGE_LOG_DIR = LOG_DIR;
-process.env.SCORING_BASELINE_DIR = path.join(TMP, 'baselines');   // 隔离：不读真实 ~/.cannbot-insight/baselines
-process.env.SCORING_PROFILE_DIR = path.join(TMP, 'profiles');     // 隔离：不读真实 ~/.cannbot-insight/scoring-profiles
+process.env.SCORING_BASELINE_DIR = path.join(TMP, 'baselines');   // 隔离：不读真实 ~/.context-insight/baselines
+process.env.SCORING_PROFILE_DIR = path.join(TMP, 'profiles');     // 隔离：不读真实 ~/.context-insight/scoring-profiles
 const store = new FileScorecardStore(path.join(TMP, 'scorecards'));
 
 const provider = { baseUrl: 'https://api.example.com/v1', apiKey: 'k', model: 'judge-model' };
@@ -56,7 +56,6 @@ interface JournalLine {
   type: string;
   message: { content: string | Array<{ type?: string; content?: string; input?: Record<string, unknown> }>; [key: string]: unknown };
   x_lake?: { schema?: string; version?: number; data?: Record<string, unknown> };
-  x_cannbay?: { schema?: string; version?: number; data?: Record<string, unknown> };
 }
 function readJsonl(file: string): JournalLine[] {
   return fs.readFileSync(file, 'utf-8').trim().split('\n').map(l => JSON.parse(l) as JournalLine);
@@ -94,14 +93,14 @@ describe('评分产物迁用户目录（一次性迁移）', () => {
     expect(fs.existsSync(path.join(legacy, 'old.json'))).toBe(true);
     expect(migrateLegacyDir(path.join(root, 'nope'), target)).toBe('skipped-no-legacy');
   });
-  it('默认根在用户目录（~/.cannbot-insight），与 cpx 捕获文件同址', () => {
-    expect(CANNBOT_HOME).toBe(path.join(os.homedir(), '.cannbot-insight'));
+  it('默认根在用户目录（~/.context-insight），与 cpx 捕获文件同址', () => {
+    expect(CONTEXT_HOME).toBe(path.join(os.homedir(), '.context-insight'));
   });
   it('D7 用户定义目录：默认用户目录，SCORING_USER_DEF_DIR 覆盖', () => {
     const prev = process.env.SCORING_USER_DEF_DIR;
     try {
       delete process.env.SCORING_USER_DEF_DIR;
-      expect(userDefinitionsDir()).toBe(path.join(CANNBOT_HOME, 'user-definitions'));
+      expect(userDefinitionsDir()).toBe(path.join(CONTEXT_HOME, 'user-definitions'));
       process.env.SCORING_USER_DEF_DIR = '/tmp/user-def-override';
       expect(userDefinitionsDir()).toBe('/tmp/user-def-override');
     } finally {
@@ -124,7 +123,7 @@ describe('judge 过程日志：并发子代理布局 + 重试链留痕', () => {
     // run 头 + 惰性派发行（首次真实调用才写 Agent tool_use；失败重试不重复写）
     expect(main).toHaveLength(2);
     expect(String(main[0].message.content)).toBe(`评分运行 ${journal!.runId} 开始 · 模型 judge-model · 并发 3 · 评分器 test · 语义评审开`);
-    expect(main[0].x_cannbay!.data).toMatchObject({ kind: 'judge-run-header', phase: 'header', model: 'judge-model', concurrency: 3 });
+    expect(main[0].x_lake!.data).toMatchObject({ kind: 'judge-run-header', phase: 'header', model: 'judge-model', concurrency: 3 });
     const mainDispatch = main[1];
     expect(mainDispatch.type).toBe('assistant');
     expect((mainDispatch.message.content as Array<{ type?: string }>)[0]?.type).toBe('tool_use');
@@ -139,18 +138,18 @@ describe('judge 过程日志：并发子代理布局 + 重试链留痕', () => {
       expect(res.type).toBe('assistant');
       expect(res.message.model).toBe('judge-model');
       expect(String(res.message.content).startsWith('[judge-error]')).toBe(true);
-      expect((res.x_lake ?? res.x_cannbay)!.schema).toBe('cc-judge-round');
-      expect((res.x_lake ?? res.x_cannbay)!.version).toBe(1);
-      expect((res.x_lake ?? res.x_cannbay)!.data).toMatchObject({ runId: journal!.runId, sessionId: 'sess-judge', dimensionId: 'D1', itemId: 'D1.goalCoverage', itemName: '目标覆盖对账', attempt, maxTokens });
+      expect((res.x_lake)!.schema).toBe('cc-judge-round');
+      expect((res.x_lake)!.version).toBe(1);
+      expect((res.x_lake)!.data).toMatchObject({ runId: journal!.runId, sessionId: 'sess-judge', dimensionId: 'D1', itemId: 'D1.goalCoverage', itemName: '目标覆盖对账', attempt, maxTokens });
     }
-    expect((res1.x_lake ?? res1.x_cannbay)!.data!.retryReason).toBe('empty-content');
-    expect((res2.x_lake ?? res2.x_cannbay)!.data!.retryReason).toBe('timeout');
-    expect((res2.x_lake ?? res2.x_cannbay)!.data!.status).toBeUndefined();
+    expect((res1.x_lake)!.data!.retryReason).toBe('empty-content');
+    expect((res2.x_lake)!.data!.retryReason).toBe('timeout');
+    expect((res2.x_lake)!.data!.status).toBeUndefined();
 
     // cc-subagent-meta 同值双写（规范 §4.5）
     const metaJson = JSON.parse(fs.readFileSync(subFile.replace(/\.jsonl$/, '.meta.json'), 'utf-8'));
-    expect(metaJson.x_cannbay).toMatchObject({ schema: 'cc-subagent-meta', version: 1, data: { name: '目标覆盖对账', agentType: 'scoring-judge', subagentSessionId: 'D1.goalCoverage' } });
-    expect(metaJson.toolUseId).toBe((metaJson.x_lake ?? metaJson.x_cannbay).data.toolUseId);
+    expect(metaJson.x_lake).toMatchObject({ schema: 'cc-subagent-meta', version: 1, data: { name: '目标覆盖对账', agentType: 'scoring-judge', subagentSessionId: 'D1.goalCoverage' } });
+    expect(metaJson.toolUseId).toBe((metaJson.x_lake).data.toolUseId);
   });
 
   it('成功路径：content 原文、usage 进信封、token 只记成功那次', async () => {
@@ -162,9 +161,9 @@ describe('judge 过程日志：并发子代理布局 + 重试链留痕', () => {
     const res = readJsonl(path.join(subagentsDirOf(journal!.file), 'D1.goalCoverage.jsonl')).at(-1)!;
     expect(res.message.content).toBe('{"score": 8, "reason": "ok", "evidence": []}');
     expect(res.message.usage).toEqual({ input_tokens: 11, output_tokens: 7 });
-    expect((res.x_lake ?? res.x_cannbay)!.data).toMatchObject({ attempt: 1, maxTokens: 4096, status: 200, stopReason: 'stop' });
-    expect((res.x_lake ?? res.x_cannbay)!.data!.contentChars).toBe(String(res.message.content).length);
-    expect((res.x_lake ?? res.x_cannbay)!.data!.error).toBeUndefined();
+    expect((res.x_lake)!.data).toMatchObject({ attempt: 1, maxTokens: 4096, status: 200, stopReason: 'stop' });
+    expect((res.x_lake)!.data!.contentChars).toBe(String(res.message.content).length);
+    expect((res.x_lake)!.data!.error).toBeUndefined();
   });
 });
 
@@ -260,11 +259,11 @@ describe('judge 过程日志：runner 端到端', () => {
 
     const main = readJsonl(card!.meta!.judgeLogFile!);
     expect(String(main[0].message.content)).toContain('评分运行');
-    expect(main[0].x_cannbay!.data).toMatchObject({ kind: 'judge-run-header', model: 'judge-model', concurrency: 2 });
+    expect(main[0].x_lake!.data).toMatchObject({ kind: 'judge-run-header', model: 'judge-model', concurrency: 2 });
     const footerLine = main.at(-1)!;
     expect(String(footerLine.message.content)).toContain('评分运行');
     expect(footerLine.message.content).not.toContain('{');   // 人话，不是裸 JSON
-    expect((footerLine.x_lake ?? footerLine.x_cannbay)!.data).toMatchObject({ kind: 'judge-run-footer', judgeCalls: card!.judgeCost!.calls });
+    expect((footerLine.x_lake)!.data).toMatchObject({ kind: 'judge-run-footer', judgeCalls: card!.judgeCost!.calls });
     // 主流对 LLM 层子项记派发 + 结果；真实发起了调用的子项才有子代理流；结果 status 与卡上一致
     const results = main.filter(l => l.type === 'user' && Array.isArray(l.message.content) && l.message.content[0]?.type === 'tool_result')
       .map(l => JSON.parse(String((l.message.content as Array<{ content?: string }>)[0]?.content)));

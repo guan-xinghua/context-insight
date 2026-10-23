@@ -11,7 +11,7 @@
 //   ① 产物清单：bin 启动器 / postinstall / 源码 / prisma schema / export-view bundle / CLI bundle 在包内
 //   ② 裁剪生效：tests / docs / 运行时数据 / home 泄漏树 / lockfile 不进包（.npmignore 兜住）
 //   ③ package.json 发布就绪：无 private、版本与展示版本单一源 version.ts 单轨一致、
-//      bin（cannbot-insight/cbi）与 postinstall 钩子齐备
+//      bin（context-insight/ctxi）与 postinstall 钩子齐备
 //   ④ 产物文件数哨兵（300-450）；CLI bundle 实跑 --version 与展示版本一致
 //
 // 注：不校验 package-lock.json——它被 .gitignore 忽略不入库（各机器本地生成），
@@ -61,7 +61,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
   it("产物含运行必需文件：bin 启动器 / postinstall / 源码 / prisma / export-view / LICENSE / CLI bundle", () => {
     const files = packDryRun().map((f) => f.path)
     for (const must of [
-      "bin/cannbot-insight.mjs",
+      "bin/context-insight.mjs",
       "bin/ports.mjs",
       "scripts/postinstall.mjs",
       "src/lib/version.ts",
@@ -112,8 +112,8 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     expect(pkgJson.private, "private:true 会阻断 npm publish").toBeUndefined()
     expect(pkgJson.version, "package.json 版本须与展示版本单一源 version.ts 同值（单轨）").toBe(VERSION)
     expect(pkgJson.bin).toMatchObject({
-      "cannbot-insight": "./bin/cannbot-insight.mjs",
-      "cbi": "./bin/cannbot-insight.mjs",
+      "context-insight": "./bin/context-insight.mjs",
+      "ctxi": "./bin/context-insight.mjs",
     })
     expect(pkgJson.scripts?.postinstall).toBe("node scripts/postinstall.mjs")
     expect(pkgJson.license).toBeTruthy()
@@ -125,7 +125,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     expect(build.status, `build-cli.mjs 失败:\n${build.stderr}`).toBe(0)
     const r = spawnSync(process.execPath, ["dist/cli.mjs", "--version"], { cwd: PKG_DIR, encoding: "utf8", timeout: 60_000 })
     expect(r.status, `dist/cli.mjs --version 失败:\n${r.stderr}`).toBe(0)
-    // 品牌前缀格式（`CANNBot-Insight v0.2.x`，与 cpx 风格对齐），版本号单源在 VERSION
+    // 品牌前缀格式（`Context-Insight v0.2.x`，与 cpx 风格对齐），版本号单源在 VERSION
     expect(r.stdout.trim()).toBe(`${BRAND_NAME} v${VERSION}`)
   }, 120_000)
 })

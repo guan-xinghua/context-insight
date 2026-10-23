@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // run 域 store IT：runs/ 目录管理（落盘/列表/读取/覆盖幂等/删除）+
-// runId 目录名安全闸 + CANNBOT_INSIGHT_HOME 锚定。
+// runId 目录名安全闸 + CONTEXT_INSIGHT_HOME 锚定。
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -70,7 +70,7 @@ describe('run-store：目录管理', () => {
     const onDisk = JSON.parse(
       fs.readFileSync(path.join(runDir(tmpRoot, miniManifest.id), 'manifest.json'), 'utf-8'),
     ) as Record<string, unknown>;
-    expect(onDisk.schema).toBe('cannbot.workflow-bundle');
+    expect(onDisk.schema).toBe('context.workflow-bundle');
   });
 
   it('重复导入同 runId：覆盖幂等（最新 meta 生效）', () => {
@@ -127,16 +127,16 @@ describe('run-store：目录管理', () => {
 });
 
 describe('run-store：数据主目录锚定', () => {
-  const ORIG = process.env.CANNBOT_INSIGHT_HOME;
+  const ORIG = process.env.CONTEXT_INSIGHT_HOME;
   afterEach(() => {
-    if (ORIG === undefined) delete process.env.CANNBOT_INSIGHT_HOME;
-    else process.env.CANNBOT_INSIGHT_HOME = ORIG;
+    if (ORIG === undefined) delete process.env.CONTEXT_INSIGHT_HOME;
+    else process.env.CONTEXT_INSIGHT_HOME = ORIG;
   });
 
-  it('runsRoot 跟随 CANNBOT_INSIGHT_HOME（测试隔离锚点）', () => {
+  it('runsRoot 跟随 CONTEXT_INSIGHT_HOME（测试隔离锚点）', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-home-'));
     try {
-      process.env.CANNBOT_INSIGHT_HOME = home;
+      process.env.CONTEXT_INSIGHT_HOME = home;
       expect(runsRoot()).toBe(path.join(home, 'runs'));
     } finally {
       fs.rmSync(home, { recursive: true, force: true });

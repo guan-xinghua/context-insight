@@ -13,7 +13,7 @@
 //   Gen1  仅顶层 system/tools wire 字段（无任何标记）
 //   Gen2  + 行级 source:"claude-proxy"/"opencode-proxy"
 //   Gen3  + cpx- 文件名前缀 / 按真实 sid 分流（文件名不参与判定，改名不失效）
-//   Gen4  + x_cannbay 声明式（cc-wire-round 等）+ <sid>.meta.json（cc-session-meta）
+//   Gen4  + x_lake 声明式（cc-wire-round 等）+ <sid>.meta.json（cc-session-meta）
 //   Gen5  + codex（Responses API）：source:"codex-proxy"、meta.framework:"codex"
 //   Gen6  + cannbot（opencode 系 CANN fork，openai 协议）：source:"cannbot-proxy"、
 //          meta.framework:"cannbot"（proxy/CANNBOT-DESIGN.md）
@@ -137,7 +137,7 @@ export function classifyProxyCapture(jsonlPath: string): ProxyClassification {
   }
 
   // 2. 行级 source 标记 —— 需 wire 证据交叉校验：真实 cpx 捕获（任意代际）
-  // 至少带 system/tools wire 字段或 x_cannbay 声明。历史上 DB 导出件曾错误
+  // 至少带 system/tools wire 字段或 x_lake 声明。历史上 DB 导出件曾错误
   // 标 source:'claude-proxy'（a25ebdfd 修复前上传的污染件仍留在 lake 仓），
   // 只有裸标记无任何 wire 数据 → 判为导出件，不算 proxy 捕获。
   if (lineMarker && (hasWireFingerprint || hasXLake)) {

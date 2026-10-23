@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { BRAND_NAME, BRAND_SOURCE_TYPE, BAY_NAME } from '@/lib/branding'
+import { BRAND_NAME, BAY_NAME, isBrandSourceType } from '@/lib/branding'
 import { isProxyVersion, agentFrameworkOf, displayVersion } from '@/lib/shared/session-format'
 import { sessionHref } from '@/lib/shared/session-link'
 import { useRouter } from 'next/navigation';
@@ -267,7 +267,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
         return
       }
       const blob = await res.blob()
-      const defaultName = `cannbot_session_${item.taskId}.db`
+      const defaultName = `context_session_${item.taskId}.db`
       const picker = (window as Window & { showSaveFilePicker?: (options: { suggestedName?: string; types?: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<{ name: string; createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker
       if (typeof picker === 'function') {
         try {
@@ -529,7 +529,7 @@ export function SessionList({ items: initialItems, total: initialTotal, page: in
                             <Badge variant="yellow">proxy</Badge>
                           )}
                         </span>
-                      ) : item.framework === BRAND_SOURCE_TYPE ? (
+                      ) : isBrandSourceType(item.framework) ? (
                         <Badge variant="purple">{BRAND_NAME}</Badge>
                       ) : '—';
                     })()}

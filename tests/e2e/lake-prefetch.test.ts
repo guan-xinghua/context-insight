@@ -47,7 +47,7 @@ function makeRemote(cacheDir: string): LakeRemote {
 
 function metaJson(sid: string, data?: Record<string, unknown>): string {
   return JSON.stringify({
-    x_cannbay: {
+    x_lake: {
       schema: 'cc-session-meta',
       version: 1,
       data: { producer: 'cpx', framework: 'opencode', ccVersion: '1.2.3', opGen: 'success', sid, ...data },

@@ -2,7 +2,7 @@
   "toolUseId": "call_acefea394e8b4954ae361d23",
   "name": "生成 STATE.md 骨架",
   "agentType": "state-generator",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

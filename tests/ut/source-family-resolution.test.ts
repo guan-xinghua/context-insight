@@ -242,7 +242,7 @@ describe('源族解析（伞形 jsonl + resolveSource 单点）', () => {
   });
 
   it('sqlite 安全网无回归：声明 opencode-db 传 cannbot 导出库 → 纠偏且条目带真实源', async () => {
-    const dbPath = path.join(tmpRoot, 'cannbot_session_fam1.db');
+    const dbPath = path.join(tmpRoot, 'context_session_fam1.db');
     const db = new Database(dbPath);
     db.exec('CREATE TABLE "Session" (id TEXT PRIMARY KEY, taskId TEXT, query TEXT, model TEXT, startTime TEXT, endTime TEXT, totalLlmCallCount INTEGER, totalTokens INTEGER, version TEXT)');
     db.prepare('INSERT INTO "Session" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -254,6 +254,6 @@ describe('源族解析（伞形 jsonl + resolveSource 单点）', () => {
     const data = await res.json();
     expect(data.sessions).toHaveLength(1);
     expect(data.sessions[0].id).toBe('fam_sqlite_1');
-    expect(data.sessions[0].source).toBe('cannbot-insight');
+    expect(data.sessions[0].source).toBe('context-insight');
   });
 });

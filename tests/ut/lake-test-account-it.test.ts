@@ -8,7 +8,7 @@
 
 // 测试连接属主文案回归锁（PR #38 审查意见）：token 模式不带账户是常态——
 // 前端 lakeRemoteInput 只上送 {authMode,token}（account 不随请求），
-// CannbayTokenDialog 保存同样 username||'oauth2'，requestAuth.username 亦
+// LakeTokenDialog 保存同样 username||'oauth2'，requestAuth.username 亦
 // 兜底 'oauth2'。旧接线把 pushAuth.username 传给 credentialTestMessage 的
 // account，gitcode 上令牌有效时误报「与所填账户 oauth2 不一致」——用户
 // 从没填过 oauth2，那是系统占位符。锁三态：
@@ -27,7 +27,7 @@ vi.mock('../../src/lib/lake/mirror', async (importOriginal) => {
 
 import { testLakeRemote, credentialTestMessage } from '../../src/lib/lake/remote';
 
-const GITCODE = 'https://gitcode.com/cann/cannbot-sentry.git';
+const GITCODE = 'https://gitcode.com/example/lake-fixture.git';
 
 describe('test 连接属主文案：oauth2 兜底占位不参与「所填账户」不一致判定', () => {
   afterEach(() => vi.unstubAllGlobals());

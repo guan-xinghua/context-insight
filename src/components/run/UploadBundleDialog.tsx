@@ -8,7 +8,7 @@
 
 "use client";
 
-// Run 上传到数据仓（cannbay-bundle 板块）：提交人/描述表单 → bundle-upload
+// Run 上传到数据仓（lake-bundle 板块）：提交人/描述表单 → bundle-upload
 // action（数据源 = 已导入 run，服务端从 insight 装配整包）。与会话上传
 // （UploadToLakeDialog）同款受控弹窗 + onUploadStart/onResult 回调形态——
 // sessions/runs 上传链路归一基础。

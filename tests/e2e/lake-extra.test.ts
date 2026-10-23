@@ -77,7 +77,7 @@ function turnLine(turnIndex: number, role: 'user' | 'assistant', content: string
     // 捕获形态标记（同 sid 双记录 IT 后）：上传走裸 <sid>/ 主位（原生 claude 行
     // 会落 <sid>.native/，本文件的覆盖/并发机械用例测的是主路径）
     source: 'claude-proxy',
-    x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} },
+    x_lake: { schema: 'it-wire-evidence', version: 1, data: {} },
   });
 }
 
@@ -352,7 +352,7 @@ describe('lake 上传指标快照：activeMs 活跃时长（与 Wall Clock 拆�
       timestamp: iso,
       ...(durMs != null ? { duration_ms: durMs } : {}),
       source: 'claude-proxy',
-      x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} },
+      x_lake: { schema: 'it-wire-evidence', version: 1, data: {} },
     });
     // 两簇各 4min（46min 空档 >5min 切段）→ 活跃 8min；墙钟 54min
     const f = writeJsonlFixture(SID_ACT, [
@@ -368,7 +368,7 @@ describe('lake 上传指标快照：activeMs 活跃时长（与 Wall Clock 拆�
 
     const metaPath = path.join(mirror.lakeCacheDir(), 'others', SID_ACT, `${SID_ACT}.meta.json`);
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-    const d = (meta.x_lake ?? meta.x_cannbay).data;
+    const d = (meta.x_lake).data;
     expect(d.durationMs).toBe(54 * 60_000); // 墙钟快照（endTime − startTime）
     expect(d.activeMs).toBe(8 * 60_000);    // 活跃快照：两簇各 4min
   }, 60_000);

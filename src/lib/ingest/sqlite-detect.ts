@@ -7,14 +7,16 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import Database from 'better-sqlite3';
+import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 
 // SQLite 来源嗅探：opencode（v1 小写表 session/message/part、v2 表
-// session_v2/session_message——2.x 起 schema 改名）与 CANNBot-Insight 导出
+// session_v2/session_message——2.x 起 schema 改名）与 context-insight 导出
 // （Prisma 大写表 "Session"/"Turn"）靠 schema 区分。文件名约定
-// （cannbot_session_ 前缀）只是 browse 层的提示；导入时按内容纠正，
+// （context_session_ 前缀）只是 browse 层的提示；导入时按内容纠正，
 // 让单一 SQLite 入口对两种库透明。
 // 表级探测 util（peekSqliteTables）供两源适配器的 detectContent 能力消费；
 // detectSqliteSource 保留为组合薄壳（既有调用方与测试契约不变）。
+
 export function peekSqliteTables(filePath: string): Set<string> | null {
   let db: Database.Database | null = null;
   try {
@@ -28,10 +30,10 @@ export function peekSqliteTables(filePath: string): Set<string> | null {
   }
 }
 
-export function detectSqliteSource(filePath: string): 'opencode-db' | 'cannbot-insight' | null {
+export function detectSqliteSource(filePath: string): 'opencode-db' | 'context-insight' | null {
   const tables = peekSqliteTables(filePath);
   if (tables == null) return null;
-  if (tables.has('Session')) return 'cannbot-insight';
+  if (tables.has('Session')) return BRAND_SOURCE_TYPE;
   if (tables.has('session') || tables.has('session_v2')) return 'opencode-db';
   return null;
 }

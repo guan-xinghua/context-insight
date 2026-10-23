@@ -2,7 +2,7 @@
   "toolUseId": "call_5fe72dad2f044379b8173734",
   "name": "Task25 修复编号跳号",
   "agentType": "task-generator",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

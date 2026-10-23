@@ -11,11 +11,22 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 数据目录迁移：cannbot 时代（≤0.2.40）的 ~/.cannbot-insight 首启原子改名到
+# ~/.context-insight（与 bin/context-insight.mjs 同款幂等逻辑；显式
+# CONTEXT_INSIGHT_HOME / CONTEXT_PROXY_DIR 覆盖 = 用户自管目录，不掺和；
+# 两目录并存时沿用新目录不动旧目录）。
+if [ -z "${CONTEXT_INSIGHT_HOME:-}" ] && [ -z "${CONTEXT_PROXY_DIR:-}" ] \
+   && [ -d "$HOME/.cannbot-insight" ] && [ ! -e "$HOME/.context-insight" ]; then
+  if mv "$HOME/.cannbot-insight" "$HOME/.context-insight" 2>/dev/null; then
+    echo "[start.sh] 数据目录已迁移: $HOME/.cannbot-insight → $HOME/.context-insight"
+  fi
+fi
+
 # 启动器统一日志：与 TS 侧 logger 同款格式 [time][level][module]:message。
 # 屏幕恒显（启动器 UX 不受日志开关影响）；同时追加统一日志文件
-# （~/.cannbot-insight/logs 或 CANNBOT_LOG_DIR），env CANNBOT_LOG /
-# CANNBOT_LOG_FILE 置 0/off/false/no 时不落文件（与运行期同语义）
-LAKE_LOG_DIR="${CANNBOT_LOG_DIR:-$HOME/.cannbot-insight/logs}"
+# （~/.context-insight/logs 或 CONTEXT_LOG_DIR），env CONTEXT_LOG /
+# CONTEXT_LOG_FILE 置 0/off/false/no 时不落文件（与运行期同语义）
+LAKE_LOG_DIR="${CONTEXT_LOG_DIR:-$HOME/.context-insight/logs}"
 # %3N 是 GNU 扩展：BSD/macOS date 输出字面 '3N'，探测一次决定带不带毫秒
 SLOG_MS=""
 [ "$(date -u +%3N 2>/dev/null)" != "3N" ] && SLOG_MS=".%3N"
@@ -30,7 +41,7 @@ slog() { # level module message
   local line="[$(date -u +%Y-%m-%dT%H:%M:%S${SLOG_MS}Z)][$1][$2]:$3"
   # WARN/ERROR 走 stderr（与 TS 侧 console.error 同通道），INFO 走 stdout
   if [ "$1" = "WARN" ] || [ "$1" = "ERROR" ]; then echo "$line" >&2; else echo "$line"; fi
-  if slog_is_off "${CANNBOT_LOG:-}" || slog_is_off "${CANNBOT_LOG_FILE:-}"; then return 0; fi
+  if slog_is_off "${CONTEXT_LOG:-}" || slog_is_off "${CONTEXT_LOG_FILE:-}"; then return 0; fi
   mkdir -p "$LAKE_LOG_DIR" 2>/dev/null || return 0
   echo "$line" >> "$LAKE_LOG_DIR/insight-$(date -u +%F).log" 2>/dev/null || true
 }
@@ -221,23 +232,23 @@ fi
 PROD_PID_FILE="$SCRIPT_DIR/tmp/next-prod.pid"
 
 # 多人服务器（每用户一实例，docs/design/multi-user/）：端口按用户固定分配，
-# CANNBOT_INSIGHT_PORT 覆盖默认 21025——单人本机不设 env 行为不变。
+# CONTEXT_INSIGHT_PORT 覆盖默认 21025——单人本机不设 env 行为不变。
 # 端口固定不漂移是单实例收口的既有决策，多人化只是把「一台机一个」精确化
 # 为「一个用户一个」。
-BASE_PORT="${CANNBOT_INSIGHT_PORT:-21025}"
+BASE_PORT="${CONTEXT_INSIGHT_PORT:-21025}"
 PORT=$BASE_PORT
 
 # 实例端口登记（发现契约，写入端）：服务就绪后把实际端口落到用户级登记文件，
-# cpx 自动导入 / cbi CLI 默认连接按 env → 本登记文件 → 21025 兜底解析
+# cpx 自动导入 / ctxi CLI 默认连接按 env → 本登记文件 → 21025 兜底解析
 # （读侧实现在 cpx src/cli/insight-discovery.ts 与 insight src/cli/config.ts）。
-# 登记目录与 lake-config.json 同目录锚定（'.cannbot-insight' 字面量是
-# pack-context 品牌翻转点，与 src/lib/lake/server-config.ts 口径一致）。
-# 锚定与读侧及 npm 启动器严格一致：dirname(CANNBOT_PROXY_DIR) →
-# CANNBOT_INSIGHT_HOME → $HOME/.cannbot-insight。
+# 登记目录与 lake-config.json 同目录锚定（'.context-insight' 字面量是
+# pack-cannbot 品牌翻转点，与 src/lib/lake/server-config.ts 口径一致）。
+# 锚定与读侧及 npm 启动器严格一致：dirname(CONTEXT_PROXY_DIR) →
+# CONTEXT_INSIGHT_HOME → $HOME/.context-insight。
 # 登记文件持久保留、不随实例退出删除——删除会在「实例未运行」窗口期让
 # cpx 回落 21025，把捕获静默导入别人（占 21025 的那个）的实例。
-CANNBOT_HOME_DIR="$(dirname "${CANNBOT_PROXY_DIR:-${CANNBOT_INSIGHT_HOME:-$HOME/.cannbot-insight}/proxy}")"
-INSIGHT_PORT_REGISTRY="$CANNBOT_HOME_DIR/insight-port"
+CONTEXT_HOME_DIR="$(dirname "${CONTEXT_PROXY_DIR:-${CONTEXT_INSIGHT_HOME:-$HOME/.context-insight}/proxy}")"
+INSIGHT_PORT_REGISTRY="$CONTEXT_HOME_DIR/insight-port"
 
 # 端口占用查询三级 fallback（与 pick-smart-agent-port.sh 同款）：本机 WSL2
 # 上 lsof 对部分 LISTEN 套接字失明（ss 可见 21025 占用、lsof 全列表为空，
@@ -362,7 +373,7 @@ kill_all_insight() {
 # --stop：显式停止自家实例——击杀（kill_all_insight：cwd 锚定，只杀本
 # checkout 的 next 系 + smart-agent，SIGTERM→3s 宽限→SIGKILL 补刀）→ 等
 # BASE_PORT 释放确认死透 → 退出。端口校验用的 BASE_PORT 需与实例启动时
-# 一致：自定义端口的用户 stop 时要带同样的 CANNBOT_INSIGHT_PORT 环境。
+# 一致：自定义端口的用户 stop 时要带同样的 CONTEXT_INSIGHT_PORT 环境。
 if [ "$STOP_REQUESTED" = true ]; then
   kill_all_insight
   ensure_base_port_free
@@ -388,9 +399,9 @@ if [ -f "$SCRIPT_DIR/smart-agent/server.py" ]; then
   AGENT_PORT=$(bash "$SCRIPT_DIR/scripts/pick-smart-agent-port.sh" "$BASE_PORT" "$PORT" "$SCRIPT_DIR" clean)
   if [ -n "$AGENT_PORT" ]; then
     mkdir -p "$SCRIPT_DIR/tmp"
-    (cd "$SCRIPT_DIR/smart-agent" && CANNBOT_AGENT_PORT=$AGENT_PORT python3 server.py) > "$AGENT_LOG" 2>&1 &
+    (cd "$SCRIPT_DIR/smart-agent" && CONTEXT_AGENT_PORT=$AGENT_PORT python3 server.py) > "$AGENT_LOG" 2>&1 &
     AGENT_PID=$!
-    export CANNBOT_AGENT_URL="http://localhost:$AGENT_PORT"
+    export CONTEXT_AGENT_URL="http://localhost:$AGENT_PORT"
     for i in $(seq 1 10); do
       if curl -s "http://localhost:$AGENT_PORT/health" > /dev/null 2>&1; then
         slog INFO start "smart-agent ready (port $AGENT_PORT)"
@@ -477,7 +488,7 @@ if [ "$CLI" = true ]; then
     if curl -s "$SERVER_URL/api/observe/data?pageSize=1" > /dev/null 2>&1; then
       slog INFO start "Backend ready (port $PORT)"
       # 发现契约登记：CLI 模式后端同样是可导入的实例，登记口径一致
-      mkdir -p "$CANNBOT_HOME_DIR"
+      mkdir -p "$CONTEXT_HOME_DIR"
       echo "$PORT" > "$INSIGHT_PORT_REGISTRY"
       break
     fi
@@ -501,7 +512,7 @@ else
     if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
       slog INFO start "Server ready (port $PORT)"
       # 发现契约登记：写入本次实例端口（持久保留，语义见定义处注释）
-      mkdir -p "$CANNBOT_HOME_DIR"
+      mkdir -p "$CONTEXT_HOME_DIR"
       echo "$PORT" > "$INSIGHT_PORT_REGISTRY"
       # WSL: use Windows cmd.exe to open browser
       if grep -qi microsoft /proc/version 2>/dev/null && [ -x /mnt/c/Windows/System32/cmd.exe ]; then

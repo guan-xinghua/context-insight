@@ -2,7 +2,7 @@
   "toolUseId": "call_5c51f6dbde6144eeaf7fd5b2",
   "name": "验收 Task3 需求文档",
   "agentType": "req-verifier",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

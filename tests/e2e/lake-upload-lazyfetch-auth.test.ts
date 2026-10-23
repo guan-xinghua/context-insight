@@ -21,7 +21,7 @@
 //      出现在 authlog，且不是 clone 段带来的——基线在 ensureMirror 之后取）
 //   ③ 镜像仓自持凭据的机制面：.git/lake-cred-helper.sh 在位、仓级
 //      credential.helper 配置生效（git credential fill 在镜像内可解析出凭据）
-// 隔离：CANNBOT_PROXY_DIR/LAKE_CACHE_DIR 重定向临时目录；GIT_CONFIG_GLOBAL/
+// 隔离：CONTEXT_PROXY_DIR/LAKE_CACHE_DIR 重定向临时目录；GIT_CONFIG_GLOBAL/
 // SYSTEM 指向空文件——测试机恰好配置的全局 credential.helper 不参与（干净
 // 机器形态是本用例的红态前提，不能被开发机的全局配置漂白）；LAKE_LFS=0
 // 不依赖测试机装没装 git-lfs。
@@ -72,7 +72,7 @@ function readAuthlog(): Array<{ ts: number; auth: string }> {
 
 function metaJson(sid: string): string {
   return JSON.stringify({
-    x_cannbay: {
+    x_lake: {
       schema: 'cc-session-meta',
       version: 1,
       data: { producer: 'cpx', framework: 'opencode', ccVersion: '1.2.3', opGen: 'success', sid },
@@ -96,10 +96,10 @@ function seedSession(paradigm: string, sid: string): void {
 }
 
 beforeAll(() => {
-  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']) {
+  for (const k of ['CONTEXT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']) {
     savedEnv[k] = process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
   process.env.LAKE_CACHE_DIR = path.join(TMP, 'cache');
   process.env.LAKE_LFS = '0';
 

@@ -8,12 +8,12 @@
 
 // 单会话基线：基线 = 一个样例会话（同类任务各设一个），不是语料分布。
 // 新会话与基线会话逐指标比比值——与数据仓「范式 baseline 会话」（位置即身份）
-// 同构：一个标杆，不做统计。存 ~/.cannbot-insight/baselines/<taskType>.json。
+// 同构：一个标杆，不做统计。存 ~/.context-insight/baselines/<taskType>.json。
 
 import { promises as fs } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { CANNBOT_HOME } from '../store';
+import { CONTEXT_HOME } from '../store';
 
 export interface SessionBaselineMetric {
   value: number;
@@ -38,7 +38,7 @@ export interface SessionBaselineFile {
 export function sessionBaselinesDir(): string {
   if (process.env.SCORING_BASELINE_DIR) return process.env.SCORING_BASELINE_DIR;
   if (process.env.SCORING_DATA_DIR) return path.join(process.env.SCORING_DATA_DIR, 'baselines');
-  return path.join(CANNBOT_HOME, 'baselines');
+  return path.join(CONTEXT_HOME, 'baselines');
 }
 
 const TASK_TYPES = ['operator', 'general', 'unknown'] as const;

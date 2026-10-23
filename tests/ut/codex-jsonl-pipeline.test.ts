@@ -35,7 +35,7 @@ import {
   requireSource,
   sniffImportableFile,
 } from '@/lib/ingest/adapters/registry';
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
+import { BRAND_SOURCE_TYPE, isBrandSourceType } from '@/lib/branding';
 
 const DATA = path.join(__dirname, './data/codex-sessions');
 const MAIN = '11111111-aaaa-4b04-8f7e-abcdef000001';
@@ -75,7 +75,7 @@ describe('agent-source-framework 注册表：身份映射与文件嗅探单点',
     expect(sourceOfFramework('claude-code')).toBe('claude-jsonl');
     // 容器源（insight 导出件 = 序列化搬运格式，非会话生产者）不声明源级
     // framework——会话身份走 readSessionMeta 件内声明（曾用容器身份冒充
-    // agent 身份：framework='cannbot-insight' 误标史）。反查同样不命中，
+    // agent 身份落库的误标史，旧值已随品牌契约退役）。反查同样不命中，
     // 存量误标行由调用方 `?? framework` 自身值兜底路由
     expect(frameworkOfSource(BRAND_SOURCE_TYPE)).toBeNull();
     expect(sourceOfFramework(BRAND_SOURCE_TYPE)).toBeNull();
@@ -94,10 +94,23 @@ describe('agent-source-framework 注册表：身份映射与文件嗅探单点',
     expect(sniffImportableFile('rollout-2026-10-09T10-23-45-abc.jsonl')).toBe('codex-jsonl');
     expect(sniffImportableFile('session-abc.jsonl')).toBe('claude-jsonl');
     expect(sniffImportableFile('cpx-abc.jsonl.7z')).toBe('claude-jsonl');
-    expect(sniffImportableFile('cannbot_session_x.db')).toBe(BRAND_SOURCE_TYPE);
+    expect(sniffImportableFile('context_session_x.db')).toBe(BRAND_SOURCE_TYPE);
     expect(sniffImportableFile('opencode.db')).toBe('opencode-db');
     expect(sniffImportableFile('notes.txt')).toBeNull();
     expect(sniffImportableFile('README.md')).toBeNull();
+  });
+
+  it('品牌容器标识读侧兼容：存量 cannbot-insight / cannbot_session_ 旧值同义识别', () => {
+    // 品牌更名（cannbot-insight → context-insight）后，存量误标行 / 旧导出件
+    // 仍按品牌容器识别，不退化空显示 / 未知源（读侧兜底，只读不写）
+    expect(isBrandSourceType('context-insight')).toBe(true);
+    expect(isBrandSourceType('cannbot-insight')).toBe(true);
+    expect(isBrandSourceType('opencode')).toBe(false);
+    expect(isBrandSourceType(null)).toBe(false);
+    expect(isBrandSourceType(undefined)).toBe(false);
+    // 文件名级预分类：新前缀与旧前缀都命中品牌容器源
+    expect(sniffImportableFile('context_session_x.db')).toBe(BRAND_SOURCE_TYPE);
+    expect(sniffImportableFile('cannbot_session_x.db')).toBe(BRAND_SOURCE_TYPE);
   });
 });
 

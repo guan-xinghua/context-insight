@@ -215,8 +215,8 @@ describe('AgentSwimlaneV2 点击二元性：跳转 × 测时距', () => {
     // 故意倒序传入：靠 dispatchTimestamp 排序恢复首发（#0）在前
     const jump = vi.fn()
     const el = await renderV2(agents, mkBridges([
-      { sub: 'ses_g1', type: 'ascendc-ops-architect', step: 'P1 返工 r1', ts: '2026-10-15T10:01:00Z', resp: '2026-10-15T10:02:00Z', status: 'completed' },
-      { sub: 'ses_g1', type: 'ascendc-ops-architect', step: 'P1 需求分析', ts: '2026-10-15T10:00:10Z', resp: '2026-10-15T10:00:50Z', status: 'error' },
+      { sub: 'ses_g1', type: 'acme-ops-architect', step: 'P1 返工 r1', ts: '2026-10-15T10:01:00Z', resp: '2026-10-15T10:02:00Z', status: 'completed' },
+      { sub: 'ses_g1', type: 'acme-ops-architect', step: 'P1 需求分析', ts: '2026-10-15T10:00:10Z', resp: '2026-10-15T10:00:50Z', status: 'error' },
     ]), jump)
 
     // 一会话两派发 → 两根条：#0 首发、#1 返工
@@ -249,8 +249,8 @@ describe('AgentSwimlaneV2 点击二元性：跳转 × 测时距', () => {
     ]
     // 无时间戳 → 排序无从恢复，按传入序（API 返回即时间序）拼接
     const el = await renderV2(agents, mkBridges([
-      { sub: 'ses_g1', type: 'ascendc-ops-architect', step: 'P1 需求分析', status: 'error' },
-      { sub: 'ses_g1', type: 'ascendc-ops-architect', step: 'P1 返工 r1', status: 'completed' },
+      { sub: 'ses_g1', type: 'acme-ops-architect', step: 'P1 需求分析', status: 'error' },
+      { sub: 'ses_g1', type: 'acme-ops-architect', step: 'P1 返工 r1', status: 'completed' },
     ]), () => {})
 
     expect(el.querySelectorAll('[data-bar^="subA#"]')).toHaveLength(0)
@@ -309,7 +309,7 @@ describe('AgentSwimlaneV2 点击二元性：跳转 × 测时距', () => {
       : sid.startsWith('ses_e') ? '④ empty 泳道模板计算流' : 'P1 需求分析'
     const bridges = mkBridges([
       ...[0, 100_000, 200_000].flatMap(at => ['b', 'g', 'e'].map(k => ({ sub: `ses_${k}${at}`, type: 'design-merger', step: step(`ses_${k}${at}`) }))),
-      { sub: 'ses_serial', type: 'ascendc-ops-architect', step: 'P1 需求分析' },
+      { sub: 'ses_serial', type: 'acme-ops-architect', step: 'P1 需求分析' },
     ])
     const el = await renderV2(agents, bridges, () => {}, ['base', 'group', 'empty'])
 

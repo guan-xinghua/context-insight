@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // browse-directory `~` 展开 IT：Import Session 快捷路径按钮（cpx proxy 捕获
-// ~/.cannbot-insight/proxy / Claude 原生 ~/.claude/projects / opencode 数据
+// ~/.context-insight/proxy / Claude 原生 ~/.claude/projects / opencode 数据
 // ~/.local/share/opencode / 主目录 ~）把 `~` 路径原样发给本路由 —— 服务端按
 // 当前用户主目录展开（path.resolve 不识别 `~`，客户端不知道服务端 home）。
 // 用临时目录夹具验证：`~`/`~/x` 展开、绝对路径行为不变、不存在路径 404

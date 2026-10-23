@@ -10,7 +10,7 @@
 // Import Session 快捷路径 IT：JsonL/SQLite 导入的 File Path 下方提供默认路径
 // 一键直达按钮（免逐级 Browse），`~` 路径由 browse-directory 服务端展开。
 // 驱动真实 LocalFileImport 组件（含 Dialog 打开）：按 sourceType 断言按钮集，
-// 点击"cpx proxy 捕获"→ fetch 携带 ~/.cannbot-insight/proxy → 进入 browse
+// 点击"cpx proxy 捕获"→ fetch 携带 ~/.context-insight/proxy → 进入 browse
 // 步并展示服务端返回的展开路径。
 
 import { describe, it, expect, afterEach, beforeAll } from 'vitest'
@@ -65,7 +65,7 @@ function click(el: Element): void {
 }
 
 describe('LocalFileImport 快捷路径按钮', () => {
-  it('JSONL 源：cpx/Claude 原生/主目录按钮就位，点击 cpx → 直达 ~/.cannbot-insight/proxy 并进入 browse', async () => {
+  it('JSONL 源：cpx/Claude 原生/主目录按钮就位，点击 cpx → 直达 ~/.context-insight/proxy 并进入 browse', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -88,8 +88,8 @@ describe('LocalFileImport 快捷路径按钮', () => {
     browsedPaths.length = 0
     await act(async () => { click(findButtonByText('cpx proxy 捕获')!) })
     await flush()
-    expect(browsedPaths).toEqual(['~/.cannbot-insight/proxy'])
-    expect(document.body.textContent).toContain('/home/tester/.cannbot-insight/proxy')
+    expect(browsedPaths).toEqual(['~/.context-insight/proxy'])
+    expect(document.body.textContent).toContain('/home/tester/.context-insight/proxy')
     expect(document.body.textContent).toContain('importable files found')
 
     container.remove()

@@ -151,7 +151,7 @@ export async function exportMaterial(
   if (!data) throw new Error(`会话不存在：${taskId}`);
 
   const slice = sliceOf(opts.dimension);
-  const base = opts.rootDir ?? path.join(os.tmpdir(), 'cannbot-mate-agent');
+  const base = opts.rootDir ?? path.join(os.tmpdir(), 'context-mate-agent');
   // 末级目录带 runId：同一 taskId+维度的两次运行（双客户端/同 sid 双框架）各写各的，
   // 不交错覆写；mode 0700——切片含代码与红线原文，不摊在共享 /tmp 里
   const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

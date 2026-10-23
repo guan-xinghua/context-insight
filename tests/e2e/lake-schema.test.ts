@@ -6,12 +6,12 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// x_cannbay schema IT（docs/lake-schema-spec.md）：
+// x_lake schema IT（docs/lake-schema-spec.md）：
 // ① 形状一致锁 —— 声明的 schema ∈ 注册表且 version=1
-// ② 双写一致锁 —— legacy 顶层字段 ≡ x_cannbay.data（同值）
+// ② 双写一致锁 —— legacy 顶层字段 ≡ x_lake.data（同值）
 // ③ 列清单对账锁（数据全不能少）—— 手工构造全列富 DB 会话 → 导出 → 上传 →
 //    删库 → 再导入 → 逐列多重集比对 0 丢失 0 损造
-// ④ 混排容错锁 —— native 行 / legacy-proxy 行 / 纯 x_cannbay 行同文件互不污染
+// ④ 混排容错锁 —— native 行 / legacy-proxy 行 / 纯 x_lake 行同文件互不污染
 // env 必须在 lake 模块加载前设置（mirror.ts 模块顶层读 env）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -211,21 +211,21 @@ describe('lake schema：列清单对账 round-trip（数据全不能少）', () 
       for (const ln of fs.readFileSync(file, 'utf8').split('\n')) {
         if (!ln.trim()) continue;
         const line = JSON.parse(ln);
-        if (!line.x_cannbay) continue;
-        expect(LINE_SCHEMAS.has((line.x_lake ?? line.x_cannbay).schema), `未知行 schema: ${(line.x_lake ?? line.x_cannbay).schema}`).toBe(true);
-        expect((line.x_lake ?? line.x_cannbay).version).toBe(1);
-        if ((line.x_lake ?? line.x_cannbay).schema === 'cc-db-turn') {
+        if (!line.x_lake) continue;
+        expect(LINE_SCHEMAS.has((line.x_lake).schema), `未知行 schema: ${(line.x_lake).schema}`).toBe(true);
+        expect((line.x_lake).version).toBe(1);
+        if ((line.x_lake).schema === 'cc-db-turn') {
           assistantDecls++;
-          // ② 双写一致：legacy ≡ x_cannbay
-          expect(line.duration_ms).toBe((line.x_lake ?? line.x_cannbay).data.latencyMs);
-          expect(line.stopReason ?? undefined).toBe((line.x_lake ?? line.x_cannbay).data.stopReason ?? undefined);
+          // ② 双写一致：legacy ≡ x_lake
+          expect(line.duration_ms).toBe((line.x_lake).data.latencyMs);
+          expect(line.stopReason ?? undefined).toBe((line.x_lake).data.stopReason ?? undefined);
         }
       }
     }
     for (const rel of written.filter(w => w.endsWith('.meta.json'))) {
       const meta = JSON.parse(fs.readFileSync(path.join(stagingDir, rel), 'utf8'));
-      expect(META_SCHEMAS.has((meta.x_lake ?? meta.x_cannbay).schema)).toBe(true);
-      expect((meta.x_lake ?? meta.x_cannbay).version).toBe(1);
+      expect(META_SCHEMAS.has((meta.x_lake).schema)).toBe(true);
+      expect((meta.x_lake).version).toBe(1);
     }
     expect(assistantDecls).toBe(3); // 主 2 + 子 1
   });
@@ -279,11 +279,11 @@ describe('lake schema：⑤ cpx 捕获治理上传 → 再导入 —— meta 过
         type: 'assistant',
         message: { id: 'm_cpx', role: 'assistant', content: [{ type: 'text', text: '完成' }], model: 'm', usage: { input_tokens: 5, output_tokens: 2 } },
         timestamp: '2026-08-19T07:00:03.000Z', source: 'claude-proxy', duration_ms: 3000,
-        x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'anthropic', latencyMs: 3000, ccVersion: '2.1.234.467', status: 200 } },
+        x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'anthropic', latencyMs: 3000, ccVersion: '2.1.234.467', status: 200 } },
       }),
     ].join('\n') + '\n');
     fs.writeFileSync(srcFile.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({
-      x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', protocol: 'anthropic', ccVersion: '2.1.234.467', sid: CPX_SID } },
+      x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', protocol: 'anthropic', ccVersion: '2.1.234.467', sid: CPX_SID } },
     }, null, 2));
     await prisma.session.deleteMany({ where: { taskId: CPX_SID } });
     // 捕获行（方案一记录类）：version 带 marker → 上传落裸 <sid>/ 主位
@@ -306,7 +306,7 @@ describe('lake schema：⑤ cpx 捕获治理上传 → 再导入 —— meta 过
   }, GIT_PIPELINE_TIMEOUT_MS);
 });
 
-describe('lake schema：④ 混排容错（native / legacy-proxy / 纯 x_cannbay 同文件）', () => {
+describe('lake schema：④ 混排容错（native / legacy-proxy / 纯 x_lake 同文件）', () => {
   it('三通道各行其是、互不污染', async () => {
     const MIXED_SID = 'schema-mixed-0002';
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'schema-mixed-'));
@@ -318,13 +318,13 @@ describe('lake schema：④ 混排容错（native / legacy-proxy / 纯 x_cannbay
       JSON.stringify({ type: 'user', message: { role: 'user', content: 'legacy 轮' }, timestamp: '2026-08-19T06:01:00.000Z' }),
       // legacy assistant：source + duration_ms
       JSON.stringify({ type: 'assistant', message: { id: 'm_legacy', role: 'assistant', content: [{ type: 'text', text: 'legacy 回复' }], model: 'm', usage: { input_tokens: 1, output_tokens: 1 } }, timestamp: '2026-08-19T06:01:05.000Z', source: 'claude-proxy', duration_ms: 1500 }),
-      JSON.stringify({ type: 'user', message: { role: 'user', content: 'x_cannbay 轮' }, timestamp: '2026-08-19T06:02:00.000Z' }),
-      // 纯 x_cannbay assistant（收敛后的目标形态）：无 source/duration_ms
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'x_lake 轮' }, timestamp: '2026-08-19T06:02:00.000Z' }),
+      // 纯 x_lake assistant（收敛后的目标形态）：无 source/duration_ms
       JSON.stringify({
         type: 'assistant',
         message: { id: 'm_xb', role: 'assistant', content: [{ type: 'text', text: 'xb 回复' }], model: 'm', usage: { input_tokens: 1, output_tokens: 1 } },
         timestamp: '2026-08-19T06:02:08.000Z',
-        x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'anthropic', latencyMs: 2222, stopReason: 'end_turn' } },
+        x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'anthropic', latencyMs: 2222, stopReason: 'end_turn' } },
       }),
     ].join('\n') + '\n');
 
@@ -336,14 +336,14 @@ describe('lake schema：④ 混排容错（native / legacy-proxy / 纯 x_cannbay
     const [native, legacy, xb] = turns;
     expect(native.latencyMs).toBe(10000);               // native 单行无显式 latency → 边界推导（用户输入边界 06:00:00 到本组末行 06:00:10，覆盖排队+prefill+生成全程；旧「到下一轮间隔」回填语义已被工具真实时长采集取代）
     expect(legacy.latencyMs).toBe(1500);               // duration_ms 通道
-    expect(xb.latencyMs).toBe(2222);                    // x_cannbay 通道（未受时间戳差污染）
+    expect(xb.latencyMs).toBe(2222);                    // x_lake 通道（未受时间戳差污染）
     expect(xb.finishReason).toBe('end_turn');
     fs.rmSync(dir, { recursive: true, force: true });
   }, IMPORT_IT_TIMEOUT_MS);
 });
 
 // ⑥ opencode-producer 形状锁 + version 门禁（P0-1/P0-2 落地验证）
-// opencode-emitter 此前完全脱约（零 x_cannbay），本测试锁住双轨补齐 +
+// opencode-emitter 此前完全脱约（零 x_lake），本测试锁住双轨补齐 +
 // 读方 version 门禁（未知版本整块跳过 → 回退 legacy）。
 describe('lake schema：⑥ opencode-producer 形状 + version 门禁', () => {
   it('opencode 捕获形状：cc-wire-round(cc-wire-round/openai) + cc-wire-input + cc-session-meta + cc-subagent-meta 双写', async () => {
@@ -354,14 +354,14 @@ describe('lake schema：⑥ opencode-producer 形状 + version 门禁', () => {
     fs.mkdirSync(subDir, { recursive: true });
     fs.writeFileSync(mainFile, [
       JSON.stringify({ type: 'user', message: { role: 'user', content: '开始' }, timestamp: '...', source: 'opencode-proxy',
-        x_cannbay: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } } }),
+        x_lake: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } } }),
       JSON.stringify({ type: 'assistant', message: { role: 'assistant', id: 'a1', content: [{ type: 'text', text: 'ok' }], model: 'glm-5.2', usage: { input_tokens: 1, output_tokens: 1 } }, timestamp: '...', source: 'opencode-proxy',
         duration_ms: 800, stopReason: 'stop', ttftMs: 50, system: 'You are opencode', tools: [{ name: 'bash', description: '' }],
-        x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', latencyMs: 800, ttftMs: 50, stopReason: 'stop', status: 200, requestParams: { temperature: 0.7, maxTokens: 4096, model: 'glm-5.2' }, system: 'You are opencode', tools: [{ name: 'bash', description: '' }] } } }),
+        x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', latencyMs: 800, ttftMs: 50, stopReason: 'stop', status: 200, requestParams: { temperature: 0.7, maxTokens: 4096, model: 'glm-5.2' }, system: 'You are opencode', tools: [{ name: 'bash', description: '' }] } } }),
     ].join('\n') + '\n');
-    fs.writeFileSync(path.join(dir, `${SID}.meta.json`), JSON.stringify({ x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'openai', sid: SID } } }));
-    fs.writeFileSync(path.join(subDir, 'sub-a.jsonl'), JSON.stringify({ type: 'user', message: { role: 'user', content: '子任务' }, source: 'opencode-proxy', x_cannbay: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } } }) + '\n');
-    fs.writeFileSync(path.join(subDir, 'sub-a.meta.json'), JSON.stringify({ toolUseId: 't1', name: '任务', agentType: 'developer', x_cannbay: { schema: 'cc-subagent-meta', version: 1, data: { toolUseId: 't1', name: '任务', agentType: 'developer', subagentSessionId: 'sub-a' } } }));
+    fs.writeFileSync(path.join(dir, `${SID}.meta.json`), JSON.stringify({ x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'openai', sid: SID } } }));
+    fs.writeFileSync(path.join(subDir, 'sub-a.jsonl'), JSON.stringify({ type: 'user', message: { role: 'user', content: '子任务' }, source: 'opencode-proxy', x_lake: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } } }) + '\n');
+    fs.writeFileSync(path.join(subDir, 'sub-a.meta.json'), JSON.stringify({ toolUseId: 't1', name: '任务', agentType: 'developer', x_lake: { schema: 'cc-subagent-meta', version: 1, data: { toolUseId: 't1', name: '任务', agentType: 'developer', subagentSessionId: 'sub-a' } } }));
 
     await importSession(mainFile, SID, prisma, mainFile, 'claude-jsonl');
     const s = await prisma.session.findFirst({ where: { taskId: SID } });
@@ -369,7 +369,7 @@ describe('lake schema：⑥ opencode-producer 形状 + version 门禁', () => {
     expect(s?.version).toBe('opencode-proxy');
     const turns = await prisma.turn.findMany({ where: { sessionId: s!.id, role: 'assistant' }, orderBy: { turnIndex: 'asc' } });
     expect(turns.length).toBe(1);
-    expect(turns[0].latencyMs).toBe(800);    // x_cannbay.latencyMs 通道（双写一致）
+    expect(turns[0].latencyMs).toBe(800);    // x_lake.latencyMs 通道（双写一致）
     expect(turns[0].finishReason).toBe('stop');
     fs.rmSync(dir, { recursive: true, force: true });
     if (s) await prisma.session.delete({ where: { id: s.id } }).catch(() => {});
@@ -381,10 +381,10 @@ describe('lake schema：⑥ opencode-producer 形状 + version 门禁', () => {
     const mainFile = path.join(dir, `${SID}.jsonl`);
     fs.writeFileSync(mainFile, [
       JSON.stringify({ type: 'user', message: { role: 'user', content: 'x' }, timestamp: '...', source: 'opencode-proxy' }),
-      // v99 声明：读方应整块跳过 x_cannbay，回退 duration_ms=1500 (legacy)
+      // v99 声明：读方应整块跳过 x_lake，回退 duration_ms=1500 (legacy)
       JSON.stringify({ type: 'assistant', message: { role: 'assistant', id: 'a1', content: [{ type: 'text', text: 'r' }], model: 'glm-5.2', usage: { input_tokens: 1, output_tokens: 1 } }, timestamp: '...', source: 'opencode-proxy',
         duration_ms: 1500,
-        x_cannbay: { schema: 'cc-wire-round', version: 99, data: { roundIndex: 0, latencyMs: 9999, stopReason: 'SHOULD-NOT-LEAK' } } }),
+        x_lake: { schema: 'cc-wire-round', version: 99, data: { roundIndex: 0, latencyMs: 9999, stopReason: 'SHOULD-NOT-LEAK' } } }),
     ].join('\n') + '\n');
     await importSession(mainFile, SID, prisma, mainFile, 'claude-jsonl');
     const s = await prisma.session.findFirst({ where: { taskId: SID } });

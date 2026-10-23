@@ -46,7 +46,7 @@ describe('skill dispatch integration', () => {
       const agentTcs = interactions.flatMap(i => i.tool_calls ?? []).filter(tc => tc.toolName === 'Agent');
       expect(agentTcs.length).toBe(4);
 
-      const architectTc = agentTcs.find(tc => tc.argsJson?.includes('ascendc-ops-architect'));
+      const architectTc = agentTcs.find(tc => tc.argsJson?.includes('acme-ops-architect'));
       expect(architectTc).toBeDefined();
       expect(architectTc!.argsJson).toContain('subagent_type');
       expect(architectTc!.argsJson).toContain('需求分析');
@@ -54,8 +54,8 @@ describe('skill dispatch integration', () => {
 
     it('preserves parallel Agent dispatches in same interaction', () => {
       const parallelAssistant = interactions.find(
-        i => i.tool_calls?.some(tc => tc.argsJson?.includes('ascendc-ops-designer')) &&
-             i.tool_calls?.some(tc => tc.argsJson?.includes('ascendc-ops-tester'))
+        i => i.tool_calls?.some(tc => tc.argsJson?.includes('acme-ops-designer')) &&
+             i.tool_calls?.some(tc => tc.argsJson?.includes('acme-ops-tester'))
       );
       expect(parallelAssistant).toBeDefined();
       expect(parallelAssistant!.tool_calls!.length).toBe(2);
@@ -72,12 +72,12 @@ describe('skill dispatch integration', () => {
 
     it('dispatch SkillEvent skillName comes from subagent_type', () => {
       const architectDispatch = result.skillEvents.find(
-        se => se.skillName === 'ascendc-ops-architect' && se.eventType === 'dispatch'
+        se => se.skillName === 'acme-ops-architect' && se.eventType === 'dispatch'
       );
       expect(architectDispatch).toBeDefined();
       expect(architectDispatch!.success).toBe(true);
       expect(architectDispatch!.argsJson).toContain('需求分析');
-      expect(architectDispatch!.argsJson).toContain('ascendc-ops-architect');
+      expect(architectDispatch!.argsJson).toContain('acme-ops-architect');
     });
 
     it('excludes general-purpose and general from dispatch SkillEvents', () => {
@@ -102,9 +102,9 @@ describe('skill dispatch integration', () => {
       const names = skillAgentCalls.map(tc => {
         try { return JSON.parse(tc.argsJson!).subagent_type; } catch { return null; }
       });
-      expect(names).toContain('ascendc-ops-architect');
-      expect(names).toContain('ascendc-ops-designer');
-      expect(names).toContain('ascendc-ops-tester');
+      expect(names).toContain('acme-ops-architect');
+      expect(names).toContain('acme-ops-designer');
+      expect(names).toContain('acme-ops-tester');
     });
 
     it('Agent ToolCall isSkillRelated=false for general-purpose', () => {
@@ -152,9 +152,9 @@ describe('skill dispatch integration', () => {
     it('unique skill names from skillEvents include dispatch types', () => {
       const uniqueNames = [...new Set(result.skillEvents.map(se => se.skillName))];
       expect(uniqueNames).toContain('ops-registry-invoke-workflow');
-      expect(uniqueNames).toContain('ascendc-ops-architect');
-      expect(uniqueNames).toContain('ascendc-ops-designer');
-      expect(uniqueNames).toContain('ascendc-ops-tester');
+      expect(uniqueNames).toContain('acme-ops-architect');
+      expect(uniqueNames).toContain('acme-ops-designer');
+      expect(uniqueNames).toContain('acme-ops-tester');
       expect(uniqueNames).not.toContain('general-purpose');
     });
 
@@ -167,9 +167,9 @@ describe('skill dispatch integration', () => {
         }
       }
       expect(invocationCounts.get('ops-registry-invoke-workflow')).toBe(1);
-      expect(invocationCounts.get('ascendc-ops-architect')).toBe(1);
-      expect(invocationCounts.get('ascendc-ops-designer')).toBe(1);
-      expect(invocationCounts.get('ascendc-ops-tester')).toBe(1);
+      expect(invocationCounts.get('acme-ops-architect')).toBe(1);
+      expect(invocationCounts.get('acme-ops-designer')).toBe(1);
+      expect(invocationCounts.get('acme-ops-tester')).toBe(1);
       expect(invocationCounts.get('general-purpose')).toBeUndefined();
     });
   });

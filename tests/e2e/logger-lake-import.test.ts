@@ -11,9 +11,9 @@
 // 在场。这正是「导入失败零痕迹」事故的回归锁：服务端日志文件里能完整还原
 // 一次导入的时序与归属（sid 贯穿）。评分 judge 日志（score-judge-logs）不在
 // 此链路，保持独立（数据产物，非过程日志）。
-// 隔离：本地 bare 仓（lake-prefetch.test.ts 同款）+ CANNBOT_LOG_DIR /
-// CANNBOT_PROXY_DIR / LAKE_CACHE_DIR 重定向 tmp；beforeAll 删掉 setup.ts 的
-// 全局静音 CANNBOT_LOG。
+// 隔离：本地 bare 仓（lake-prefetch.test.ts 同款）+ CONTEXT_LOG_DIR /
+// CONTEXT_PROXY_DIR / LAKE_CACHE_DIR 重定向 tmp；beforeAll 删掉 setup.ts 的
+// 全局静音 CONTEXT_LOG。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -29,7 +29,7 @@ const BARE = path.join(TMP, 'remote.git');
 const SEED = path.join(TMP, 'seed');
 
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ['CANNBOT_LOG', 'CANNBOT_LOG_DIR', 'CANNBOT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS'] as const;
+const ENV_KEYS = ['CONTEXT_LOG', 'CONTEXT_LOG_DIR', 'CONTEXT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS'] as const;
 
 function git(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: 'pipe', timeout: 60_000 });
@@ -37,7 +37,7 @@ function git(cmd: string, cwd: string): void {
 
 function metaJson(sid: string): string {
   return JSON.stringify({
-    x_cannbay: {
+    x_lake: {
       schema: 'cc-session-meta',
       version: 1,
       data: { producer: 'cpx', framework: 'opencode', ccVersion: '1.2.3', opGen: 'success', sid },
@@ -55,9 +55,9 @@ function readLog(): string {
 
 beforeAll(async () => {
   for (const k of ENV_KEYS) { savedEnv[k] = process.env[k]; delete process.env[k]; }
-  process.env.CANNBOT_LOG_DIR = LOG_DIR;
+  process.env.CONTEXT_LOG_DIR = LOG_DIR;
   process.env.LAKE_LFS = '0';
-  delete process.env.CANNBOT_LOG;   // 抵消 tests/setup.ts 全局静音
+  delete process.env.CONTEXT_LOG;   // 抵消 tests/setup.ts 全局静音
 
   execSync(`git init --bare -b main "${BARE}"`, { stdio: 'pipe' });
   git('git config uploadpack.allowFilter true', BARE);

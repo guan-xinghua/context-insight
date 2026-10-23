@@ -275,7 +275,7 @@ describe('claude-jsonl adapter', () => {
     // cpx 思考流捕获契约锁（现场 ses_f4da12dc：DeepSeek 网关思考走
     // delta.reasoning_content，cpx OpenAIReassembler 修复后落 thinking 块）：
     // thinking 块 → <thinking> 文本（与 native 会话同构，UI LLM Output 可见）；
-    // reasoning tokens 走 x_cannbay cc-wire-round 声明式通道（legacy usage 无
+    // reasoning tokens 走 x_lake cc-wire-round 声明式通道（legacy usage 无
     // reasoning 字段可载）。本用例不改适配器 —— 锁既有读取通道不被回归。
     it('cpx thinking 块 → <thinking> 文本 + cc-wire-round.reasoningTokens → usage.reasoning', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cpx-thinking-contract-'));
@@ -300,7 +300,7 @@ describe('claude-jsonl adapter', () => {
             source: 'opencode-proxy',
             duration_ms: 1000,
             stopReason: 'tool_calls',
-            x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', reasoningTokens: 4 } },
+            x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', reasoningTokens: 4 } },
           }),
         ].join('\n'));
         const interactions = readSession(f, 'ses_rsn_contract');
@@ -529,7 +529,7 @@ describe('会话首条 skill 注入不重分类（opencode ≥1.17 形态）', (
   // 用户请求同条。若按标记重分类成 system，同内容会话的 turn0 角色会随 opencode
   // 版本漂移（≤1.4.7 无标记 → user）。首条（此前无任何记录）保持 user；
   // user prompt 之后的注入（claude-code 展开形态）仍 system + 合并。
-  const S3_TURN0 = '# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。' +
+  const S3_TURN0 = '# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。' +
     '\n\nBase directory for this skill: /home/hwd/x/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/) are relative to this base directory.\n\nsoftplus_v2_grad';
 
   it('首条 user 行带 Base directory 标记 → 保持 role=user，内容 verbatim', () => {

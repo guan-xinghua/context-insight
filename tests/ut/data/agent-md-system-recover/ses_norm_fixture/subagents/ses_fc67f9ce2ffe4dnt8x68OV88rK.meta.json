@@ -2,7 +2,7 @@
   "toolUseId": "call_4e28d8e140074678b9fd43c4",
   "name": "Task16 生成proto.md",
   "agentType": "find-proto",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

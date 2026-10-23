@@ -16,7 +16,7 @@
 //      无匿名撞门记录）且 meta 字段真实回填（匿名 401 时恒 null）
 //   ② materializeSession（导入链）在私有远端上照常物化（prefetchBlobs +
 //      batch cat-file 的 helper 通道改造不回归）
-// 隔离：CANNBOT_PROXY_DIR/LAKE_CACHE_DIR 重定向临时目录；GIT_TERMINAL_PROMPT=0
+// 隔离：CONTEXT_PROXY_DIR/LAKE_CACHE_DIR 重定向临时目录；GIT_TERMINAL_PROMPT=0
 // 让红态（匿名 401）快速失败而不是挂终端到超时。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawn } from 'node:child_process';
@@ -58,7 +58,7 @@ function readAuthlog(): Array<{ ts: number; auth: string }> {
 
 function metaJson(sid: string): string {
   return JSON.stringify({
-    x_cannbay: {
+    x_lake: {
       schema: 'cc-session-meta',
       version: 1,
       data: { producer: 'cpx', framework: 'opencode', ccVersion: '1.2.3', opGen: 'success', sid },
@@ -82,11 +82,11 @@ function seedSession(paradigm: string, sid: string): void {
 }
 
 beforeAll(() => {
-  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS']) {
+  for (const k of ['CONTEXT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
   process.env.LAKE_CACHE_DIR = path.join(TMP, 'cache');
   // LAKE_LFS=0：materializeSession 走经典 prefetch+batch 分支——LFS 分支的
   // cat-file --filters 凭据走同一个 spawnGitAuthed helper（通道已覆盖），

@@ -43,7 +43,7 @@ function writeFixture(): void {
         content: [
           { type: 'text', text: '先做需求分析' },
           { type: 'tool_use', id: 'tu1', name: 'subagent', input: {
-            agent: 'ascendc-ops-architect',
+            agent: 'acme-ops-architect',
             description: 'P1 需求分析 confusion_mul_grad',
             prompt: '请分析 P1 需求……',
             sessionID: SUB1,
@@ -62,7 +62,7 @@ function writeFixture(): void {
         content: [
           { type: 'text', text: '复用同一子会话返工' },
           { type: 'tool_use', id: 'tu2', name: 'subagent', input: {
-            agent: 'ascendc-ops-architect',
+            agent: 'acme-ops-architect',
             description: 'P1 返工 r1 需求分析',
             prompt: '在你上一轮产物基线上修改……',
             sessionID: SUB1,   // 复用：同一子会话二次派发
@@ -179,7 +179,7 @@ describe('reuseDispatch 全链路：Turn/bridge/Execution 名字就位', () => {
     expect(sub1Turns.length).toBeGreaterThan(0);
     for (const t of sub1Turns) {
       expect(t.subagentName).toBe('P1 需求分析 confusion_mul_grad'); // 首个派发的描述
-      expect(t.agentName).toBe('ascendc-ops-architect');
+      expect(t.agentName).toBe('acme-ops-architect');
     }
     const sub2Turns = await prisma.turn.findMany({ where: { subagentSessionId: SUB2 } });
     expect(sub2Turns.length).toBeGreaterThan(0);
@@ -224,7 +224,7 @@ describe('reuseDispatch 全链路：Turn/bridge/Execution 名字就位', () => {
     const execs = await prisma.execution.findMany({ where: { sessionId: session.id, isSubagent: true } });
     expect(execs.length).toBeGreaterThan(0);
     const arch = execs.find(e => e.agentSessionId === SUB1);
-    expect(arch?.agentName).toBe('ascendc-ops-architect');
+    expect(arch?.agentName).toBe('acme-ops-architect');
     expect(arch?.subagentName).toBe('P1 需求分析 confusion_mul_grad');
   });
 });
@@ -249,7 +249,7 @@ describe('reuseDispatch merge 路径：存量行名字补丁', () => {
     expect(restored1.length).toBeGreaterThan(0);
     for (const t of restored1) {
       expect(t.subagentName).toBe('P1 需求分析 confusion_mul_grad');
-      expect(t.agentName).toBe('ascendc-ops-architect');
+      expect(t.agentName).toBe('acme-ops-architect');
     }
     const restored2 = await prisma.turn.findMany({ where: { subagentSessionId: SUB2 } });
     for (const t of restored2) {

@@ -182,9 +182,9 @@ describe('首真人查询回落（data-service.firstHumanQueryText）', () => {
 describe('会话 Query 决议（data-service.resolveSessionQuery）', () => {
   it('opencode 标题优先于首真人查询（对意图的浓缩更准）', () => {
     expect(resolveSessionQuery(
-      { title: 'ConfusionMulGrad Ascend C 算子开发' },
+      { title: 'ConfusionMulGrad Acme C 算子开发' },
       [{ role: 'user', content: '继续' }],
-    )).toBe('ConfusionMulGrad Ascend C 算子开发');
+    )).toBe('ConfusionMulGrad Acme C 算子开发');
   });
 
   it('缺省占位标题（New session - …）回落首真人查询', () => {

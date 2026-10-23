@@ -6,8 +6,8 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// CANN-Bench 填报端到端 IT：算子 fixture 导入 → 填报 API → scorecard 重算 →
-// D3「CANN-Bench 评分」子项按填报值折算（未填默认 80 持平档、非算子不适用、边界 clamp）。
+// 基准测试填报端到端 IT：算子 fixture 导入 → 填报 API → scorecard 重算 →
+// D3「基准测试评分」子项按填报值折算（未填默认 80 持平档、非算子不适用、边界 clamp）。
 
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -18,14 +18,14 @@ import { importSession } from '../../src/lib/ingest/data-service';
 import { NextRequest } from 'next/server';
 import { runScorecard } from '../../src/lib/scoring/core/runner';
 import { FileScorecardStore } from '../../src/lib/scoring/core/store';
-import { benchToScore10 } from '../../src/lib/scoring/core/op-bench/session-op-bench';
+import { benchToScore10 } from '../../src/lib/scoring/core/bench-report/session-bench-report';
 
 const prisma = new PrismaClient();
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'scoring-opbench-'));
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'scoring-benchreport-'));
 process.env.SCORING_DATA_DIR = path.join(TMP, 'api-store');
 process.env.SCORING_BASELINE_DIR = path.join(TMP, 'baselines');
-process.env.SCORING_OP_BENCH_DIR = path.join(TMP, 'op-benchmarks');
+process.env.SCORING_BENCH_REPORT_DIR = path.join(TMP, 'bench-reports');
 process.env.SCORING_PROFILE_DIR = path.join(TMP, 'profiles');
 const store = new FileScorecardStore(path.join(TMP, 'scorecards'));
 
@@ -101,15 +101,15 @@ describe('折算：百分制 → 0-10（连续，不吸档）', () => {
   });
 });
 
-const route = await import('../../src/app/api/observe/session/scorecard/op-bench/route');
+const route = await import('../../src/app/api/observe/session/scorecard/bench-report/route');
 
-describe('端到端：填报 → 重算 → D3 CANN-Bench 评分', { timeout: 60_000 }, () => {
+describe('端到端：填报 → 重算 → D3 基准测试评分', { timeout: 60_000 }, () => {
 
   it('算子任务未填报：默认持平分 0.8 并明标', async () => {
     await importFixture(SID_OP, writeFixture(SID_OP, OP_LINES));
     const card = await runScorecard(SID_OP, prisma, { store });
     expect(card!.taskType).toBe('operator');
-    const item = d3Item(card!, 'D3.cannBench');
+    const item = d3Item(card!, 'D3.benchScore');
     expect(item.status).toBe('ok');
     expect(item.score).toBe(0.8);
     expect(item.formula).toContain('默认 80');
@@ -120,37 +120,37 @@ describe('端到端：填报 → 重算 → D3 CANN-Bench 评分', { timeout: 60
     await importFixture(SID_GENERAL, writeFixture(SID_GENERAL, GENERAL_LINES));
     const card = await runScorecard(SID_GENERAL, prisma, { store });
     expect(card!.taskType).toBe('general');
-    const item = d3Item(card!, 'D3.cannBench');
+    const item = d3Item(card!, 'D3.benchScore');
     expect(item.status).toBe('not-applicable');
     expect(item.note).toContain('非算子类任务');
   });
 
   it('API：非法 score 400；合法写入后重算体现填报值', async () => {
-    const bad = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/op-bench', {
+    const bad = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/bench-report', {
       method: 'POST',
       body: JSON.stringify({ taskId: SID_OP, score: 120 }),
     }));
     expect(bad.status).toBe(400);
 
-    const missing = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/op-bench', {
+    const missing = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/bench-report', {
       method: 'POST',
       body: JSON.stringify({ taskId: 'no-such', score: 90 }),
     }));
     expect(missing.status).toBe(404);
 
-    const saved = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/op-bench', {
+    const saved = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/bench-report', {
       method: 'POST',
       body: JSON.stringify({ taskId: SID_OP, score: 87, note: 'Add / leaderboard' }),
     }));
     expect(saved.status).toBe(200);
 
-    const get = await route.GET(new NextRequest(`http://localhost/api/observe/session/scorecard/op-bench?taskId=${SID_OP}`));
+    const get = await route.GET(new NextRequest(`http://localhost/api/observe/session/scorecard/bench-report?taskId=${SID_OP}`));
     const data = await get.json() as { score: number | null; note: string | null };
     expect(data.score).toBe(87);
     expect(data.note).toBe('Add / leaderboard');
 
     const card = await runScorecard(SID_OP, prisma, { store });
-    const item = d3Item(card!, 'D3.cannBench');
+    const item = d3Item(card!, 'D3.benchScore');
     expect(item.status).toBe('ok');
     expect(item.value).toBe(8.7);
     expect(item.score).toBe(0.87);
@@ -159,12 +159,45 @@ describe('端到端：填报 → 重算 → D3 CANN-Bench 评分', { timeout: 60
     expect(item.note).toBe('Add / leaderboard');
   });
 
-  it('旧 LLM 算子三项不再存在；CANN-Bench 评分不占 LLM 层', async () => {
+  it('旧目录旧 schema 存量填报：GET 读兜底命中，保存即落新目录（无感迁移）', async () => {
+    // 模拟升级现场：新目录无文件，旧目录（op-benchmarks/，旧 schema）有存量填报。
+    // 填报文件按 Prisma Session.id 命名（与 taskId 不同），先解析真实 id
+    const sess = await prisma.session.findFirst({ where: { taskId: SID_OP }, select: { id: true } });
+    const sid = sess!.id;
+    fs.rmSync(path.join(process.env.SCORING_BENCH_REPORT_DIR!, `${sid}.json`), { force: true });
+    const legacyDir = path.join(process.env.SCORING_DATA_DIR!, 'op-benchmarks');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, `${sid}.json`), JSON.stringify({
+      schema: 'workflow-session-op-bench', version: 1, sessionId: sid, score: 90, note: '存量填报', filledAt: '2026-09-01T00:00:00.000Z',
+    }));
+
+    const legacy = await route.GET(new NextRequest(`http://localhost/api/observe/session/scorecard/bench-report?taskId=${SID_OP}`));
+    const legacyData = await legacy.json() as { score: number | null; note: string | null };
+    expect(legacyData.score).toBe(90);
+    expect(legacyData.note).toBe('存量填报');
+
+    // 保存 → 写新目录新 schema；旧文件原地保留（版本回滚不丢填报）
+    const saved = await route.POST(new NextRequest('http://localhost/api/observe/session/scorecard/bench-report', {
+      method: 'POST',
+      body: JSON.stringify({ taskId: SID_OP, score: 93 }),
+    }));
+    expect(saved.status).toBe(200);
+    const newFile = path.join(process.env.SCORING_BENCH_REPORT_DIR!, `${sid}.json`);
+    expect(fs.existsSync(newFile)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(newFile, 'utf-8')).schema).toBe('workflow-session-bench-report');
+    expect(fs.existsSync(path.join(legacyDir, `${sid}.json`))).toBe(true);
+
+    const card = await runScorecard(SID_OP, prisma, { store });
+    const item = d3Item(card!, 'D3.benchScore');
+    expect(item.value).toBe(9.3);
+  });
+
+  it('旧 LLM 算子三项不再存在；基准测试评分不占 LLM 层', async () => {
     const card = await runScorecard(SID_OP, prisma, { store });
     const d3 = card!.dimensions.find(d => d.dimensionId === 'D3')!;
     expect(d3.items.map(i => i.itemId)).not.toContain('D3.opBoundary');
     expect(d3.items.map(i => i.itemId)).not.toContain('D3.opPrecision');
     expect(d3.items.map(i => i.itemId)).not.toContain('D3.opMemory');
-    expect(d3.items.map(i => i.itemId)).toContain('D3.cannBench');
+    expect(d3.items.map(i => i.itemId)).toContain('D3.benchScore');
   });
 });

@@ -88,14 +88,14 @@ beforeAll(async () => {
     data: {
       sessionId: reuse.id, dispatchExecutionId: 'exec-r1',
       dispatchContent: 'P1 需求分析', dispatchTimestamp: new Date('2026-10-01T00:00:00Z'),
-      subagentSessionId: SUB_REUSE2, subagentType: 'ascendc-ops-architect', status: 'completed',
+      subagentSessionId: SUB_REUSE2, subagentType: 'acme-ops-architect', status: 'completed',
     },
   });
   await prisma.interactionBridge.create({
     data: {
       sessionId: reuse.id, dispatchExecutionId: 'exec-r2',
       dispatchContent: 'P1 返工 r1', dispatchTimestamp: new Date('2026-10-01T01:00:00Z'),
-      subagentSessionId: SUB_REUSE2, subagentType: 'ascendc-ops-architect', status: 'completed',
+      subagentSessionId: SUB_REUSE2, subagentType: 'acme-ops-architect', status: 'completed',
     },
   });
   const tr = await prisma.turn.create({

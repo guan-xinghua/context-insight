@@ -111,14 +111,14 @@ describe('dispatchSpecOf：工具名匹配矩阵', () => {
 describe('resolveDispatchToolCall：参数键解析', () => {
   it('reuseDispatch 插件形态（真机湖数据）：args {agent, description, prompt, sessionID}', () => {
     const rec = resolveDispatchToolCall(tc('subagent', {
-      agent: 'ascendc-ops-architect',
+      agent: 'acme-ops-architect',
       description: 'P1 需求分析 confusion_mul_grad',
       prompt: '请分析 P1 需求……',
       sessionID: 'ses_f3abc001',
     }))!;
     expect(rec).not.toBeNull();
     expect(rec.argSessionId).toBe('ses_f3abc001');   // 驼峰 sessionID 键（大小写归一命中）
-    expect(rec.agentType).toBe('ascendc-ops-architect');
+    expect(rec.agentType).toBe('acme-ops-architect');
     expect(rec.displayName).toBe('P1 需求分析 confusion_mul_grad');
     expect(rec.content).toBe('P1 需求分析 confusion_mul_grad');
   });
@@ -205,7 +205,7 @@ describe('resolveDispatchToolCall：参数键解析', () => {
   it('创建型派发 → 结果协议提取：阻塞型 <subagent sessionID="…">（嵌套 JSON 转义）', () => {
     // 真机形态：content 是 JSON 数组文本形态，内层引号带转义——解析一层后匹配
     const rec = resolveDispatchToolCall(tc('subagent', {
-      agent: 'ascendc-ops-architect',
+      agent: 'acme-ops-architect',
       description: 'P1 需求分析',
       prompt: '请分析 P1 需求……',
     }, '[{"type":"text","text":"<subagent sessionID=\\"ses_ecb7711a2ffe\\" state=\\"completed\\">\\n**状态**: ✅通过"}]'))!;
@@ -241,11 +241,11 @@ describe('backfillTurnNamesFromDispatches：Turn 名字回填', () => {
       subTurn('ses_sub002'),
     ];
     backfillTurnNamesFromDispatches(turns, [
-      tc('subagent', { agent: 'ascendc-ops-architect', description: 'P1 需求分析', prompt: 'p', sessionID: 'ses_sub001' }),
+      tc('subagent', { agent: 'acme-ops-architect', description: 'P1 需求分析', prompt: 'p', sessionID: 'ses_sub001' }),
       tc('subagent', { agent: 'design-step-reviewer', description: 'R门控审核', prompt: 'p', sessionID: 'ses_sub002' }),
     ]);
     expect(turns[0]!.subagentName).toBe('P1 需求分析');
-    expect(turns[0]!.agentName).toBe('ascendc-ops-architect');
+    expect(turns[0]!.agentName).toBe('acme-ops-architect');
     expect(turns[1]!.subagentName).toBe('P1 需求分析');
     expect(turns[2]!.subagentName).toBe('R门控审核');
     expect(turns[2]!.agentName).toBe('design-step-reviewer');

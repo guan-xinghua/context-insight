@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 import { exportMaterial, safeId } from './material';
 import { logWarn } from '@/lib/logger';
-import { CANNBOT_HOME } from '../core/store';
+import { CONTEXT_HOME } from '../core/store';
 import type { DimensionDefinition, ScoreItemSchema } from '../core/schema';
 import type { MateAgentItem } from './coerce';
 
@@ -95,7 +95,7 @@ export interface MateAgentRunOptions {
 
 /** mate 失败留痕目录（默认用户数据目录；测试可用 MATE_AGENT_LOG_DIR 覆写） */
 export const mateFailureLogDir = (): string =>
-  process.env.MATE_AGENT_LOG_DIR ?? path.join(CANNBOT_HOME, 'mate-agent-logs');
+  process.env.MATE_AGENT_LOG_DIR ?? path.join(CONTEXT_HOME, 'mate-agent-logs');
 
 /** 解析失败时把原始输出/ stderr /退出码落盘——失败提示只有一句，agent 到底回了什么必须可回查 */
 export async function writeMateFailureLog(
@@ -141,8 +141,8 @@ export async function readGuideFile(primary: string, fallback: string): Promise<
   try {
     return await fs.readFile(primary, 'utf-8');
   } catch (e) {
-    // 留痕：构建产物损坏是行动信号（cbi -f 重建），静默回落会让现场一直带病跑
-    logWarn('scoring/mate-agent', 'GUIDE 构建产物缺失，回落随包源文件（建议 cbi -f 重建）', {
+    // 留痕：构建产物损坏是行动信号（ctxi -f 重建），静默回落会让现场一直带病跑
+    logWarn('scoring/mate-agent', 'GUIDE 构建产物缺失，回落随包源文件（建议 ctxi -f 重建）', {
       primary, error: e instanceof Error ? e.message : String(e),
     });
     return fs.readFile(fallback, 'utf-8');

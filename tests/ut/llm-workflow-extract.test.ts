@@ -19,7 +19,7 @@ import {
 } from "@/lib/llm-workflow-extract";
 import { assembleCombinedDeclaration, recoverCombinedWorkflowDeclaration } from "@/lib/sift-audit";
 
-const TURN0_BODY = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取任务清单按顺序派发 SubAgent，不自己写代码。" + "r".repeat(500);
+const TURN0_BODY = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取任务清单按顺序派发 SubAgent，不自己写代码。" + "r".repeat(500);
 const STATE_BODY = "# STATE\n\n## Tasks\n\n- [x] 1. 派发 developer\n- [ ] 2. 验收 st-verifier\n- [ ] 3. 收尾归档\n" + "p".repeat(120);
 const STATE_WITH_LINES = STATE_BODY.split("\n").map((l, i) => `${i + 1}: ${l}`).join("\n");
 

@@ -84,7 +84,7 @@ const MAIN_GZ = zlib.gzipSync(SESSION_LINES);
 fs.mkdirSync(path.join(STAGING, 'sessions', SID), { recursive: true });
 fs.writeFileSync(path.join(STAGING, 'sessions', SID, `${SID}.jsonl.gz`), MAIN_GZ);
 fs.writeFileSync(path.join(STAGING, 'sessions', SID, `${SID}.meta.json`), JSON.stringify({
-  x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', ccVersion: '9.9.9', sid: SID } },
+  x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', ccVersion: '9.9.9', sid: SID } },
 }));
 // subagents/ 下放注入探针文件（随 ① 的 uploadFolder 出仓为 LFS 指针）
 fs.mkdirSync(path.join(STAGING, 'sessions', SID, 'subagents'), { recursive: true });

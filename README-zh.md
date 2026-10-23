@@ -1,4 +1,4 @@
-# CANNBot-Insight
+# Context-Insight
 
 LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，逐轮分析 token、上下文、子代理与技能使用。
 
@@ -26,25 +26,25 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 
 主页 Sessions 列表支持关键词 / sessionID 搜索；导入对话框提供常用路径一键直达。
 
-**Run 观测** — 与 Sessions 并列的 Runs 一级域，观测 Opsbot graph 运行：网页「导入 Bundle」（与 Import Session 同款弹窗：目录浏览找包，含 `workflow.json`/`manifest.json` 的 bundle 目录高亮、点击即导入）或 `cbi import-bundle <dir>` 导入 workflow-bundle 目录（`workflow.json` + `sessions/`）；同一弹窗也可直接从 CANNBay 数据仓导入（来源切换：本地目录 / CANNBay，与 Import Session 同款两阶段流——先选数据仓顶层目录、再在目录内过滤/勾选 bundle 包，批量导入并逐项显示进度）；成员会话即时全量走标准管线入库——**run 导入的会话只在 run 详情内查看，不进 Sessions 列表**（删除 run 会同时删除由它导入的会话，导入前已存在的会话不受影响）；run 页在与全站一致的工作台内以纯 SVG 渲染多代 DAG（回滚代带、重试历史、carried/未运行占位、生成器子图）——正交电路风走线（统一右行/下行，不向左折）——交叉处 PCB 半圆跳线（交叉不相连）、点击节点点亮关联边跑马灯（状态色加粗 + 流动光点，其余边压暗静止，点击空白熄灭）、Ctrl/⌘+滚轮以光标为锚缩放、拖拽平移与一键适配——节点侧栏提供逐次尝试（验收结论、Bash 输出）与成员会话 turn 下钻；session 页显示 run 归属徽标可反向返回。`cbi runs` 列出已导入 run。导入后可从 runs 列表行（或 run 详情页头）把 run 上传到 CANNBay：填提交人/内容描述，整包（manifest、体检报告、成员会话）由 insight 装配（成员会话从本地库重导出、统一压缩、全量密钥清洗，同名包重传整体替换）推到数据仓 `opsbot-bundle/` 专区；CANNBay Viewer 侧栏的 opsbot-bundle 分区可浏览数据仓里的包并一键导入本地。
+**Run 观测** — 与 Sessions 并列的 Runs 一级域，观测 Opsbot graph 运行：网页「导入 Bundle」（与 Import Session 同款弹窗：目录浏览找包，含 `workflow.json`/`manifest.json` 的 bundle 目录高亮、点击即导入）或 `ctxi import-bundle <dir>` 导入 workflow-bundle 目录（`workflow.json` + `sessions/`）；同一弹窗也可直接从数据仓导入（来源切换：本地目录 / 数据仓，与 Import Session 同款两阶段流——先选数据仓顶层目录、再在目录内过滤/勾选 bundle 包，批量导入并逐项显示进度）；成员会话即时全量走标准管线入库——**run 导入的会话只在 run 详情内查看，不进 Sessions 列表**（删除 run 会同时删除由它导入的会话，导入前已存在的会话不受影响）；run 页在与全站一致的工作台内以纯 SVG 渲染多代 DAG（回滚代带、重试历史、carried/未运行占位、生成器子图）——正交电路风走线（统一右行/下行，不向左折）——交叉处 PCB 半圆跳线（交叉不相连）、点击节点点亮关联边跑马灯（状态色加粗 + 流动光点，其余边压暗静止，点击空白熄灭）、Ctrl/⌘+滚轮以光标为锚缩放、拖拽平移与一键适配——节点侧栏提供逐次尝试（验收结论、Bash 输出）与成员会话 turn 下钻；session 页显示 run 归属徽标可反向返回。`ctxi runs` 列出已导入 run。导入后可从 runs 列表行（或 run 详情页头）把 run 上传到数据仓：填提交人/内容描述，整包（manifest、体检报告、成员会话）由 insight 装配（成员会话从本地库重导出、统一压缩、全量密钥清洗，同名包重传整体替换）推到数据仓 `opsbot-bundle/` 专区；数据湖 viewer 侧栏的 opsbot-bundle 分区可浏览数据仓里的包并一键导入本地。
 
-**运行日志** — 服务端过程日志（导入管线、数据之湖同步、API 错误）按天滚动写入 `~/.cannbot-insight/logs/insight-<日期>.log`，可选同时输出到启动终端。级别与「写入文件 / 输出到屏幕」开关在「设置 → 运行日志」即时调整（日志位置同页展示，免重启）；环境变量（`CANNBOT_LOG` / `CANNBOT_LOG_LEVEL` / `CANNBOT_LOG_FILE` / `CANNBOT_LOG_STDOUT` / `CANNBOT_LOG_DIR`）优先于设置页。
+**运行日志** — 服务端过程日志（导入管线、数据之湖同步、API 错误）按天滚动写入 `~/.context-insight/logs/insight-<日期>.log`，可选同时输出到启动终端。级别与「写入文件 / 输出到屏幕」开关在「设置 → 运行日志」即时调整（日志位置同页展示，免重启）；环境变量（`CONTEXT_LOG` / `CONTEXT_LOG_LEVEL` / `CONTEXT_LOG_FILE` / `CONTEXT_LOG_STDOUT` / `CONTEXT_LOG_DIR`）优先于设置页。
 
 ## 安装与使用
 
 ### 方式零：npm 一键安装（推荐）
 
 ```bash
-npm install -g cannbot-insight
-cannbot-insight            # 首次：自动 build + migrate（约 30s-2min），随后启动 + 开浏览器
+npm install -g context-insight
+context-insight            # 首次：自动 build + migrate（约 30s-2min），随后启动 + 开浏览器
 ```
 
 - 需 Node.js >= 22.12；国内网络可加 `--registry=https://registry.npmmirror.com`
-- 离线环境可用 tgz：`npm install -g ./cannbot-insight-<版本>.tgz`
-- 可写状态集中在 `~/.cannbot-insight/`；默认端口 21025（占用自动顺延）
-- CLI 子命令直接透传：`cannbot-insight upload --file … --list` / `sessions`；短别名 `cbi`
+- 离线环境可用 tgz：`npm install -g ./context-insight-<版本>.tgz`
+- 可写状态集中在 `~/.context-insight/`；默认端口 21025（占用自动顺延）
+- CLI 子命令直接透传：`context-insight upload --file … --list` / `sessions`；短别名 `ctxi`
 - Python 3 可选（存在则启动 smart-agent 分析后端，缺失静默降级）
-- 别名品牌：`npm install -g context-insight` —— 同一工具以 Context-Insight 品牌名发布（命令 `context-insight` / `ctxi`，数据目录 `~/.context-insight/`）；会话数据与 cannbot-insight 完全互通（共享同一格式标识）
+- 别名品牌：`npm install -g cannbot-insight` —— 同一工具以 CANNBot-Insight 品牌名发布（命令 `cannbot-insight` / `cbi`，数据目录 `~/.cannbot-insight/`）；会话数据与 context-insight 完全互通（共享同一格式标识）
 
 | 标志 | 作用 |
 |------|------|

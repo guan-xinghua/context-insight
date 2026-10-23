@@ -24,7 +24,7 @@ import type { TurnData } from "@/lib/compare/turn-align"
 const USER_PROMPTS_CN = [
   "帮我看一下登录认证模块为什么报错",
   "为什么 mybatis 的分页查询不生效",
-  "我想给 cannbot-insight 加一个 export 功能",
+  "我想给 context-insight 加一个 export 功能",
   "整理一下最近一周的 PR 变更",
   "测试一下这个算子在 NPU 上的执行时间",
   "把 src/lib 目录下的文件梳理一下",
@@ -37,7 +37,7 @@ const USER_PROMPTS_CN = [
 const USER_PROMPTS_EN = [
   "Please investigate the authentication module error",
   "Why does mybatis pagination not work as expected",
-  "Add an export feature to cannbot-insight",
+  "Add an export feature to context-insight",
   "Summarize this week's pull requests",
   "Benchmark the operator execution time on NPU",
   "Walk me through the files under src/lib",

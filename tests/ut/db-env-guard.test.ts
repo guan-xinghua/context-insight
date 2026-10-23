@@ -58,7 +58,7 @@ describe('envFileDatabaseUrl：.env* 提供的 DATABASE_URL 解析', () => {
   });
 
   it('.env 存在但无 DATABASE_URL 行 → null', () => {
-    const dir = mkEnvDir({ '.env': 'CANNBOT_LOG=0\n' });
+    const dir = mkEnvDir({ '.env': 'CONTEXT_LOG=0\n' });
     expect(envFileDatabaseUrl(dir)).toBeNull();
   });
 

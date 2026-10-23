@@ -86,7 +86,7 @@ export const GET = withRouteLog('observe/session/wire-rounds', async (request: N
 
   const closeRound = () => {
     if (!pending) return;
-    // roundIndex 权威化（spec §4.1 "wire 轮次对齐权威键"）：x_cannbay.data.roundIndex
+    // roundIndex 权威化（spec §4.1 "wire 轮次对齐权威键"）：x_lake.data.roundIndex
     // 优先；缺失（legacy 文件 / 老 norm）回退数组序号（rounds.length + 1）
     const xbRound = pending.xb ? (pending.xb.schema === 'cc-wire-round' && pending.xb.version === 1 ? pending.xb.data?.roundIndex : undefined) : undefined;
     const newFrom = prevSnapshotLen;

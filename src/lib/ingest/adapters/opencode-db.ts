@@ -440,7 +440,7 @@ function _readSession(db: Database.Database, sessionId: string): RawInteraction[
   let subagent_name: string | null = null;
   if (subagentInfo) {
     // 标题双格式（括号序两种，真机均存在）：
-    //   '任务描述 (@ascendc-ops-architect subagent)' ← 湖数据实测（连字符全名）
+    //   '任务描述 (@acme-ops-architect subagent)' ← 湖数据实测（连字符全名）
     //   '@(build) subagent: scan logs'               ← 旧版 opencode
     // 旧正则只认 '@(name)' 序 → 新序永不命中、fallback 在连字符截断
     const titleMatch = subagentInfo.title.match(/\(@([\w.-]+)\s+subagent\)/) ?? subagentInfo.title.match(/@\(([\w.-]+)\)\s+subagent/);

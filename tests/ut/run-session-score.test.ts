@@ -21,7 +21,7 @@ import { attachSessionScores } from '@/lib/run/session-score';
 const prisma = new PrismaClient();
 
 const manifest = {
-  schema: 'cannbot.workflow-bundle',
+  schema: 'context.workflow-bundle',
   version: 1,
   id: 'scoredemo01',
   kind: 'workflow',

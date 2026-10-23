@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// cannbay-bundle IT（run 级上传：数据源 = insight，与会话上传同款「导入后
+// lake-bundle IT（run 级上传：数据源 = insight，与会话上传同款「导入后
 // 上传」链路）：本地导入 bundle → run-store 落盘（manifest）
 // → uploadLakeBundle(prisma, runId)（staging + 治理）→ push → 列表 →
 // lake 导入 job 闭环；治理熔断、manifest 深度清洗、原子整体替换、DB 导出
@@ -29,7 +29,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'lake-bundle-it-'));
 const BARE = path.join(TMP, 'remote.git');
 const SEED = path.join(TMP, 'seed');
 const CACHE = path.join(TMP, 'cache');
-const HOME = path.join(TMP, 'home');           // CANNBOT_INSIGHT_HOME：run-store 隔离
+const HOME = path.join(TMP, 'home');           // CONTEXT_INSIGHT_HOME：run-store 隔离
 const FIXTURES = path.join(TMP, 'fixtures');
 const RUNS_ROOT = path.join(HOME, 'runs');
 
@@ -49,7 +49,7 @@ git('git push -q origin main', SEED);
 seedLakeConfig(TMP, { address: BARE });
 process.env.LAKE_LFS = '0';
 process.env.LAKE_CACHE_DIR = CACHE;
-process.env.CANNBOT_INSIGHT_HOME = HOME;
+process.env.CONTEXT_INSIGHT_HOME = HOME;
 
 // 结构校验权威随包分发：本地组装 bundle 也带 workflow.schema.json（与真实导出件同源）
 const SCHEMA_TEXT = fs.readFileSync(path.resolve(__dirname, '../ut/data/run/workflow-bundle.v1.schema.json'), 'utf-8');
@@ -67,14 +67,14 @@ function sessionJsonl(sid: string, text: string): string {
 }
 
 function sessionMeta(sid: string): string {
-  return JSON.stringify({ x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'opencode', ccVersion: '1.19.0', sid } } });
+  return JSON.stringify({ x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'opencode', ccVersion: '1.19.0', sid } } });
 }
 
 interface MemberSeed { id: string; kind: 'session' | 'process'; name: string; sessionId?: string; location?: string | null; output?: { text: string } }
 
 function manifestJson(runId: string, members: MemberSeed[], relations: Array<{ from: string; to: string }>, name = 'lake bundle IT'): string {
   return JSON.stringify({
-    schema: 'cannbot.workflow-bundle',
+    schema: 'context.workflow-bundle',
     version: 1,
     id: runId,
     kind: 'workflow',
@@ -215,12 +215,12 @@ describe('bundle 上传（run → 数据仓）', () => {
   it('bundle.meta.json：cc-bundle-meta 信封 + 提交人/规模快照（形状校验 + 未知键透传）', () => {
     const raw = git(`git show main:opsbot-bundle/${RUN_ID}/bundle.meta.json`, BARE);
     const parsed = JSON.parse(raw);
-    expect(parsed.x_cannbay.schema).toBe('cc-bundle-meta');
-    expect(parsed.x_cannbay.version).toBe(1);
-    expect(parsed.x_cannbay.data.runId).toBe(RUN_ID);
-    expect(parsed.x_cannbay.data.submitter).toBe('张三');
-    expect(parsed.x_cannbay.data.description).toBe('bundle IT 上传');
-    expect(parsed.x_cannbay.data.sessionCount).toBe(1);
+    expect(parsed.x_lake.schema).toBe('cc-bundle-meta');
+    expect(parsed.x_lake.version).toBe(1);
+    expect(parsed.x_lake.data.runId).toBe(RUN_ID);
+    expect(parsed.x_lake.data.submitter).toBe('张三');
+    expect(parsed.x_lake.data.description).toBe('bundle IT 上传');
+    expect(parsed.x_lake.data.sessionCount).toBe(1);
   });
 
   it('bundle-list：锚定目录 + meta/manifest 汇总；imported 标记（本地导入后即 true）', () => {

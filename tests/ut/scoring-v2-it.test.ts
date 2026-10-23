@@ -27,8 +27,8 @@ const prisma = new PrismaClient();
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'scoring-v2-it-'));
 // API 路由用默认 store 单例：第一个请求前指到 tmp，避免写进仓库 data/
 process.env.SCORING_DATA_DIR = path.join(TMP, 'api-store');
-process.env.SCORING_BASELINE_DIR = path.join(TMP, 'baselines');   // 隔离：不读真实 ~/.cannbot-insight/baselines
-process.env.SCORING_PROFILE_DIR = path.join(TMP, 'profiles');     // 隔离：不读真实 ~/.cannbot-insight/scoring-profiles
+process.env.SCORING_BASELINE_DIR = path.join(TMP, 'baselines');   // 隔离：不读真实 ~/.context-insight/baselines
+process.env.SCORING_PROFILE_DIR = path.join(TMP, 'profiles');     // 隔离：不读真实 ~/.context-insight/scoring-profiles
 const STORE_DIR = path.join(TMP, 'scorecards');
 const store = new FileScorecardStore(STORE_DIR);
 
@@ -88,21 +88,21 @@ const writeFixture = (name: string, lines: Line[]): string => {
   return file;
 };
 
-// opencode-proxy 捕获形状：stopReason 落在 x_cannbay.data，不在 message.stop_reason
+// opencode-proxy 捕获形状：stopReason 落在 x_lake.data，不在 message.stop_reason
 function proxyCapture(name: string, sid: string, stopReason: string): string {
   const file = path.join(TMP, `${name}.jsonl`);
   fs.writeFileSync(file, [
     JSON.stringify({
       type: 'user', message: { role: 'user', content: '帮我写个函数' }, timestamp: stamp(),
       source: 'opencode-proxy',
-      x_cannbay: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } },
+      x_lake: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } },
     }),
     JSON.stringify({
       type: 'assistant',
       message: { role: 'assistant', id: `m_${sid}`, content: [{ type: 'text', text: '正文' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 5 } },
       timestamp: stamp(),
       source: 'opencode-proxy',
-      x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', stopReason, status: 200 } },
+      x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0, protocol: 'openai', stopReason, status: 200 } },
     }),
     JSON.stringify({
       type: 'assistant',
@@ -110,11 +110,11 @@ function proxyCapture(name: string, sid: string, stopReason: string): string {
       timestamp: stamp(),
       source: 'opencode-proxy',
       // 中间轮 stopReason=tool_calls（非终态）——后面没有终态行时不应据此判"正常"
-      x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 1, protocol: 'openai', stopReason: 'tool_calls', status: 200 } },
+      x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 1, protocol: 'openai', stopReason: 'tool_calls', status: 200 } },
     }),
   ].join('\n') + '\n');
   fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({
-    x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'openai', sid } },
+    x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'openai', sid } },
   }));
   return file;
 }
@@ -329,7 +329,7 @@ describe('端到端：导入 → 确定性层 → 六维评分卡', () => {
     expect(await store.get(session!.id)).toBeNull();
   });
 
-  it('opencode-proxy 截断（x_cannbay.data.stopReason=length）→ 整卡中止', async () => {
+  it('opencode-proxy 截断（x_lake.data.stopReason=length）→ 整卡中止', async () => {
     await importFixture(SID_PROXY_TRUNC, proxyCapture('proxy-trunc', SID_PROXY_TRUNC, 'length'));
     const assembled = await assembleInput(SID_PROXY_TRUNC, prisma);
     expect(assembled!.input.finishReason).toBe('truncated');
@@ -471,7 +471,7 @@ describe('API 层：semantic NDJSON 流式进度', () => {
       const done = lines.find(l => l['type'] === 'done');
       const errored = lines.filter(l => l['type'] === 'error');
 
-      // 内置 LLM 子项 11 个（D1×2 + D2×2 + D3×5 + D5×1 + D6×1；CANN-Bench 评分走用户填报不占 LLM；项目说明相关性已删），每项跑前跑后各推一条
+      // 内置 LLM 子项 11 个（D1×2 + D2×2 + D3×5 + D5×1 + D6×1；基准测试评分走用户填报不占 LLM；项目说明相关性已删），每项跑前跑后各推一条
       expect(progresses.length).toBe(22);
       expect(progresses[0]).toMatchObject({ type: 'progress', done: 0, total: 11 });
       expect(errored).toEqual([]);

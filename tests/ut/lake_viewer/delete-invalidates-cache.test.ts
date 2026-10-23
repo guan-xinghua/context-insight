@@ -6,8 +6,8 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 删除后 lake_viewer 导入态失效 IT（现场：先进入 cannbay（清单缓存已热）→
-// 主界面删除 session → 再进 cannbay 仍显示「已导入」，点击直达 URL 404 且
+// 删除后 lake_viewer 导入态失效 IT（现场：先进入 lake viewer（清单缓存已热）→
+// 主界面删除 session → 再进 lake viewer 仍显示「已导入」，点击直达 URL 404 且
 // 无法重导）。根因：runs.ts 的 insightCache（30s TTL）/lakeCache（60s）只在
 // import 与 notes 路由失效，/api/ingest/delete-session 删完不清——TTL 窗口
 // 内已导入态保持陈旧。本 IT 先拉清单热缓存，再走删除路由，随后立刻重拉：

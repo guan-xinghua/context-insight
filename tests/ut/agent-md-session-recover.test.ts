@@ -27,7 +27,7 @@ describe('recoverAgentMdFromSystem（system 注入恢复——正常会话主路
     for (const f of fs.readdirSync(path.join(FIXTURE_DIR, 'ses_norm_fixture', 'subagents'))) {
       if (!f.endsWith('.meta.json')) continue;
       const meta = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'ses_norm_fixture', 'subagents', f), 'utf-8'));
-      const at = (meta.x_lake ?? meta.x_cannbay)?.data?.agentType ?? meta.agentType;
+      const at = (meta.x_lake)?.data?.agentType ?? meta.agentType;
       if (at) agentTypes.add(at);
     }
     expect(agentTypes.size).toBe(19);
@@ -60,9 +60,9 @@ describe('recoverAgentMdFromSystem（system 注入恢复——正常会话主路
     expect(r!.content).toContain('## 你的角色');
   });
 
-  it('x_cannbay.data.system 优先于 legacy 顶层 system（双轨契约）', () => {
-    // fixture 的 assistant 行同时带两个字段且值一致（x_cannbay 是权威源）——
-    // 构造一个 x_cannbay 与 legacy 不一致的用例验证优先级
+  it('x_lake.data.system 优先于 legacy 顶层 system（双轨契约）', () => {
+    // fixture 的 assistant 行同时带两个字段且值一致（x_lake 是权威源）——
+    // 构造一个 x_lake 与 legacy 不一致的用例验证优先级
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sys-recover-'));
     const subDir = path.join(tmp, 'ses_x', 'subagents');
     fs.mkdirSync(subDir, { recursive: true });
@@ -72,7 +72,7 @@ describe('recoverAgentMdFromSystem（system 注入恢复——正常会话主路
         type: 'assistant',
         message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
         system: '# legacy-should-lose\n\nlegacy 正文。',
-        x_cannbay: { schema: 'cc-wire-round', version: 1, data: { system: '# winner\n\n权威正文。' } },
+        x_lake: { schema: 'cc-wire-round', version: 1, data: { system: '# winner\n\n权威正文。' } },
       }) + '\n'
     );
     fs.writeFileSync(

@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// D7 用户自定义维度存取（组模型）：~/.cannbot-insight/user-definitions/<groupId>.group.json。
+// D7 用户自定义维度存取（组模型）：~/.context-insight/user-definitions/<groupId>.group.json。
 // 一个组 = 一套标准，组内维度一条条增删改（客户端编辑整组后整组保存）。
 // 评分是后端执行的，定义必须后端读得到（localStorage 后端不可见，已定走文件）。
 

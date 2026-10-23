@@ -43,27 +43,24 @@ describe('跨包源码零内置凭据（防回潮锁）', () => {
 
 describe('平台中性哨兵（平台化 P1-P3 防回潮锁，词表源 sensitive-info-audit）', () => {
   // 私仓/组织/用户名/预设名/env 旧前缀——src 零容忍（任何命中都是回潮）。
-  // CANNbay/CANNBay 是合法品牌显示名（branding.ts BAY_NAME 常量的字面量，
-  // pack-context 翻转为 contextBay）——白名单三个合法居所，其他文件出现
-  // 品牌字面量（应经 BAY_NAME 常量引用）即回潮
+  // contextBay 是主品牌 Bay 显示名（branding.ts BAY_NAME 常量字面量），
+  // CANNbay/CANNBay 仅存在于 cannbot 变体打包面（pack-cannbot 翻转）——
+  // src 其他文件出现品牌字面量（应经 BAY_NAME 常量引用）即回潮。
+  // x_cannbay 是已退役的旧信封键（v0.2.41 起单轨 x_lake）——任何出现都是
+  // 退役轨回潮。
   const FORBIDDEN_ANYWHERE = [
     'atomgit', 'TTELab', 'guanxinghua', 'cann_corpus', 'trace_corpus',
-    'CANNBAY2_', 'cannbay-lake', 'cannbay2',
+    'CANNBAY2_', 'cannbay-lake', 'cannbay2', 'x_cannbay',
   ];
   const BRAND_NAME_FILES = new Set([
     'insight/src/lib/branding.ts',
-    'insight/scripts/pack-context.mjs',
-    'insight/tests/e2e/context-pack.test.ts',
+    'insight/scripts/pack-cannbot.mjs',
+    'insight/tests/e2e/cannbot-pack.test.ts',
   ]);
-  // cannbay 裸形态：仅允许三个白名单上下文——x_cannbay 双名信封键（P3 过渡）、
-  // cannbay-auth.json 读兜底字面量（P1 兼容）、以其为前缀的标识符（xB* 局部
-  // 变量名在双名臂旁随行）。白名单以"该行同时含 x_lake 或 lake-auth 或
-  // 豁免串本身"判定——离开双名语境的 cannbay 即回潮
-  const CANNBAY_LINE_OK = /x_cannbay|cannbay-auth\.json|lake-schema-spec/;
   // 品牌名白名单文件内 CANNbay/CANNBay 合法（branding 字面量/翻转规则/探针）
   const BRAND_FORMS = /CANNBay|CANNbay/;
 
-  it('双包 src 词表扫描归零（私址/组织/用户名/预设名/env 旧前缀/品牌变体）', () => {
+  it('双包 src 词表扫描归零（私址/组织/用户名/预设名/env 旧前缀/品牌变体/旧信封键）', () => {
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -82,8 +79,8 @@ describe('平台中性哨兵（平台化 P1-P3 防回潮锁，词表源 sensitiv
           if (!isBrandFile && BRAND_FORMS.test(line)) {
             offenders.push(`${relPath}:${i + 1} [brand-literal-outside-allowed] ${line.trim().slice(0, 80)}`);
           }
-          // 裸 cannbay（非白名单上下文行）
-          if (/(^|[^_\w-])cannbay([^_\w-]|$)/.test(line) && !CANNBAY_LINE_OK.test(line)) {
+          // 裸 cannbay（旧品牌词根，任何上下文都是回潮）
+          if (/(^|[^_\w-])cannbay([^_\w-]|$)/.test(line)) {
             offenders.push(`${relPath}:${i + 1} [bare-cannbay] ${line.trim().slice(0, 80)}`);
           }
         });
@@ -93,7 +90,7 @@ describe('平台中性哨兵（平台化 P1-P3 防回潮锁，词表源 sensitiv
     expect(offenders, `平台化词表回潮（敏感词治理见 sensitive-info-audit；白名单外命中即红）:\n${offenders.join('\n')}`).toEqual([]);
   });
 
-  it('cpx 侧信封写点必须双名（旧键写点前 25 行窗口内须有配对 x_lake 写点）', () => {
+  it('cpx 信封写点单轨（x_cannbay 写点 = 旧键退役轨回潮，v0.2.41 起只写 x_lake）', () => {
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -102,15 +99,12 @@ describe('平台中性哨兵（平台化 P1-P3 防回潮锁，词表源 sensitiv
         if (!/\.ts$/.test(e.name)) continue;
         const lines = fs.readFileSync(full, 'utf8').split('\n');
         lines.forEach((line, i) => {
-          if (/x_cannbay: xLake\(/.test(line)) {
-            const window = lines.slice(Math.max(0, i - 25), i + 1).join('\n');
-            if (!/x_lake: xLake\(/.test(window)) offenders.push(`${rel(full)}:${i + 1}`);
-          }
+          if (/x_cannbay\s*:/.test(line)) offenders.push(`${rel(full)}:${i + 1}`);
         });
       }
     };
     walk(ROOTS[0]);
-    expect(offenders, `cpx 信封写点单名（必须 x_lake + 旧键双挂——双名变换形态为 x_lake 在前、旧键紧随信封对象体之后）:\n${offenders.join('\n')}`).toEqual([]);
+    expect(offenders, `cpx 信封写点回潮旧键（信封一律走 x_lake，旧键已退役）:\n${offenders.join('\n')}`).toEqual([]);
   });
 });
 

@@ -58,7 +58,7 @@
     },
     {
       "id": "n3",
-      "skill": "ascendc-env-check",
+      "skill": "acme-env-check",
       "step": "1.1 开发准备",
       "type": "invoke",
       "turn": 3,
@@ -89,7 +89,7 @@
     },
     {
       "id": "n5",
-      "skill": "ascendc-ops-architect",
+      "skill": "acme-ops-architect",
       "step": "1.2.5 spec生成",
       "type": "dispatch",
       "turn": 5,
@@ -103,7 +103,7 @@
           "severity": "medium",
           "evidence": "其产出的 spec 被 1.2.5R 评审退回 (turn 7→8 重跑)",
           "diagnosis": "首轮 spec 存在 设计逻辑错误/一致性违规，未过 13 条 SPEC-* 评审",
-          "suggestion": "ascendc-ops-architect 生成 spec.yaml 前内置 13 条 SPEC-* 条款自检"
+          "suggestion": "acme-ops-architect 生成 spec.yaml 前内置 13 条 SPEC-* 条款自检"
         }
       ]
     },
@@ -129,7 +129,7 @@
     },
     {
       "id": "n7",
-      "skill": "ascendc-ops-design-reviewer",
+      "skill": "acme-ops-design-reviewer",
       "step": "1.2.5R spec评审",
       "type": "dispatch",
       "turn": 7,
@@ -180,7 +180,7 @@
     },
     {
       "id": "n10",
-      "skill": "ascendc-env-check",
+      "skill": "acme-env-check",
       "step": "1.3a 设计准备(支撑)",
       "type": "invoke",
       "turn": 10,
@@ -194,13 +194,13 @@
           "severity": "low",
           "evidence": "env-check 第 2 次 (turn 10, line 8054)",
           "diagnosis": "环境信息不会变化，重复调用属冗余",
-          "suggestion": "ascendc-env-check 结果在 session 内缓存，避免重复执行"
+          "suggestion": "acme-env-check 结果在 session 内缓存，避免重复执行"
         }
       ]
     },
     {
       "id": "n11",
-      "skill": "ascendc-docs-gen",
+      "skill": "acme-docs-gen",
       "step": "1.3a 设计准备(支撑)",
       "type": "invoke",
       "turn": 11,
@@ -211,7 +211,7 @@
     },
     {
       "id": "n12",
-      "skill": "ascendc-docs-search",
+      "skill": "acme-docs-search",
       "step": "1.3a 设计准备(支撑)",
       "type": "invoke",
       "turn": 12,
@@ -242,7 +242,7 @@
     },
     {
       "id": "n14",
-      "skill": "ascendc-ops-designer",
+      "skill": "acme-ops-designer",
       "step": "1.3a 设计准备",
       "type": "dispatch",
       "turn": 14,
@@ -273,7 +273,7 @@
     },
     {
       "id": "n16",
-      "skill": "ascendc-regbase-best-practice",
+      "skill": "acme-regbase-best-practice",
       "step": "1.3a 设计参考",
       "type": "invoke",
       "turn": 16,
@@ -284,7 +284,7 @@
     },
     {
       "id": "n17",
-      "skill": "ascendc-ops-design-overview",
+      "skill": "acme-ops-design-overview",
       "step": "1.3c 并行分段(5×)",
       "type": "dispatch",
       "turn": 17,
@@ -295,7 +295,7 @@
     },
     {
       "id": "n18",
-      "skill": "ascendc-ops-design-architecture",
+      "skill": "acme-ops-design-architecture",
       "step": "1.3c 并行分段(5×)",
       "type": "dispatch",
       "turn": 17,
@@ -306,7 +306,7 @@
     },
     {
       "id": "n19",
-      "skill": "ascendc-ops-design-implementation",
+      "skill": "acme-ops-design-implementation",
       "step": "1.3c 并行分段(5×)",
       "type": "dispatch",
       "turn": 17,
@@ -320,13 +320,13 @@
           "severity": "medium",
           "evidence": "1.3d 组装校验失败，implementation 分段重炉 (turn 22, line 23248)",
           "diagnosis": "分段输出未通过 1.3d 组装校验（分段边界/接口不一致），指令遵循不达标",
-          "suggestion": "ascendc-ops-design-implementation 输出前内置组装自检（按 section-map.md 边界 + sibling 接口一致性），降低重炉率"
+          "suggestion": "acme-ops-design-implementation 输出前内置组装自检（按 section-map.md 边界 + sibling 接口一致性），降低重炉率"
         }
       ]
     },
     {
       "id": "n20",
-      "skill": "ascendc-ops-design-quality",
+      "skill": "acme-ops-design-quality",
       "step": "1.3c 并行分段(5×)",
       "type": "dispatch",
       "turn": 17,
@@ -337,7 +337,7 @@
     },
     {
       "id": "n21",
-      "skill": "ascendc-ops-design-plan",
+      "skill": "acme-ops-design-plan",
       "step": "1.3c 并行分段(5×)",
       "type": "dispatch",
       "turn": 17,
@@ -351,13 +351,13 @@
           "severity": "medium",
           "evidence": "1.3d 组装校验失败，plan 分段重炉 (turn 23, line 23249)",
           "diagnosis": "分段输出未通过 1.3d 组装校验，指令遵循不达标",
-          "suggestion": "ascendc-ops-design-plan 内置组装自检"
+          "suggestion": "acme-ops-design-plan 内置组装自检"
         }
       ]
     },
     {
       "id": "n22",
-      "skill": "ascendc-ops-design-implementation",
+      "skill": "acme-ops-design-implementation",
       "step": "1.3d 失败分段重炉",
       "type": "dispatch",
       "turn": 22,
@@ -377,7 +377,7 @@
     },
     {
       "id": "n23",
-      "skill": "ascendc-ops-design-plan",
+      "skill": "acme-ops-design-plan",
       "step": "1.3d 失败分段重炉",
       "type": "dispatch",
       "turn": 23,
@@ -397,7 +397,7 @@
     },
     {
       "id": "n24",
-      "skill": "ascendc-ops-designer",
+      "skill": "acme-ops-designer",
       "step": "1.3R 方案评审",
       "type": "dispatch",
       "turn": 24,
@@ -408,7 +408,7 @@
     },
     {
       "id": "n25",
-      "skill": "ascendc-ops-tester",
+      "skill": "acme-ops-tester",
       "step": "1.4 测试设计",
       "type": "dispatch",
       "turn": 25,
@@ -422,13 +422,13 @@
           "severity": "medium",
           "evidence": "1.4R 评审退回重做 (turn 29)",
           "diagnosis": "首轮测试设计存在 覆盖缺口/关键用例缺失/spec 一致性违规，完整性不达标",
-          "suggestion": "ascendc-ops-tester 输出 TEST.md 前内置评审条款自检（覆盖缺口/spec 一致性/关键用例）"
+          "suggestion": "acme-ops-tester 输出 TEST.md 前内置评审条款自检（覆盖缺口/spec 一致性/关键用例）"
         }
       ]
     },
     {
       "id": "n26",
-      "skill": "ascendc-ops-design-reviewer",
+      "skill": "acme-ops-design-reviewer",
       "step": "1.4R 测试设计评审",
       "type": "dispatch",
       "turn": 26,
@@ -448,7 +448,7 @@
     },
     {
       "id": "n27",
-      "skill": "ascendc-st-design",
+      "skill": "acme-st-design",
       "step": "1.4 ST测试用例",
       "type": "invoke",
       "turn": 27,
@@ -468,7 +468,7 @@
     },
     {
       "id": "n28",
-      "skill": "ascendc-registry-invoke-template",
+      "skill": "acme-registry-invoke-template",
       "step": "1.4 模板",
       "type": "invoke",
       "turn": 28,
@@ -479,7 +479,7 @@
     },
     {
       "id": "n29",
-      "skill": "ascendc-ops-tester",
+      "skill": "acme-ops-tester",
       "step": "1.4 测试设计(重做)",
       "type": "dispatch",
       "turn": 29,
@@ -499,7 +499,7 @@
     },
     {
       "id": "n30",
-      "skill": "ascendc-ops-design-reviewer",
+      "skill": "acme-ops-design-reviewer",
       "step": "1.4R 测试设计评审(重做)",
       "type": "dispatch",
       "turn": 30,
@@ -510,7 +510,7 @@
     },
     {
       "id": "n31",
-      "skill": "ascendc-st-design",
+      "skill": "acme-st-design",
       "step": "1.4 ST测试用例(重做)",
       "type": "invoke",
       "turn": 31,
@@ -521,7 +521,7 @@
     },
     {
       "id": "n32",
-      "skill": "ascendc-registry-invoke-template",
+      "skill": "acme-registry-invoke-template",
       "step": "1.4 模板(重做)",
       "type": "invoke",
       "turn": 32,
@@ -606,7 +606,7 @@
       "summary": "编排质量高，但缺已加载去重机制"
     },
     {
-      "skill": "ascendc-env-check",
+      "skill": "acme-env-check",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -636,8 +636,8 @@
         "S2": {
           "rating": "weak",
           "note": "被重复调用 2 次，结果本可缓存",
-          "evidence": "§14.1 line 3056 dev-prep 首检，结论 line 3951 '环境检查通过(Ascend950PR/CANN 9.0.0/NPU OK)' 已记 LOG.md；§33.1.5 line 8054 spec-review 子代理冷启动再次加载 env-check 重复检查静态环境",
-          "diagnosis": "NPU/CANN 环境静态且已记 LOG.md，spec-review 子代理冷启动无共享上下文，重复加载 SKILL.md+重复检查无新信息",
+          "evidence": "§14.1 line 3056 dev-prep 首检，结论 line 3951 '环境检查通过(Acme950PR/ACME 9.0.0/NPU OK)' 已记 LOG.md；§33.1.5 line 8054 spec-review 子代理冷启动再次加载 env-check 重复检查静态环境",
+          "diagnosis": "NPU/ACME 环境静态且已记 LOG.md，spec-review 子代理冷启动无共享上下文，重复加载 SKILL.md+重复检查无新信息",
           "suggestion": "env-check 结果写入会话级 LOG.md 后，后续子代理直接读 LOG.md 而非重载 skill+重检；或工作流层把环境结论下传"
         },
         "S3": {
@@ -648,7 +648,7 @@
       "summary": "功能正常但缺 session 内缓存"
     },
     {
-      "skill": "ascendc-ops-architect",
+      "skill": "acme-ops-architect",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -786,7 +786,7 @@
       "summary": "需内置 SPEC+9-stage 自检降低退回"
     },
     {
-      "skill": "ascendc-ops-design-reviewer",
+      "skill": "acme-ops-design-reviewer",
       "occurrences": 3,
       "ratings": {
         "G1": {
@@ -867,7 +867,7 @@
       "summary": "功能正常但缺缓存"
     },
     {
-      "skill": "ascendc-docs-gen",
+      "skill": "acme-docs-gen",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -906,7 +906,7 @@
       "summary": "正常"
     },
     {
-      "skill": "ascendc-docs-search",
+      "skill": "acme-docs-search",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -945,7 +945,7 @@
       "summary": "正常"
     },
     {
-      "skill": "ascendc-ops-designer",
+      "skill": "acme-ops-designer",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -984,7 +984,7 @@
       "summary": "质量高"
     },
     {
-      "skill": "ascendc-regbase-best-practice",
+      "skill": "acme-regbase-best-practice",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -1023,7 +1023,7 @@
       "summary": "正常"
     },
     {
-      "skill": "ascendc-ops-design-overview",
+      "skill": "acme-ops-design-overview",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -1062,7 +1062,7 @@
       "summary": "正常"
     },
     {
-      "skill": "ascendc-ops-design-architecture",
+      "skill": "acme-ops-design-architecture",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -1101,7 +1101,7 @@
       "summary": "正常"
     },
     {
-      "skill": "ascendc-ops-design-implementation",
+      "skill": "acme-ops-design-implementation",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -1116,7 +1116,7 @@
           "note": "1.3d 组装校验失败——分段边界/接口不一致，指令遵循不达标",
           "evidence": "n19 (turn 17) 首轮 5×并行分段中 implementation 分段未通过 1.3d 组装校验：相邻分段 section 边界重叠/留白、sibling 接口签名（输入 tensor 形状/数据类型）与 plan 段不一致（line ~23000 校验 FAIL 输出）",
           "diagnosis": "SKILL.md/agent 定义要求\"按 section-map 切片\"但未强制输出前做 sibling 接口一致性自检；各并行分段独立生成、无共享接口契约，导致边界拼不上",
-          "suggestion": "ascendc-ops-design-implementation 的 agent 定义新增输出前自检步骤：①对照 section-map.md 确认本段起止边界与相邻段无重叠/留白 ②核对 sibling 接口签名（tensor 形状/dtype/axis）一致 ③自检不过则就地修正后再返回，避免上抛给 1.3d 兜底"
+          "suggestion": "acme-ops-design-implementation 的 agent 定义新增输出前自检步骤：①对照 section-map.md 确认本段起止边界与相邻段无重叠/留白 ②核对 sibling 接口签名（tensor 形状/dtype/axis）一致 ③自检不过则就地修正后再返回，避免上抛给 1.3d 兜底"
         },
         "G3": {
           "rating": "pass",
@@ -1186,7 +1186,7 @@
       "summary": "需内置组装自检（按 section-map 边界 + sibling 接口）"
     },
     {
-      "skill": "ascendc-ops-design-quality",
+      "skill": "acme-ops-design-quality",
       "occurrences": 1,
       "ratings": {
         "G1": {
@@ -1225,7 +1225,7 @@
       "summary": "正常"
     },
     {
-      "skill": "ascendc-ops-design-plan",
+      "skill": "acme-ops-design-plan",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -1264,7 +1264,7 @@
             {
               "category": "reference",
               "severity": "high",
-              "issue": "agent 定义(章节边界/标题契约)仅引用 'agents/ascendc-ops-design-plan.md'(line 20558/20561/20599)未内嵌，子代理上下文里没有 sibling 接口契约",
+              "issue": "agent 定义(章节边界/标题契约)仅引用 'agents/acme-ops-design-plan.md'(line 20558/20561/20599)未内嵌，子代理上下文里没有 sibling 接口契约",
               "snippet": "内容约束、章节边界、标题契约全部按 Agent 定义执行",
               "suggestion": "内嵌 agent 定义或固定路径+接口表摘要"
             },
@@ -1310,7 +1310,7 @@
       "summary": "需内置组装自检"
     },
     {
-      "skill": "ascendc-ops-tester",
+      "skill": "acme-ops-tester",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -1362,7 +1362,7 @@
             {
               "category": "reference",
               "severity": "low",
-              "issue": "依赖 ascendc-st-design 生成路径，tester SKILL 未内嵌 dimensions→boundary 映射",
+              "issue": "依赖 acme-st-design 生成路径，tester SKILL 未内嵌 dimensions→boundary 映射",
               "suggestion": "内嵌 boundary 枚举映射或固定引用"
             }
           ]
@@ -1382,7 +1382,7 @@
       "summary": "需内置评审条款自检提升首轮完整性"
     },
     {
-      "skill": "ascendc-st-design",
+      "skill": "acme-st-design",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -1424,7 +1424,7 @@
       "summary": "质量高，阶段归属待 SKILL.md 明确"
     },
     {
-      "skill": "ascendc-registry-invoke-template",
+      "skill": "acme-registry-invoke-template",
       "occurrences": 2,
       "ratings": {
         "G1": {
@@ -1519,13 +1519,13 @@
   "optimizationPriorities": [
     {
       "priority": 1,
-      "target": "skill:ascendc-ops-design-implementation / ascendc-ops-design-plan (G2)",
+      "target": "skill:acme-ops-design-implementation / acme-ops-design-plan (G2)",
       "action": "输出前内置 1.3d 组装自检（section-map 边界 + sibling 接口一致性）",
       "expectedGain": "降低 1.3c 40% 重炉率，省 1 轮并行 dispatch"
     },
     {
       "priority": 2,
-      "target": "skill:ops-spec-gen / ascendc-ops-architect (G1/G4) / ascendc-ops-tester (G4)",
+      "target": "skill:ops-spec-gen / acme-ops-architect (G1/G4) / acme-ops-tester (G4)",
       "action": "生成时内置评审条款（13 SPEC-* / TEST 评审项）自检",
       "expectedGain": "消除 1.2.5 与 1.4 两个评审退回周期"
     },
@@ -1537,7 +1537,7 @@
     },
     {
       "priority": 4,
-      "target": "skill:ascendc-env-check / npu-arch (S2)",
+      "target": "skill:acme-env-check / npu-arch (S2)",
       "action": "session 内缓存结果，避免重复 invoke",
       "expectedGain": "省 2-3 次冗余调用"
     },

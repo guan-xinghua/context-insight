@@ -68,7 +68,7 @@ describe('classifyProxyCapture 代际信号', () => {
   it('Gen6 cannbot（opencode 系 fork）：meta framework=cannbot 权威判定，marker 派生 cannbot-proxy', () => {
     const f = tmpCapture(
       [{ type: 'user', message: { role: 'user', content: 'go' }, source: 'cannbot-proxy', tools: [{ name: 'bash' }] }],
-      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid: 'x' } } }
+      { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid: 'x' } } }
     );
     expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'cannbot-proxy', framework: 'cannbot', via: 'meta' });
   });
@@ -76,7 +76,7 @@ describe('classifyProxyCapture 代际信号', () => {
   it('Gen7 dsh（DeepSeek Harness，anthropic 协议）：meta framework=dsh 权威判定，marker 派生 dsh-proxy', () => {
     const f = tmpCapture(
       [{ type: 'user', message: { role: 'user', content: 'go' }, source: 'dsh-proxy', tools: [{ name: 'bash' }] }],
-      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'dsh', protocol: 'anthropic', sid: 'session-x' } } }
+      { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'dsh', protocol: 'anthropic', sid: 'session-x' } } }
     );
     expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'dsh-proxy', framework: 'dsh', via: 'meta' });
   });
@@ -88,7 +88,7 @@ describe('classifyProxyCapture 代际信号', () => {
     expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'dsh-proxy', framework: 'dsh', via: 'source-line' });
   });
 
-  it('历史污染导出件（裸 source:claude-proxy 无 wire/x_cannbay）不算 proxy 捕获（a25ebdfd 前上传件回归）', () => {
+  it('历史污染导出件（裸 source:claude-proxy 无 wire/x_lake）不算 proxy 捕获（a25ebdfd 前上传件回归）', () => {
     const f = tmpCapture([
       { type: 'user', message: { role: 'user', content: 'go' }, source: 'claude-proxy', duration_ms: 1200 },
       { type: 'assistant', message: { role: 'assistant', id: 'a1', content: [{ type: 'text', text: 'ok' }], model: 'm', usage: { input_tokens: 1, output_tokens: 1 } }, source: 'claude-proxy', duration_ms: 3400 },
@@ -96,9 +96,9 @@ describe('classifyProxyCapture 代际信号', () => {
     expect(classifyProxyCapture(f)).toEqual({ isProxy: false, marker: null, framework: null, via: null });
   });
 
-  it('行级标记 + x_cannbay 声明（无 legacy system/tools）仍是 proxy', () => {
+  it('行级标记 + x_lake 声明（无 legacy system/tools）仍是 proxy', () => {
     const f = tmpCapture([
-      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, source: 'opencode-proxy', x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0 } } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, source: 'opencode-proxy', x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: 0 } } },
     ]);
     expect(classifyProxyCapture(f)).toMatchObject({ isProxy: true, framework: 'opencode', via: 'source-line' });
   });
@@ -106,7 +106,7 @@ describe('classifyProxyCapture 代际信号', () => {
   it('Gen4 meta.json cc-session-meta 是文件级权威源，优先于行级标记', () => {
     const f = tmpCapture(
       [{ type: 'user', message: { role: 'user', content: 'go' }, source: 'claude-proxy' }],
-      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'codex', protocol: 'responses', sid: 'x' } } }
+      { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'codex', protocol: 'responses', sid: 'x' } } }
     );
     const c = classifyProxyCapture(f);
     expect(c).toEqual({ isProxy: true, marker: 'codex-proxy', framework: 'codex', via: 'meta' });
@@ -115,7 +115,7 @@ describe('classifyProxyCapture 代际信号', () => {
   it('meta framework 值归一化：claude → claude-code / claude-code 直存', () => {
     const mk = (fw: string) => tmpCapture(
       [{ type: 'user', message: { role: 'user', content: 'go' } }],
-      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: fw } } }
+      { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: fw } } }
     );
     expect(classifyProxyCapture(mk('claude')).framework).toBe('claude-code');
     expect(classifyProxyCapture(mk('claude-code')).framework).toBe('claude-code');
@@ -125,7 +125,7 @@ describe('classifyProxyCapture 代际信号', () => {
   it('insight-export 的 meta（producer 门禁）不算 proxy 捕获', () => {
     const f = tmpCapture(
       [{ type: 'user', message: { role: 'user', content: 'go' } }],
-      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'opencode' } } }
+      { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'opencode' } } }
     );
     const c = classifyProxyCapture(f);
     expect(c.isProxy).toBe(false);
@@ -143,7 +143,7 @@ describe('classifyProxyCapture 代际信号', () => {
   it('未知 meta framework / 破损 meta 回退下一级信号', () => {
     const f = tmpCapture(
       [{ type: 'user', message: { role: 'user', content: 'go' }, source: 'opencode-proxy', tools: [{ name: 'bash' }] }],
-      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'future-agent' } } }
+      { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'future-agent' } } }
     );
     expect(classifyProxyCapture(f)).toMatchObject({ framework: 'opencode', via: 'source-line' });
   });

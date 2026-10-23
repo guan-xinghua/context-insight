@@ -6,8 +6,8 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 数据湖服务端偏好存储（address/branch/directory）：~/.cannbot-insight/lake-config.json
-// （0600 + 原子写；与 lake-auth.json 同目录纪律——CANNBOT_PROXY_DIR 重定向优先，
+// 数据湖服务端偏好存储（address/branch/directory）：~/.context-insight/lake-config.json
+// （0600 + 原子写；与 lake-auth.json 同目录纪律——CONTEXT_PROXY_DIR 重定向优先，
 // 测试/多实例隔离）。动机：viewer 等服务端消费面（defaultLakeRemote）没有请求体
 // 配置通道，此前只能吃 env——用户在设置页配好的远端对 viewer 不可见（"一次配置
 // 全机生效"只兑现了凭据一半）。设置页保存时地址/分支/目录同时落服务端文件 +
@@ -26,10 +26,10 @@ export interface ServerLakeConfig {
   lfs?: boolean;
 }
 
-// 与 lake-auth.json 同目录（'.cannbot-insight' 引号字面量是 pack-context 品牌翻转点）
+// 与 lake-auth.json 同目录（'.context-insight' 引号字面量是 pack-cannbot 品牌翻转点）
 export function serverConfigPath(): string {
   return path.join(
-    path.dirname(process.env.CANNBOT_PROXY_DIR ?? path.join(os.homedir(), '.cannbot-insight', 'proxy')),
+    path.dirname(process.env.CONTEXT_PROXY_DIR ?? path.join(os.homedir(), '.context-insight', 'proxy')),
     'lake-config.json',
   );
 }

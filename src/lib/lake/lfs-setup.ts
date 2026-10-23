@@ -9,9 +9,9 @@
 // insight 侧 git-lfs 自举（与 cpx src/lfs-setup.ts 受控双实现——命令常量/
 // 资产命名/sha256 pin 表一致，parity 由两侧 IT 锁定）。用户场景：纯 insight
 // 安装（无 cpx）首次上传 LFS 默认开——缺 git-lfs 不再要求用户手工安装，
-// 自动下载私有件到 ~/.cannbot-insight/bin（与 cpx 自举产物同位复用，零全局
+// 自动下载私有件到 ~/.context-insight/bin（与 cpx 自举产物同位复用，零全局
 // 污染）。版本 pin + sha256 校验（源：git-lfs v3.8.0 release sha256sums.asc），
-// 下载源支持 env CANNBOT_CPX_LFS_BASE 覆写（与 cpx 同名——用户配一次两用），
+// 下载源支持 env CONTEXT_CPX_LFS_BASE 覆写（与 cpx 同名——用户配一次两用），
 // 失败降级为指引报错（不比无自举的现状差）。
 
 import { spawnSync } from 'node:child_process';
@@ -45,15 +45,15 @@ export function lfsAssetName(key: string): string {
 }
 
 export function lfsDownloadUrl(key: string, baseUrl?: string): string {
-  const base = (baseUrl ?? process.env.CANNBOT_CPX_LFS_BASE ?? DEFAULT_BASE).replace(/\/+$/, '');
+  const base = (baseUrl ?? process.env.CONTEXT_CPX_LFS_BASE ?? DEFAULT_BASE).replace(/\/+$/, '');
   return `${base}/v${GIT_LFS_VERSION}/${lfsAssetName(key)}`;
 }
 
-/** 私有 bin 目录（~/.cannbot-insight/bin；CANNBOT_PROXY_DIR 重定向优先——
- *  与 cpx 自举产物同位互用，测试隔离同语义）。'.cannbot-insight' 引号字面量
- *  由 pack-context 规则表品牌翻转（context 变体 → ~/.context-insight/bin）。 */
+/** 私有 bin 目录（~/.context-insight/bin；CONTEXT_PROXY_DIR 重定向优先——
+ *  与 cpx 自举产物同位互用，测试隔离同语义）。'.context-insight' 引号字面量
+ *  由 pack-cannbot 规则表品牌翻转（cannbot 变体 → ~/.cannbot-insight/bin）。 */
 export function privateLfsBinDir(): string {
-  return path.join(path.dirname(process.env.CANNBOT_PROXY_DIR ?? path.join(os.homedir(), '.cannbot-insight', 'proxy')), 'bin');
+  return path.join(path.dirname(process.env.CONTEXT_PROXY_DIR ?? path.join(os.homedir(), '.context-insight', 'proxy')), 'bin');
 }
 
 export function lfsBinaryPath(): string {
@@ -74,14 +74,14 @@ export function privateGitLfsOk(): boolean {
 
 export function lfsSetupGuidance(reason: string): string {
   return `LFS 模式需要 git-lfs，自动获取失败（${reason}）。出路：
-  1. 配置可达镜像后重试上传（将自动重试自举）：CANNBOT_CPX_LFS_BASE=<镜像基址>（按 git-lfs releases/download 路径结构镜像，如 https://gh-proxy.com/https://github.com/git-lfs/git-lfs/releases/download）
+  1. 配置可达镜像后重试上传（将自动重试自举）：CONTEXT_CPX_LFS_BASE=<镜像基址>（按 git-lfs releases/download 路径结构镜像，如 https://gh-proxy.com/https://github.com/git-lfs/git-lfs/releases/download）
   2. 系统安装 git-lfs 并确保在 PATH：https://git-lfs.github.com（apt install git-lfs / brew install git-lfs）
   3. 关闭 LFS 走普通 git 存储：LAKE_LFS=0（受 git 仓容量配额钳制）`;
 }
 
 export interface LfsSetupDeps {
   fetchImpl?: typeof fetch;
-  /** 测试注入：覆写下载基址（缺省 env CANNBOT_CPX_LFS_BASE > GitHub 官方） */
+  /** 测试注入：覆写下载基址（缺省 env CONTEXT_CPX_LFS_BASE > GitHub 官方） */
   baseUrl?: string;
   /** 测试注入：覆写期望 sha256（缺省 = pin 表） */
   sha256?: string;
@@ -118,7 +118,7 @@ function findBinary(root: string): string | null {
 }
 
 /** 确保 git-lfs 私有件可用：已就绪（私有件在位）→ 跳过；否则自动下载
- *  （sha256 校验）安装到 ~/.cannbot-insight/bin。全部失败抛指引错误
+ *  （sha256 校验）安装到 ~/.context-insight/bin。全部失败抛指引错误
  *  （上传路径据此拒绝，捕获保留本地）。系统件的解析由镜像侧 PATH 前置
  *  完成（系统件优先于私有件）。 */
 export async function ensureLfsBinaryAvailable(deps: LfsSetupDeps = {}): Promise<void> {
@@ -132,7 +132,7 @@ export async function ensureLfsBinaryAvailable(deps: LfsSetupDeps = {}): Promise
   const url = lfsDownloadUrl(key, deps.baseUrl);
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), `insight-lfs-setup-${process.pid}-`));
   try {
-    log(`git-lfs 自举：下载 ${url}（约 6MB，慢网络可设 CANNBOT_CPX_LFS_BASE 镜像）`);
+    log(`git-lfs 自举：下载 ${url}（约 6MB，慢网络可设 CONTEXT_CPX_LFS_BASE 镜像）`);
     const res = await (deps.fetchImpl ?? fetch)(url, { signal: AbortSignal.timeout(120_000) });
     if (!res.ok) throw new Error(`下载 HTTP ${res.status}`);
     fs.writeFileSync(path.join(staging, lfsAssetName(key)), Buffer.from(await res.arrayBuffer()));

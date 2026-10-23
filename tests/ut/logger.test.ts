@@ -9,8 +9,8 @@
 // 统一 logger 机制单测：级别过滤 / 总开关 / 懒初始化 / 文件+stdout 双写 /
 // 按天滚动 / env>设置文件优先级 / 热重读 / 单行格式与脱敏。
 // 断言一律打在文件内容上（vitest silent passed-only 会静默 stdout）。
-// 隔离：CANNBOT_LOG_DIR + CANNBOT_LOG_CONFIG 指 mkdtemp（judge-log 晚赋值先例），
-// beforeAll 删掉 setup.ts 的全局静音 CANNBOT_LOG，afterAll 恢复。
+// 隔离：CONTEXT_LOG_DIR + CONTEXT_LOG_CONFIG 指 mkdtemp（judge-log 晚赋值先例），
+// beforeAll 删掉 setup.ts 的全局静音 CONTEXT_LOG，afterAll 恢复。
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,11 +19,11 @@ import path from 'node:path';
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-logger-'));
 const LOG_DIR = path.join(TMP, 'logs');
 const CFG_FILE = path.join(TMP, 'logger-config.json');
-process.env.CANNBOT_LOG_DIR = LOG_DIR;
-process.env.CANNBOT_LOG_CONFIG = CFG_FILE;
+process.env.CONTEXT_LOG_DIR = LOG_DIR;
+process.env.CONTEXT_LOG_CONFIG = CFG_FILE;
 
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ['CANNBOT_LOG', 'CANNBOT_LOG_LEVEL', 'CANNBOT_LOG_FILE', 'CANNBOT_LOG_STDOUT', 'CANNBOT_LOG_DIR', 'CANNBOT_LOG_CONFIG'] as const;
+const ENV_KEYS = ['CONTEXT_LOG', 'CONTEXT_LOG_LEVEL', 'CONTEXT_LOG_FILE', 'CONTEXT_LOG_STDOUT', 'CONTEXT_LOG_DIR', 'CONTEXT_LOG_CONFIG'] as const;
 
 const logger = await import('../../src/lib/logger');
 const cfg = await import('../../src/lib/logger-config');
@@ -42,10 +42,10 @@ function rmLogs(): void {
 
 beforeAll(() => {
   for (const k of ENV_KEYS) { savedEnv[k] = process.env[k]; }
-  delete process.env.CANNBOT_LOG;   // 抵消 tests/setup.ts 的全局静音
-  delete process.env.CANNBOT_LOG_LEVEL;
-  delete process.env.CANNBOT_LOG_FILE;
-  delete process.env.CANNBOT_LOG_STDOUT;
+  delete process.env.CONTEXT_LOG;   // 抵消 tests/setup.ts 的全局静音
+  delete process.env.CONTEXT_LOG_LEVEL;
+  delete process.env.CONTEXT_LOG_FILE;
+  delete process.env.CONTEXT_LOG_STDOUT;
 });
 
 afterAll(() => {
@@ -84,33 +84,33 @@ describe('logger 核心机制', () => {
     expect(out).toContain('[ERROR][t]:visible-error');
   });
 
-  it('级别过滤：CANNBOT_LOG_LEVEL=error 时 info 不落盘（env 每调用现读，晚赋值生效）', () => {
+  it('级别过滤：CONTEXT_LOG_LEVEL=error 时 info 不落盘（env 每调用现读，晚赋值生效）', () => {
     logger.logInfo('t', 'before-switch');
-    process.env.CANNBOT_LOG_LEVEL = 'error';
+    process.env.CONTEXT_LOG_LEVEL = 'error';
     logger.logInfo('t', 'after-switch');
     logger.logError('t', 'still-there');
     const out = readLog();
     expect(out).toContain('before-switch');
     expect(out).not.toContain('after-switch');
     expect(out).toContain('still-there');
-    delete process.env.CANNBOT_LOG_LEVEL;
+    delete process.env.CONTEXT_LOG_LEVEL;
   });
 
-  it('总开关：CANNBOT_LOG=off → 一行不输出、目录连建都不建', () => {
-    process.env.CANNBOT_LOG = 'off';
+  it('总开关：CONTEXT_LOG=off → 一行不输出、目录连建都不建', () => {
+    process.env.CONTEXT_LOG = 'off';
     logger.logError('t', 'nothing');
     expect(fs.existsSync(LOG_DIR)).toBe(false);
-    delete process.env.CANNBOT_LOG;
+    delete process.env.CONTEXT_LOG;
   });
 
-  it('双写：CANNBOT_LOG_FILE=0 → 文件不建、stdout 通道仍在（console spy 命中）', () => {
-    process.env.CANNBOT_LOG_FILE = '0';
+  it('双写：CONTEXT_LOG_FILE=0 → 文件不建、stdout 通道仍在（console spy 命中）', () => {
+    process.env.CONTEXT_LOG_FILE = '0';
     const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
     logger.logInfo('t', 'stdout-only');
     expect(fs.existsSync(LOG_DIR)).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(String(spy.mock.calls[0][0])).toContain('stdout-only');
-    delete process.env.CANNBOT_LOG_FILE;
+    delete process.env.CONTEXT_LOG_FILE;
   });
 
   it('warn/error 走 console.error、info/debug 走 console.log', () => {
@@ -129,22 +129,22 @@ describe('logger 核心机制', () => {
     logger.logInfo('t', 'filtered-by-file');
     expect(readLog()).not.toContain('filtered-by-file');
 
-    process.env.CANNBOT_LOG_LEVEL = 'debug';
+    process.env.CONTEXT_LOG_LEVEL = 'debug';
     logger.logInfo('t', 'env-overrides-file');
     expect(readLog()).toContain('env-overrides-file');
-    delete process.env.CANNBOT_LOG_LEVEL;
+    delete process.env.CONTEXT_LOG_LEVEL;
   });
 
-  it('设置文件 enabled=false 关日志；env CANNBOT_LOG=1 压过设置页重新打开', () => {
+  it('设置文件 enabled=false 关日志；env CONTEXT_LOG=1 压过设置页重新打开', () => {
     cfg.writeLoggerConfigFile({ enabled: false, level: 'info', file: true, stdout: true });
     logger.resetLoggerForTest();
     logger.logError('t', 'off-by-file');
     expect(fs.existsSync(LOG_DIR)).toBe(false);
 
-    process.env.CANNBOT_LOG = '1';
+    process.env.CONTEXT_LOG = '1';
     logger.logError('t', 'env-reopens');
     expect(readLog()).toContain('env-reopens');
-    delete process.env.CANNBOT_LOG;
+    delete process.env.CONTEXT_LOG;
   });
 
   it('热重读：改设置文件 + reset 后新级别即时生效（设置页保存路径）', () => {
@@ -186,16 +186,16 @@ describe('logger 核心机制', () => {
     expect(line).not.toMatch(/\n/);
   });
 
-  it('warning 别名：env CANNBOT_LOG_LEVEL=warning 等价 warn（归一唯一真身）', () => {
+  it('warning 别名：env CONTEXT_LOG_LEVEL=warning 等价 warn（归一唯一真身）', () => {
     logger.logInfo('t', 'before-alias');
-    process.env.CANNBOT_LOG_LEVEL = 'warning';
+    process.env.CONTEXT_LOG_LEVEL = 'warning';
     logger.logInfo('t', 'filtered-by-alias');
     logger.logWarn('t', 'warn-passes-alias');
     const out = readLog();
     expect(out).toContain('before-alias');
     expect(out).not.toContain('filtered-by-alias');
     expect(out).toContain('warn-passes-alias');
-    delete process.env.CANNBOT_LOG_LEVEL;
+    delete process.env.CONTEXT_LOG_LEVEL;
   });
 
   it('设置文件坏 level 不连坐：enabled=false 仍生效（逐字段降级，曾整份判废）', () => {
@@ -254,8 +254,8 @@ describe('logger 核心机制', () => {
     expect(readLog()).toContain('[INFO][lake]:clone done ms=8600');
   });
 
-  it('stdout 开关：CANNBOT_LOG_STDOUT=0 → 文件照写、console 静默；设置页关屏显同链', () => {
-    process.env.CANNBOT_LOG_STDOUT = '0';
+  it('stdout 开关：CONTEXT_LOG_STDOUT=0 → 文件照写、console 静默；设置页关屏显同链', () => {
+    process.env.CONTEXT_LOG_STDOUT = '0';
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     logger.logInfo('t', 'file-only-line');
@@ -264,7 +264,7 @@ describe('logger 核心机制', () => {
     expect(readLog()).toContain('file-only-err');
     expect(logSpy).not.toHaveBeenCalled();
     expect(errSpy).not.toHaveBeenCalled();
-    delete process.env.CANNBOT_LOG_STDOUT;
+    delete process.env.CONTEXT_LOG_STDOUT;
 
     // 设置页链路：配置文件 stdout=false 同效（热重读后生效）
     cfg.writeLoggerConfigFile({ enabled: true, level: 'info', file: true, stdout: false });
@@ -277,12 +277,12 @@ describe('logger 核心机制', () => {
   it('写文件失败不抛（目录不可写），stdout 照发', () => {
     // 占位文件挡住递归建目录：mkdirSync ENOTDIR → 吞错 → 文件通道失效
     fs.writeFileSync(path.join(TMP, 'not-a-dir'), 'occupied');
-    process.env.CANNBOT_LOG_DIR = path.join(TMP, 'not-a-dir', 'deeper');
+    process.env.CONTEXT_LOG_DIR = path.join(TMP, 'not-a-dir', 'deeper');
     logger.resetLoggerForTest();
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => logger.logError('t', 'survives-io-failure')).not.toThrow();
     expect(String(errSpy.mock.calls[0][0])).toContain('survives-io-failure');
-    process.env.CANNBOT_LOG_DIR = LOG_DIR;
+    process.env.CONTEXT_LOG_DIR = LOG_DIR;
     logger.resetLoggerForTest();
   });
 });

@@ -604,7 +604,7 @@ describe('opencode general dispatch（新版工作流：subagent_type=general/�
         role: 'assistant', content: null, timestamp: '2026-08-25T10:00:00.000Z', timeInfo: null,
         tool_calls: [{
           toolCallId: 'call_g1', toolName: 'task',
-          argsJson: JSON.stringify({ description: '创建开发目录', subagent_type: 'general', prompt: '你在此任务中扮演 ACLNN 算子开发工作流中的 "developer" agent。\n\n目标:创建目录。' }),
+          argsJson: JSON.stringify({ description: '创建开发目录', subagent_type: 'general', prompt: '你在此任务中扮演 ACLIB 算子开发工作流中的 "developer" agent。\n\n目标:创建目录。' }),
           resultJson: '<task id="ses_x" state="completed">\nDONE\n</task>', state: 'ok',
         }],
         usage: { total: 100, input: 10, output: 90, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0, inputMessagesTokens: 0 },

@@ -36,7 +36,7 @@ beforeAll(async () => {
         dispatchTimestamp: d,
         responseTimestamp: STALE_END, // 库里存旧值：读侧必须自愈
         subagentSessionId: SID,
-        subagentType: 'ascendc-ops-architect',
+        subagentType: 'acme-ops-architect',
         status: 'completed',
       },
     });

@@ -47,12 +47,12 @@ git('git push -q origin main', SEED);
 seedLakeConfig(TMP, { address: BARE });
 process.env.LAKE_LFS = '0';
 process.env.LAKE_CACHE_DIR = CACHE;
-process.env.CANNBOT_INSIGHT_HOME = HOME;
+process.env.CONTEXT_INSIGHT_HOME = HOME;
 
 // fixture bundle（与 e2e/lake-bundle.test.ts 同构的最小包）
 fs.mkdirSync(path.join(FIXTURE, 'sessions', SID), { recursive: true });
 fs.writeFileSync(path.join(FIXTURE, 'workflow.json'), JSON.stringify({
-  schema: 'cannbot.workflow-bundle', version: 1, id: RUN_ID, kind: 'workflow',
+  schema: 'context.workflow-bundle', version: 1, id: RUN_ID, kind: 'workflow',
   name: 'viewer bundle IT', startedAt: null, finishedAt: null,
   data: {
     exportDataComplete: true,
@@ -72,7 +72,7 @@ fs.writeFileSync(path.join(FIXTURE, 'sessions', SID, `${SID}.jsonl`), [
   JSON.stringify({ type: 'assistant', message: { id: `msg_${SID}`, role: 'assistant', content: [{ type: 'text', text: '完成' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-10-10T03:00:05.000Z' }),
 ].join('\n') + '\n');
 fs.writeFileSync(path.join(FIXTURE, 'sessions', SID, `${SID}.meta.json`), JSON.stringify({
-  x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'opencode', ccVersion: '1.19.0', sid: SID } },
+  x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'opencode', ccVersion: '1.19.0', sid: SID } },
 }));
 
 const prisma = new PrismaClient();

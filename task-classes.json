@@ -1,0 +1,8 @@
+{
+  "operator": {
+    "declTagPattern": "算子|operator|op 开发|kernel",
+    "taskTextPattern": "算子|operator|op 开发|kernel|ops-registry|spec\\.yaml",
+    "pathSegmentPattern": "(^|/)(ops?|operator|operators|kernel|ascend_clarith|actge|aol|opapi)(/|$)",
+    "filePattern": "(op_|_op\\b|operator|kernel).*\\.(cc|cpp|cu|h|hpp|py|json)$"
+  }
+}

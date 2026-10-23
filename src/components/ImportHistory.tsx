@@ -8,7 +8,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { useState, useEffect } from "react"
-import { BRAND_NAME, BRAND_SOURCE_TYPE } from '@/lib/branding'
+import { BRAND_NAME, BRAND_SOURCE_TYPE, isBrandSourceType } from '@/lib/branding'
 import { isProxyVersion, agentFrameworkOf } from '@/lib/shared/session-format'
 import {
   Table,
@@ -35,7 +35,7 @@ export interface ImportHistoryEntry {
   version?: string | null
 }
 
-const STORAGE_KEY = "cannbot-import-history"
+const STORAGE_KEY = "context-import-history"
 const MAX_ENTRIES = 20
 
 export function saveImportHistory(entries: ImportHistoryEntry[]) {
@@ -226,8 +226,11 @@ export function ImportHistory() {
               // 方案一：捕获行 framework 带 -proxy 记录后缀（claude-code-proxy
               // 等）——剥后缀归一到 agent 框架后进白名单，proxy 徽标仍走 version
               const agentFw = agentFrameworkOf(fwSource)
-              const knownFramework = agentFw === "opencode" || agentFw === "claude-code" || agentFw === "cannbot" || agentFw === "dsh" || agentFw === "codex" || agentFw === BRAND_SOURCE_TYPE
-                ? agentFw
+              // 品牌容器标识（含存量旧值 cannbot-insight）归一为当前 BRAND_SOURCE_TYPE，
+              // 使下游 knownFramework/徽标分支按同一值命中——品牌更名不丢存量行的容器徽标
+              const brandFw = isBrandSourceType(agentFw) ? BRAND_SOURCE_TYPE : agentFw
+              const knownFramework = brandFw === "opencode" || brandFw === "claude-code" || brandFw === "cannbot" || brandFw === "dsh" || brandFw === "codex" || brandFw === BRAND_SOURCE_TYPE
+                ? brandFw
                 : null
               const isProxy = isProxyVersion(vSource)
               const isProxyCapture = (entry.sourceType === "claude-jsonl" || entry.sourceType === "jsonl") && (entry.filePath?.includes("/proxy/") ?? false)

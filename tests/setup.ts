@@ -49,9 +49,9 @@ if (!process.env.DATABASE_URL.includes("socket_timeout=")) {
 }
 
 // 统一日志全局静音：被测模块（data-service/lake 层等）引入 logger 后，全量测试
-// 会把日志写进真实 ~/.cannbot-insight/logs/。||= 语义 = 显式设置优先（CI 想开
-// 日志设 CANNBOT_LOG=1 即可）；logger 自己的测试文件内在 beforeAll 删掉此变量
-process.env.CANNBOT_LOG ||= "0";
+// 会把日志写进真实 ~/.context-insight/logs/。||= 语义 = 显式设置优先（CI 想开
+// 日志设 CONTEXT_LOG=1 即可）；logger 自己的测试文件内在 beforeAll 删掉此变量
+process.env.CONTEXT_LOG ||= "0";
 
 const prisma = new PrismaClient();
 

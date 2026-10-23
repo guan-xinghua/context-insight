@@ -140,7 +140,7 @@ afterEach(() => {
 
 describe("audit-agentsift route", () => {
   it("happy：扫 .md → 结构化 records → spawn sift --kind agent → NDJSON result", async () => {
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", sourcePath: "/tmp/fake.db", framework: "cannbot-insight" })
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", sourcePath: "/tmp/fake.db", framework: "context-insight" })
     fakePrisma.interactionBridge.findMany.mockResolvedValue([
       { subagentSessionId: "sub-1", subagentName: "developer", subagentType: "developer", dispatchTurnId: null },
       { subagentSessionId: null, subagentName: "verifier", subagentType: null, dispatchTurnId: null },
@@ -214,7 +214,7 @@ describe("audit-agentsift route", () => {
   })
 
   it("agentName 含路径穿越 → 400（不扫盘）", async () => {
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "cannbot-insight" })
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "context-insight" })
     const res = await POST(makeRequest({ taskId: "ses_1", agentName: "../etc/passwd" }))
     expect(res.status).toBe(400)
     expect(spawnMock).not.toHaveBeenCalled()
@@ -222,7 +222,7 @@ describe("audit-agentsift route", () => {
 
   it("AGENTS_SCAN_ROOT 未配且自动探测失败 → 503", async () => {
     vi.mocked(resolveScanRoot).mockReturnValueOnce(null)
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "cannbot-insight" })
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "context-insight" })
     const res = await POST(makeRequest({ taskId: "ses_1", agentName: "developer" }))
     expect(res.status).toBe(503)
     const json = await res.json()
@@ -230,7 +230,7 @@ describe("audit-agentsift route", () => {
   })
 
   it("agent .md 不在扫描根 → 404", async () => {
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "cannbot-insight" })
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "context-insight" })
     fakePrisma.interactionBridge.findMany.mockResolvedValue([])
     const res = await POST(makeRequest({ taskId: "ses_1", agentName: "ghost-agent" }))
     expect(res.status).toBe(404)
@@ -243,7 +243,7 @@ describe("audit-agentsift route", () => {
   })
 
   it("sift 不在 PATH（spawn ENOENT）→ NDJSON error 事件", async () => {
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "cannbot-insight" })
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "context-insight" })
     fakePrisma.interactionBridge.findMany.mockResolvedValue([{ subagentName: "developer", subagentType: null }])
     fakePrisma.turn.findMany.mockResolvedValue([])
     fakePrisma.toolCall.findMany.mockResolvedValue([])
@@ -261,7 +261,7 @@ describe("audit-agentsift route", () => {
   })
 
   it("sift 非零退出（exit 2）→ NDJSON error 事件", async () => {
-    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "cannbot-insight" })
+    fakePrisma.session.findFirst.mockResolvedValue({ id: "ses_cuid_1", framework: "context-insight" })
     fakePrisma.interactionBridge.findMany.mockResolvedValue([{ subagentName: "developer", subagentType: null }])
     fakePrisma.turn.findMany.mockResolvedValue([])
     fakePrisma.toolCall.findMany.mockResolvedValue([])

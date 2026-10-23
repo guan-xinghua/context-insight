@@ -275,9 +275,9 @@ describe('E2E: claude-jsonl skill+dispatch import → observe', () => {
       });
       const dispatchEvents = skillEvents.filter(se => se.eventType === 'dispatch');
       const dispatchNames = dispatchEvents.map(se => se.skillName);
-      expect(dispatchNames).toContain('ascendc-ops-architect');
-      expect(dispatchNames).toContain('ascendc-ops-designer');
-      expect(dispatchNames).toContain('ascendc-ops-tester');
+      expect(dispatchNames).toContain('acme-ops-architect');
+      expect(dispatchNames).toContain('acme-ops-designer');
+      expect(dispatchNames).toContain('acme-ops-tester');
     });
 
     it('general-purpose excluded from dispatch skill events', async () => {

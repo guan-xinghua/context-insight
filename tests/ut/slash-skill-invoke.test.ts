@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // IT：claude-code 斜杠命令技能调用（/skill 展开形态）计数闭环。
-// 现场问题：/day0-inference 以 <command-name> 标签 + skill 注入 system 轮
+// 现场问题：/demo-inference 以 <command-name> 标签 + skill 注入 system 轮
 // 加载（无工具调用），skills 统计不计。验证链路：
 // jsonl 夹具 → claude-jsonl adapter（注入重分类 system）→ turn-split
 // （斜杠命令 invoke SkillEvent）→ aggregates（sessionSkillsData 进账）。
@@ -44,7 +44,7 @@ describe('slash-command skill invocation', () => {
 
   describe('adapter layer', () => {
     it('keeps command-tag user turn as user role', () => {
-      const cmdTurn = interactions.find(i => (i.content ?? '').includes('<command-name>/day0-inference</command-name>'));
+      const cmdTurn = interactions.find(i => (i.content ?? '').includes('<command-name>/demo-inference</command-name>'));
       expect(cmdTurn).toBeDefined();
       expect(cmdTurn!.role).toBe('user');
     });
@@ -59,31 +59,31 @@ describe('slash-command skill invocation', () => {
   // ── turn-split: 斜杠命令 SkillEvent ──
 
   describe('turn-split: slash SkillEvent', () => {
-    it('creates invoke SkillEvent for /day0-inference', () => {
-      const ev = result.skillEvents.find(se => se.skillName === 'day0-inference');
+    it('creates invoke SkillEvent for /demo-inference', () => {
+      const ev = result.skillEvents.find(se => se.skillName === 'demo-inference');
       expect(ev).toBeDefined();
       expect(ev!.eventType).toBe('invoke');
       expect(ev!.success).toBe(true);
     });
 
     it('carries command args in argsJson', () => {
-      const ev = result.skillEvents.find(se => se.skillName === 'day0-inference');
+      const ev = result.skillEvents.find(se => se.skillName === 'demo-inference');
       expect(ev!.argsJson).toContain('Kimi-K3');
       expect(ev!.argsJson).toContain('tpot');
     });
 
     it('anchors the event on the user command turn', () => {
-      const ev = result.skillEvents.find(se => se.skillName === 'day0-inference');
+      const ev = result.skillEvents.find(se => se.skillName === 'demo-inference');
       const ownerTurn = result.turns.find(t => t.id === ev!.turnId);
       expect(ownerTurn).toBeDefined();
       expect(ownerTurn!.role).toBe('user');
-      expect(ownerTurn!.content).toContain('<command-name>/day0-inference</command-name>');
+      expect(ownerTurn!.content).toContain('<command-name>/demo-inference</command-name>');
     });
 
     it('does not count built-in local commands (no injection follows)', () => {
       const builtin = result.skillEvents.find(se => se.skillName === 'skills');
       expect(builtin).toBeUndefined();
-      expect(result.skillEvents.filter(se => se.skillName === 'day0-inference').length).toBe(1);
+      expect(result.skillEvents.filter(se => se.skillName === 'demo-inference').length).toBe(1);
     });
   });
 
@@ -94,7 +94,7 @@ describe('slash-command skill invocation', () => {
       const events = await prisma.skillEvent.findMany({
         where: { turn: { session: { taskId: IMPORT_SID } } },
       });
-      const ev = events.find(e => e.skillName === 'day0-inference');
+      const ev = events.find(e => e.skillName === 'demo-inference');
       expect(ev).toBeDefined();
       expect(ev!.eventType).toBe('invoke');
       expect(ev!.success).toBe(true);

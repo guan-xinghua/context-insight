@@ -122,7 +122,7 @@ function readFullContextUncached(filePath: string): FullContext | null {
   if (lines.length === 0) return null;
 
   // 扩展字段（proxy 捕获）：第一条带 tools 的 assistant 行。
-  // x_cannbay.data（cc-wire-round）优先，legacy 顶层 system/tools fallback。
+  // x_lake.data（cc-wire-round）优先，legacy 顶层 system/tools fallback。
   let systemPrompt = '';
   let tools: FullContextTool[] = [];
   let foundExt = false;
@@ -169,7 +169,7 @@ export function proxySourceOf(filePath: string): string | null {
 
 // post-patch 读 cc-wire-round.requestParams（spec §4.1 导入归宿 "post-patch"）：
 // Turn schema 无 temperature/maxTokens 列（zero-schema-change 约束），proxy
-// 捕获的请求参数只存在 jsonl 的 x_cannbay.data 里，按需在 turns API 叠加 ——
+// 捕获的请求参数只存在 jsonl 的 x_lake.data 里，按需在 turns API 叠加 ——
 // 与 readFullContext 同构（API 层调扩展层读 proxy 数据，核心管线不感知）。
 export interface TurnRequestParams {
   temperature: number | null;
@@ -219,7 +219,7 @@ function readTurnRequestParamsUncached(filePath: string, turnIndex: number): Tur
 // Skill 覆盖度（Skills tab 用）：从捕获/原始 jsonl 提取"可用 skills 全集"。
 // 与 readFullContext 同构 —— API 层调本扩展层，核心管线不感知。
 // 全集只注入一次（系统提示），故取第一个能解析出非空列表的文本即返回：
-//   - proxy 捕获：assistant 行 x_cannbay.data.system（优先）→ legacy 顶层 system
+//   - proxy 捕获：assistant 行 x_lake.data.system（优先）→ legacy 顶层 system
 //   - claude 原生：user/system 行 message.content（system-reminder 注入）
 //   - opencode-proxy：system 字段里的 <available_skills> XML 块
 export function readAvailableSkills(

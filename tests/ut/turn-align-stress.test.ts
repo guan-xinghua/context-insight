@@ -116,8 +116,8 @@ const SCENARIOS: Array<{ label: string; a: TurnData[]; b: TurnData[]; expectDesc
     label: "S3: 同query不同深度（A有子代理，B单代理）",
     expectDesc: "user对齐，初始assistant对齐，A的子代理turn应为A-only",
     a: [
-      makeTurn({ turnIndex: 0, role: "user", content: "请你仔细阅读cannbot-insight仓的代码，深入理解" }),
-      makeTurn({ turnIndex: 1, role: "assistant", content: "<thinking>用户要求深入理解cannbot-insight仓库，需要系统性探索</thinking>\n我来深入阅读这个仓库。", toolCalls: [
+      makeTurn({ turnIndex: 0, role: "user", content: "请你仔细阅读context-insight仓的代码，深入理解" }),
+      makeTurn({ turnIndex: 1, role: "assistant", content: "<thinking>用户要求深入理解context-insight仓库，需要系统性探索</thinking>\n我来深入阅读这个仓库。", toolCalls: [
         { toolCallId: "tc1", toolName: "Read", state: "ok", durationMs: 200 },
         { toolCallId: "tc2", toolName: "Read", state: "ok", durationMs: 150 },
         { toolCallId: "tc3", toolName: "Read", state: "ok", durationMs: 100 },
@@ -125,7 +125,7 @@ const SCENARIOS: Array<{ label: string; a: TurnData[]; b: TurnData[]; expectDesc
       makeTurn({ turnIndex: 2, role: "assistant", content: "", toolCalls: [
         { toolCallId: "tc4", toolName: "task", state: "ok", durationMs: 0 },
       ] }),
-      makeTurn({ turnIndex: 3, role: "assistant", content: "<thinking>探索代理已返回全面的总结</thinking>\n已深入阅读并理解 cannbot-insight 仓库。以下是架构概览：\n\n项目定位：LLM coding agent (opencode) 的 session 级可观测性工具\n\n技术栈：Next.js 16 App Router + Prisma + SQLite" }),
+      makeTurn({ turnIndex: 3, role: "assistant", content: "<thinking>探索代理已返回全面的总结</thinking>\n已深入阅读并理解 context-insight 仓库。以下是架构概览：\n\n项目定位：LLM coding agent (opencode) 的 session 级可观测性工具\n\n技术栈：Next.js 16 App Router + Prisma + SQLite" }),
       makeTurn({ turnIndex: 4, role: "assistant", content: "", toolCalls: [
         { toolCallId: "tc5", toolName: "read", state: "ok", durationMs: 100 },
         { toolCallId: "tc6", toolName: "bash", state: "ok", durationMs: 200 },
@@ -139,8 +139,8 @@ const SCENARIOS: Array<{ label: string; a: TurnData[]; b: TurnData[]; expectDesc
       ] }),
     ],
     b: [
-      makeTurn({ turnIndex: 0, role: "user", content: "好吧，那请你阅读一下cannbot-insight仓" }),
-      makeTurn({ turnIndex: 1, role: "assistant", content: "<thinking>用户要求阅读cannbot-insight仓库</thinking>\n我来阅读这个仓库。", toolCalls: [
+      makeTurn({ turnIndex: 0, role: "user", content: "好吧，那请你阅读一下context-insight仓" }),
+      makeTurn({ turnIndex: 1, role: "assistant", content: "<thinking>用户要求阅读context-insight仓库</thinking>\n我来阅读这个仓库。", toolCalls: [
         { toolCallId: "tc10", toolName: "Read", state: "ok", durationMs: 200 },
         { toolCallId: "tc11", toolName: "Read", state: "ok", durationMs: 150 },
         { toolCallId: "tc12", toolName: "Read", state: "ok", durationMs: 100 },
@@ -154,7 +154,7 @@ const SCENARIOS: Array<{ label: string; a: TurnData[]; b: TurnData[]; expectDesc
         { toolCallId: "tc16", toolName: "read", state: "ok", durationMs: 200 },
         { toolCallId: "tc17", toolName: "read", state: "ok", durationMs: 180 },
       ] }),
-      makeTurn({ turnIndex: 4, role: "assistant", content: "已阅读完毕。以下是 cannbot-insight 仓库的整体概览：\n\n**项目定位**：LLM coding agent (opencode) 的 session 级可观测性工具" }),
+      makeTurn({ turnIndex: 4, role: "assistant", content: "已阅读完毕。以下是 context-insight 仓库的整体概览：\n\n**项目定位**：LLM coding agent (opencode) 的 session 级可观测性工具" }),
     ],
   },
   {
@@ -189,16 +189,16 @@ const SCENARIOS: Array<{ label: string; a: TurnData[]; b: TurnData[]; expectDesc
     a: [
       makeTurn({ turnIndex: 0, role: "user", content: "晚上好 请问南京天气怎么样" }),
       makeTurn({ turnIndex: 1, role: "assistant", content: "晚上好！我无法查询实时天气数据，建议你查看天气应用。" }),
-      makeTurn({ turnIndex: 2, role: "user", content: "好吧，那请你阅读一下cannbot-insight仓" }),
-      makeTurn({ turnIndex: 3, role: "assistant", content: "我来阅读cannbot-insight仓库，了解其架构。", toolCalls: [
+      makeTurn({ turnIndex: 2, role: "user", content: "好吧，那请你阅读一下context-insight仓" }),
+      makeTurn({ turnIndex: 3, role: "assistant", content: "我来阅读context-insight仓库，了解其架构。", toolCalls: [
         { toolCallId: "tc1", toolName: "read", state: "ok", durationMs: 200 },
       ] }),
     ],
     b: [
       makeTurn({ turnIndex: 0, role: "user", content: "晚上好 请问南京天气怎么样" }),
       makeTurn({ turnIndex: 1, role: "assistant", content: "你好！我没有天气查询功能，请使用天气服务查看。" }),
-      makeTurn({ turnIndex: 2, role: "user", content: "请你仔细阅读cannbot-insight仓的代码，深入理解" }),
-      makeTurn({ turnIndex: 3, role: "assistant", content: "我来深入阅读cannbot-insight的代码和架构。", toolCalls: [
+      makeTurn({ turnIndex: 2, role: "user", content: "请你仔细阅读context-insight仓的代码，深入理解" }),
+      makeTurn({ turnIndex: 3, role: "assistant", content: "我来深入阅读context-insight的代码和架构。", toolCalls: [
         { toolCallId: "tc2", toolName: "read", state: "ok", durationMs: 180 },
       ] }),
     ],

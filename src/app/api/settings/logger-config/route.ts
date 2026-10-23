@@ -6,9 +6,9 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 设置页「运行日志」块的后端：读写 ~/.cannbot-insight/logger-config.json。
+// 设置页「运行日志」块的后端：读写 ~/.context-insight/logger-config.json。
 // 写后清 logger 配置缓存——新级别立即生效（不等 5s TTL），免重启。
-// envOverrides 列出当前压住设置页的 CANNBOT_LOG* 变量名，前端据此提示。
+// envOverrides 列出当前压住设置页的 CONTEXT_LOG* 变量名，前端据此提示。
 import { NextRequest, NextResponse } from 'next/server';
 import { logError, logInfo, logWarn, logsDir, resetLoggerConfigCache } from '@/lib/logger';
 import { clearLoggerConfigFile, normalizeLoggerLevel, readLoggerConfigFile, writeLoggerConfigFile } from '@/lib/logger-config';
@@ -23,10 +23,10 @@ export async function GET() {
     stdout: file?.stdout ?? true,
     logDir: logsDir(),
     envOverrides: [
-      ...(process.env.CANNBOT_LOG ? ['CANNBOT_LOG'] : []),
-      ...(process.env.CANNBOT_LOG_LEVEL ? ['CANNBOT_LOG_LEVEL'] : []),
-      ...(process.env.CANNBOT_LOG_FILE ? ['CANNBOT_LOG_FILE'] : []),
-      ...(process.env.CANNBOT_LOG_STDOUT ? ['CANNBOT_LOG_STDOUT'] : []),
+      ...(process.env.CONTEXT_LOG ? ['CONTEXT_LOG'] : []),
+      ...(process.env.CONTEXT_LOG_LEVEL ? ['CONTEXT_LOG_LEVEL'] : []),
+      ...(process.env.CONTEXT_LOG_FILE ? ['CONTEXT_LOG_FILE'] : []),
+      ...(process.env.CONTEXT_LOG_STDOUT ? ['CONTEXT_LOG_STDOUT'] : []),
     ],
   });
 }

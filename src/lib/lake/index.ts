@@ -66,13 +66,13 @@ export async function importLakeSession(sid: string, prisma: PrismaLike, remote?
   try {
     const mainJsonl = materializeSession(sid, remote, recording);
     const result = await importSession(mainJsonl, sid, prisma, mainJsonl, 'claude-jsonl');
-    // x_cannbay 补列（docs/lake-schema-spec.md）：核心管线无通道、只存在于
+    // x_lake 补列（docs/lake-schema-spec.md）：核心管线无通道、只存在于
     // 声明里的列（Turn.ttftMs/temperature/maxTokens/modelId/providerId、
     // ToolCall.errorType/errorMessage/durationMs/startedAt、Session.framework/
     // version）在 lake 编排层恢复 —— 核心红线不动。补列/回读都按
     // result.sessionId（行 id）定位，同 sid 双行不串行
     await patchXLakeColumns(mainJsonl, result.sessionId, prisma).catch(e => {
-      impLog.warn('x_cannbay 补列失败（不阻塞导入）', { sid, error: e instanceof Error ? e.message : String(e) });
+      impLog.warn('x_lake 补列失败（不阻塞导入）', { sid, error: e instanceof Error ? e.message : String(e) });
     });
     const out = { ...result, ...(await readSessionType(prisma, result.sessionId)) };
     impLog.info('lake import done', { sid, recording, sessionId: result.sessionId, imported: result.imported, ms: Date.now() - startedAt });

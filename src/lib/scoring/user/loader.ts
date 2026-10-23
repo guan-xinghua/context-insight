@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// D7 用户自定义维度加载器（组模型）：~/.cannbot-insight/user-definitions/<groupId>.group.json，
+// D7 用户自定义维度加载器（组模型）：~/.context-insight/user-definitions/<groupId>.group.json，
 // 一个组 = 一套标准（如「文档质量组」「算子专项组」），组内维度一条条增删改。
 // enabled=false 的组只留存不参评。旧版扁平 <id>.json 首次读取时一次性并入「默认组」。
 // 评分是后端执行的，定义必须后端读得到（已定；localStorage 后端不可见，排除）。
@@ -15,7 +15,7 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { CANNBOT_HOME, migrateLegacyDir } from '../core/store';
+import { CONTEXT_HOME, migrateLegacyDir } from '../core/store';
 import type { Band, DimensionDefinition, ScoreItemSchema } from '../core/schema';
 import { Scorer } from '../core/scorer';
 import { BandJudgeScorer } from '../core/judge';
@@ -47,9 +47,9 @@ export function userDefinitionsDir(): string {
   if (process.env.SCORING_USER_DEF_DIR) return process.env.SCORING_USER_DEF_DIR;
   if (!legacyUserDefsMigrated) {
     legacyUserDefsMigrated = true;
-    migrateLegacyDir(path.join(process.cwd(), 'data', 'scoring', 'user-definitions'), path.join(CANNBOT_HOME, 'user-definitions'));
+    migrateLegacyDir(path.join(process.cwd(), 'data', 'scoring', 'user-definitions'), path.join(CONTEXT_HOME, 'user-definitions'));
   }
-  return path.join(CANNBOT_HOME, 'user-definitions');
+  return path.join(CONTEXT_HOME, 'user-definitions');
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;

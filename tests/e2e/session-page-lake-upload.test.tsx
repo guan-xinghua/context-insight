@@ -41,7 +41,6 @@ let root: Root | null = null
 let uploadBody: Record<string, unknown> | null = null
 
 beforeAll(() => {
-  localStorage.setItem('cannbot-insight-lake-config', JSON.stringify({ address: 'https://example.com/lake.git' }))
   const origFetch = globalThis.fetch
   ;(globalThis as { fetch: typeof fetch }).fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url

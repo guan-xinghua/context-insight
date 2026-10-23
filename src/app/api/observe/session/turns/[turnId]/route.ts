@@ -365,7 +365,7 @@ export const GET = withRouteLog('observe/session/turns/[turnId]', async (request
       })
     : null;
   // post-patch（spec §4.1 导入归宿）：proxy 捕获的 temperature/maxTokens/
-  // 请求 model 只存在 jsonl 的 x_cannbay.data，DB 无对应列 → API 层按需叠加。
+  // 请求 model 只存在 jsonl 的 x_lake.data，DB 无对应列 → API 层按需叠加。
   // root assistant turn 才对齐 roundIndex（subagent turn 的全局 turnIndex 与
   // jsonl 行序不对应，跳过 —— 其请求参数由子代理自己的 jsonl 提供，另议）。
   let reqParams: { temperature: number | null; maxTokens: number | null; model: string | null } | null = null;

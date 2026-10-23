@@ -40,7 +40,7 @@ describe('POST /api/ingest/import-file — failure reasons', () => {
     const res = await POST(req({
       source: 'claude-jsonl',
       sessionId: 'no-such-file-sid',
-      filePath: path.join(os.homedir(), '.cannbot-insight/proxy/definitely-missing-capture.jsonl'),
+      filePath: path.join(os.homedir(), '.context-insight/proxy/definitely-missing-capture.jsonl'),
     }));
     expect(res.status).toBe(404);
     const data = await res.json();

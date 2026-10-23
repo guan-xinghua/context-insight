@@ -140,7 +140,7 @@ export async function getScorecard(taskId: string, framework?: string | null, re
   // 回落重算钉到已消歧的行（framework 透传），避免裸 taskId 在双记录里写错行
   if (!card) card = await runScorecard(taskId, prisma, session.framework ? { framework: session.framework } : {});
   if (!card || card.status === 'aborted') return null;
-  // 上报快照与 Score 页同口径：套读时覆盖层（人工复核确认 + CANN-Bench 填报），
+  // 上报快照与 Score 页同口径：套读时覆盖层（人工复核确认 + 基准测试填报），
   // 不然上报的分和页面看到的可能不一致
   const registry = await loadRegistry();
   const overlaid = await applyOverlays(card, registry.defs, registry.profile);
@@ -161,7 +161,7 @@ export async function getScorecard(taskId: string, framework?: string | null, re
   };
 }
 
-// 一键导入：lake 导入编排（物化 + 写库 + x_cannbay 补列），大会话可达数分钟。
+// 一键导入：lake 导入编排（物化 + 写库 + x_lake 补列），大会话可达数分钟。
 // recording 定位仓内记录位：native = <sid>.native/（原生会话），capture = 裸 <sid>/。
 // 返回行级回读的 framework/version（importLakeSession 按 result.sessionId 取行，
 // 同 sid 双行不串行）——导入后跳转深链的唯一权威身份来源

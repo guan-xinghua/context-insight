@@ -8,7 +8,7 @@
 
 // run 域 API 路由 IT（页面/API 层验证）：runs 列表 / run 详情（join 注入）/
 // 成员五键 / 反向归属 / 删除 / import-bundle 入口校验（含白名单闸）与
-// job 状态查询。存储走临时 CANNBOT_INSIGHT_HOME，prisma mock（详情路由的
+// job 状态查询。存储走临时 CONTEXT_INSIGHT_HOME，prisma mock（详情路由的
 // 会话 join 只读两查询）。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -54,14 +54,14 @@ const MINI_BUNDLE = path.resolve(__dirname, './data/run/mini-bundle');
 const miniManifest = parseManifest(JSON.parse(fs.readFileSync(path.join(MINI_BUNDLE, 'workflow.json'), 'utf-8')));
 
 let tmpHome: string;
-const ENV_KEYS = ['CANNBOT_INSIGHT_HOME', 'CANNBOT_INSIGHT_IMPORT_ROOTS'] as const;
+const ENV_KEYS = ['CONTEXT_INSIGHT_HOME', 'CONTEXT_INSIGHT_IMPORT_ROOTS'] as const;
 const ORIG_ENV: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-run-api-'));
   for (const k of ENV_KEYS) ORIG_ENV[k] = process.env[k];
-  process.env.CANNBOT_INSIGHT_HOME = tmpHome;
-  delete process.env.CANNBOT_INSIGHT_IMPORT_ROOTS;
+  process.env.CONTEXT_INSIGHT_HOME = tmpHome;
+  delete process.env.CONTEXT_INSIGHT_IMPORT_ROOTS;
   fakePrisma.session.findMany.mockReset().mockResolvedValue([]);
   fakePrisma.session.deleteMany.mockReset();
   fakePrisma.session.delete.mockReset();
@@ -330,8 +330,8 @@ describe('POST /api/ingest/import-bundle', () => {
     }
   });
 
-  it('白名单收紧（CANNBOT_INSIGHT_IMPORT_ROOTS）→ 403 先于文件读取', async () => {
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = path.join(tmpHome, 'allowed');
+  it('白名单收紧（CONTEXT_INSIGHT_IMPORT_ROOTS）→ 403 先于文件读取', async () => {
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = path.join(tmpHome, 'allowed');
     const res = await importBundlePOST(post('/api/ingest/import-bundle', { dirPath: MINI_BUNDLE }));
     expect(res.status).toBe(403);
     const data = await res.json();
@@ -339,7 +339,7 @@ describe('POST /api/ingest/import-bundle', () => {
   });
 
   it('合法 bundle（白名单内）→ 起 job 返回 jobId（后台导入）', async () => {
-    process.env.CANNBOT_INSIGHT_IMPORT_ROOTS = MINI_BUNDLE;
+    process.env.CONTEXT_INSIGHT_IMPORT_ROOTS = MINI_BUNDLE;
     const res = await importBundlePOST(post('/api/ingest/import-bundle', { dirPath: MINI_BUNDLE }));
     expect(res.status).toBe(200);
     const data = await res.json();

@@ -8,7 +8,7 @@
 
 // bundle 导入编排（design.md §5）：校验 → manifest 落盘 → 会话全量立即导入
 // （用户决策 #2）→ import.json 汇总。分钟级导入不做同步长请求——job 化 +
-// 进度轮询（对齐 opsbot upload-to-cannbay 先例）；manifest 先落盘 + 会话导入
+// 进度轮询（对齐 opsbot upload-to-lake 先例）；manifest 先落盘 + 会话导入
 // 幂等 = 崩溃/重启后重新发起即续传。会话枚举走 lake 双记录布局约定
 // （<sid>.native/ 目录，sessionFolderOf/parseSessionFolder 语义），逐会话复用
 // 现有 importSession 管线（exportDeclaredFramework 通路回原生 framework 行）。

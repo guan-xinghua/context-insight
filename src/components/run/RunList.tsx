@@ -96,7 +96,7 @@ export function RunList({ initialRuns, warnings }: { initialRuns: RunRow[]; warn
       {initialRuns.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           暂无导入的 Run。点击右上「导入 Bundle」，选择包含 workflow.json 与 sessions/ 的包目录；
-          也可用 CLI：<code className="mx-1 rounded bg-muted px-1">cbi import-bundle &lt;dir&gt;</code>
+          也可用 CLI：<code className="mx-1 rounded bg-muted px-1">ctxi import-bundle &lt;dir&gt;</code>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border">

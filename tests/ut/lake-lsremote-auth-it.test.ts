@@ -25,7 +25,7 @@
 //   ⑦ LAKE_PUSH_URL 完整凭据 URL 覆写 → pullAuth 同链继承（fetch 段）
 //   ⑧ env 凭据对任意用户配置地址生效（默认仓退役后统一链——
 //      错误实现会把 env 令牌经 401 挑战送到请求方主机）
-// 隔离：CANNBOT_PROXY_DIR 重定向临时目录；GIT_TERMINAL_PROMPT=0 消除 git
+// 隔离：CONTEXT_PROXY_DIR 重定向临时目录；GIT_TERMINAL_PROMPT=0 消除 git
 // 终端提示的不确定性（stdio 管道下提示会挂到超时）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -96,11 +96,11 @@ function basic(user: string, pass: string): string {
 }
 
 beforeAll(() => {
-  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN', 'LAKE_REMOTE_URL', 'LAKE_CACHE_DIR']) {
+  for (const k of ['CONTEXT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN', 'LAKE_REMOTE_URL', 'LAKE_CACHE_DIR']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
   // env 凭据通道用例会触发真实 clone/fetch：镜像缓存必须留在 TMP，
   // 不得落在仓工作树默认位置
   process.env.LAKE_CACHE_DIR = path.join(TMP, 'cache');

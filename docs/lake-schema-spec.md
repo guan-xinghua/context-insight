@@ -1,4 +1,4 @@
-# CANNBay 捕获/导出格式标准（x_cannbay v1）
+# Lake 捕获/导出格式标准（x_lake v1）
 
 适用范围：cpx 捕获文件、insight DB 导出件、数据湖仓内 `<目录>/<sid>/` 布局的全部 jsonl/meta 数据。
 
@@ -8,11 +8,11 @@
 
 | 场景 | 时刻 | 义务 |
 |---|---|---|
-| **生产** | cpx 捕获落盘（每 wire 轮）；cpx normalize；CANNBay 上传（直拷 / DB 导出）；任何写 `<目录>/<sid>/` 布局的新工具 | 写方义务：信封不碰、扩展进口袋、带声明 |
-| **消费** | cpx 退出自动导入 / 手动导入 / CANNBay 导入；turns API 读 Full Context 与 wire enrichment；任何解析这些文件的新代码 | 读方义务：按 `(schema, version)` 分发，不认识整块跳过，禁止字段嗅探 |
+| **生产** | cpx 捕获落盘（每 wire 轮）；cpx normalize；lake 上传（直拷 / DB 导出）；任何写 `<目录>/<sid>/` 布局的新工具 | 写方义务：信封不碰、扩展进口袋、带声明 |
+| **消费** | cpx 退出自动导入 / 手动导入 / lake 导入；turns API 读 Full Context 与 wire enrichment；任何解析这些文件的新代码 | 读方义务：按 `(schema, version)` 分发，不认识整块跳过，禁止字段嗅探 |
 | **演进** | 加扩展字段、改字段语义、加新 payload schema | 见 §1 修改规则 |
 
-不需要遵循的边界：无 `x_cannbay` 的老文件（legacy fallback，永久容忍）；纯 native claude jsonl；v1 CANNBay 的 `.db`；进程内数据结构（Prisma DB、RawInteraction 等）。
+不需要遵循的边界：无 `x_lake` 的老文件（legacy fallback，永久容忍）；携带旧键 `x_cannbay` 的行（≤0.2.40 时代写轨）——旧键读写轨已退役，按无信封处理；纯 native claude jsonl；v1 时代的 `.db`；进程内数据结构（Prisma DB、RawInteraction 等）。
 
 ## 1. 修改规则（什么情况可以改、怎么改）
 
@@ -22,7 +22,7 @@
 | **改语义 / 改类型 / 删字段** | ✅ 但必升 version | `version` +1；读方注册表同时支持新旧版本；老 version 永久可读（不回收） |
 | **加新 payload schema** | ✅ | 补齐本文档字段表、类型定义、形状校验、混排测试四项后合入 |
 | **改信封层字段的含义**（`type` / `timestamp` / `message{role,content,id,model,usage}`） | ❌ 永久禁止 | 信封是 claude 原生语义，冻结是本标准的存在前提 |
-| **复用信封字段装别的数据**（如 `duration_ms` 装 wire latency） | ❌（存量例外见 §6 双轨说明） | 一律进 `x_cannbay.data` |
+| **复用信封字段装别的数据**（如 `duration_ms` 装 wire latency） | ❌（存量例外见 §6 双轨说明） | 一律进 `x_lake.data` |
 | **改物理布局**（`<目录>/<sid>/` 文件树） | ⚠️ 谨慎 | 布局是 adapter 发现约定（子代理目录、meta 命名），改动需同步 adapter 发现逻辑 |
 
 加字段不升版本、改语义不升版本均视为破坏契约。每次 payload 改动须同步更新形状校验测试。
@@ -31,7 +31,7 @@
 
 ```
 <paradigm>/<sid>/            # 范式目录（顶层目录即范式注册表，上传必选范式时落此）
-  <sid>.jsonl.7z           # 主会话行流（信封 + x_cannbay；7z at rest，存量 .jsonl.gz 与旧件明文 .jsonl 永续可读）
+  <sid>.jsonl.7z           # 主会话行流（信封 + x_lake；7z at rest，存量 .jsonl.gz 与旧件明文 .jsonl 永续可读）
   <sid>.meta.json          # 主会话元数据（cc-session-meta，永远明文）
   subagents/
     <subId>.jsonl.7z       # 子代理行流（同上行格式；存量 .gz 同理永续可读）
@@ -46,7 +46,7 @@ opsbot-bundle/<runId>/        # bundle 专区（opsbot workflow 包，见 §2.1�
 ```
 
 范式目录 = 数据仓顶层目录（`elementwise` / `contraction` / `others` …，25 个
-算子计算范式 category + `others`，见 `CANNBot_算子计算范式_v2.0.md`）。
+算子计算范式 category + `others`，范式清单以数据仓范式文档为准）。
 **目录即注册表**：新增范式只需在数据仓新建顶层目录，insight 零范式知识；
 主范式由目录承载（单一归属），meta 不重复声明。同 sid 全仓唯一，换范式
 重传 = 同 commit 删旧目录写新目录。`baseline/` 为范式级保留目录名：设为
@@ -56,15 +56,15 @@ opsbot-bundle/<runId>/        # bundle 专区（opsbot workflow 包，见 §2.1�
 导入恒多根全仓扫描。
 
 压缩（7z at rest，见 `proxy/COMPRESSION-DESIGN.md`；存量 gz 同理）是**传输编码**：解压后
-行流与明文形态逐字节一致，信封与 `x_cannbay` 契约不变；治理（密钥清洗/复检）
+行流与明文形态逐字节一致，信封与 `x_lake` 契约不变；治理（密钥清洗/复检）
 只对明文域做，治理通过后才压缩出仓。
 
-cpx 本地目录（`~/.cannbot-insight/proxy/`）与 norm/ 镜像同一约定（顶层捕获文件带 `cpx-` 前缀，meta 与主文件同 stem 并列）。
-insight 评分过程日志（`~/.cannbot-insight/score-judge-logs/`）为本地明文 jsonl，走同一信封规范（`cc-judge-round`），仅本机留存，不属于 cannbay 仓布局。
+cpx 本地目录（`~/.context-insight/proxy/`）与 norm/ 镜像同一约定（顶层捕获文件带 `cpx-` 前缀，meta 与主文件同 stem 并列）。
+insight 评分过程日志（`~/.context-insight/score-judge-logs/`）为本地明文 jsonl，走同一信封规范（`cc-judge-round`），仅本机留存，不属于 lake 仓布局。
 
 ### 2.1 bundle 专区（`opsbot-bundle/<runId>/`）
 
-opsbot workflow 包（设计 `docs/design/cannbay-bundle/design.md`）：一个 bundle
+opsbot workflow 包（设计 `docs/design/lake-bundle/design.md`）：一个 bundle
 一个目录，`runId` 即存储身份，重传整体替换（原子语义）。专区不属于范式
 注册表（会话上传目录网关拒绝它），会话列表视野排除整个子树——成员会话
 只归 bundle。锚定规则：专区下一级目录含 `workflow.json` 即 bundle，散文件
@@ -72,7 +72,7 @@ opsbot workflow 包（设计 `docs/design/cannbay-bundle/design.md`）：一个 
 
 ```
 opsbot-bundle/<runId>/
-  workflow.json             # 关系清单（cannbot.workflow-bundle v1 信封自持，
+  workflow.json             # 关系清单（context.workflow-bundle v1 信封自持，
                             # 见 workflow-bundle-format.md；仓内统一命名，源
                             # manifest.json 同内容改名搬运；永远明文）
   bundle.meta.json          # lake 侧归属快照（cc-bundle-meta，§4.8；明文）
@@ -82,15 +82,15 @@ opsbot-bundle/<runId>/
                             # 源上传时统一迁移 7z）
 ```
 
-`workflow.json` 是 opsbot 侧格式（`cannbot.*` 信封族），不在本文档
-`x_cannbay` 命名空间内。
+`workflow.json` 是 opsbot 侧格式（`context.*` 信封族），不在本文档
+`x_lake` 命名空间内。
 
 ## 3. 行格式与信封规则
 
 ```jsonl
 {"type":"user","timestamp":"...","message":{"role":"user","content":[...]}}
 {"type":"assistant","timestamp":"...","message":{"role":"assistant","id":"...","content":[...],"model":"...","usage":{...}},
- "x_cannbay":{"schema":"cc-wire-round","version":1,"data":{...}}}
+ "x_lake":{"schema":"cc-wire-round","version":1,"data":{...}}}
 ```
 
 字段类型记法：`int?` / `string?` = **可选字段**——没有该数据时 JSON 里该键不出现（缺失 ≠ 0，读方遇缺失跳过、不按 0 处理）；无 `?` = 必填。
@@ -98,9 +98,9 @@ opsbot-bundle/<runId>/
 四条规则：
 
 1. **信封冻结**：`type` / `timestamp` / `message{role,content,id,model,usage}` 是 claude 原生语义，永不重解释。`message.usage` 为 anthropic 原生 usage 对象（`input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`），属信封层
-2. **单一归属**：每个信息单元只有一个家。扩展一律进 `x_cannbay: {schema, version, data}`，信封不复用
+2. **单一归属**：每个信息单元只有一个家。扩展一律进 `x_lake: {schema, version, data}`，信封不复用
 3. **声明式分发**：读方按 `(schema, version)` 路由；不认识的声明整块跳过（行本体照常按信封处理）；禁止依据 data 内容或字段存在性判定身份
-4. **双向兼容**：无 `x_cannbay` 的行 = native（现有路径逐字节不变）；新行被老代码读 = 忽略未知顶层字段
+4. **双向兼容**：无 `x_lake` 的行 = native（现有路径逐字节不变）；新行被老代码读 = 忽略未知顶层字段
 
 ## 4. Payload Schema 定义
 
@@ -143,7 +143,7 @@ opsbot-bundle/<runId>/
 ### 4.4 `cc-session-meta` v1（`<sid>.meta.json`，主会话）
 
 ```json
-{ "x_cannbay": { "schema": "cc-session-meta", "version": 1,
+{ "x_lake": { "schema": "cc-session-meta", "version": 1,
   "data": { "producer": "cpx|insight-export|insight-upload", "framework": "...", "protocol": "anthropic|openai", "ccVersion": "...", "sid": "..." } } }
 ```
 
@@ -158,12 +158,12 @@ opsbot-bundle/<runId>/
 - `cpx`：cpx 代理捕获落盘，framework/ccVersion 权威（分类器/导入消费）
 - `insight-export`：insight DB 导出件，framework/ccVersion 权威（重导入 patch 消费）
 - `insight-upload`：上传时从 insight DB 合成（源文件无伴生 meta 的直传场景），
-  **仅作展示（cannbay2 列表 type 列），分类器与重导入 patch 均不消费**——对
+  **仅作展示（lake 列表 type 列），分类器与重导入 patch 均不消费**——对
   导入行为零影响（加枚举值不升 schema 版本：读方对未知 producer 一律走非权威路径）
 
 `governed`（可选 bool，仅 producer=cpx 携带）：cpx 会话关闭压缩时打的信任
 标记，语义 = "字节流已经 cpx 落盘咽喉 redactor 全量清洗"（与 insight 治理
-正则 parity 锁定同源）。cannbay2 上传据此走**直传快路径**（免解压重洗重压，
+正则 parity 锁定同源）。lake 上传据此走**直传快路径**（免解压重洗重压，
 保留白名单与大小限检）；无标记 / 明文源 / 其他 producer 一律走治理兜底路径。
 加可选字段不升 schema 版本
 
@@ -171,7 +171,7 @@ opsbot-bundle/<runId>/
 结果标注——本会话的算子是否生成成功。缺省/未勾选 = 未标注（读方只认
 success/failure，其余值按未标注处理）。insight 上传链在 staging 的
 `<sid>.meta.json` 补丁写入（cpx 伴生 / insight-upload 合成 / insight-export
-导出三条路径全覆盖），cannbay2 列表「算子生成」列消费。加可选字段不升
+导出三条路径全覆盖），lake 列表「算子生成」列消费。加可选字段不升
 schema 版本
 
 `startTime` / `endTime` / `durationMs` / `activeMs` / `totalTokens` / `model`（可选，
@@ -180,7 +180,7 @@ schema 版本
 startTime` 毫秒数）、活跃时长（`activeMs` 毫秒数，与会话详情 Wall Clock 拆分
 同口径：事件聚类，间隔 >5min 计非活跃，wire 捕获的 API 调用进行中按真实时长
 计入活跃）、token 总量、会话主模型（首条 assistant 轮的 model，
-即 Session.model）。消费方为 cannbay viewer 列表/实验记录面板
+即 Session.model）。消费方为 lake viewer 列表/实验记录面板
 与算子生成耗时优化图（耗时列优先 `activeMs`，缺省回落 `durationMs` 墙钟）：
 **未导入 insight 的行也能直接展示**这些指标，无需先
 下载会话本体。会话已导入时展示以 DB 为权威（两者同源同值）；存量旧 meta
@@ -191,7 +191,7 @@ schema 版本
 `annotateSessionMeta` 同一补丁点三条路径全覆盖）：提交人/内容描述/备注的
 **归属权威快照**——与 commit message 同源同值（同一套标签解析），但与提交
 信息格式约定解耦：任何后续维护提交（viewer 标记、meta 改写、baseline 搬移）
-都无法污染列表归属。消费方（cannbay2 导入列表、viewer 运行表、实验记录
+都无法污染列表归属。消费方（lake 导入列表、viewer 运行表、实验记录
 面板）一律 **meta 优先、git log 推导回落**——存量旧 meta 无字段，回落行为
 与快照引入前完全一致。空字段不落键；读方对缺省/非字符串按无字段处理（走
 回落）。加可选字段不升 schema 版本
@@ -200,15 +200,15 @@ schema 版本
 
 ```json
 { "toolUseId": "...", "name": "...", "agentType": "...",
-  "x_cannbay": { "schema": "cc-subagent-meta", "version": 1,
+  "x_lake": { "schema": "cc-subagent-meta", "version": 1,
   "data": { "toolUseId": "...", "name": "...", "agentType": "...", "subagentSessionId": "<subId>" } } }
 ```
 
-顶层旧字段与 `x_cannbay.data` 同值双写（老代码读顶层，新代码读 data）。
+顶层旧字段与 `x_lake.data` 同值双写（老代码读顶层，新代码读 data）。
 
 ### 4.6 `cc-judge-round` v1（assistant 行，生产者 = insight-scoring）
 
-评分 LLM 评审的过程日志：insight 评分器每次评审运行落在 `~/.cannbot-insight/score-judge-logs/<被评sessionId>/<时间戳>-<runId>/`（明文，本地用户目录，不入 cannbay 仓布局），用于超时/空正文等偶发问题的事后复现。**并发评审按捕获的 subagent 形态存放**（交错写单流会把 request/response 配对打乱）：
+评分 LLM 评审的过程日志：insight 评分器每次评审运行落在 `~/.context-insight/score-judge-logs/<被评sessionId>/<时间戳>-<runId>/`（明文，本地用户目录，不入 lake 仓布局），用于超时/空正文等偶发问题的事后复现。**并发评审按捕获的 subagent 形态存放**（交错写单流会把 request/response 配对打乱）：
 
 ```
 <ts>-<runId>/
@@ -221,9 +221,9 @@ schema 版本
 
 行结构：
 
-- **请求行**（子代理流）= native user 行（无 `x_cannbay`），content = `system 原文 + <<<judge-system|judge-user>>> 分隔标记 + user 原文`（按标记拆回可原样重放）
+- **请求行**（子代理流）= native user 行（无 `x_lake`），content = `system 原文 + <<<judge-system|judge-user>>> 分隔标记 + user 原文`（按标记拆回可原样重放）
 - **响应行**（子代理流）= assistant 行 + 本 payload；失败 attempt 的信封 content 为 `[judge-error] <诊断>`，token 用量走信封 `message.usage`（单一归属，不重复进 data）
-- 主流的头/尾摘要行是 native user 行，content 为**人话摘要**（Turns 里直接可读），机器载荷在 `x_cannbay`（`cc-judge-run` v1，见 §4.7）；**派发行 = assistant 的 `Agent` tool_use**（`tool_use_id = j-<runId>-<itemId>`，`input.subagent_session_id = <itemId>`——bridge-builder 据此建 InteractionBridge，导入后页面才能按 subagent 组织；惰性：子项首次真实调用才写，弃权子项不派发不建流），**结果行 = 配对的 tool_result**（content 为 JSON `kind: judge-item-result`，与评分卡同源，日志侧即可对上"这次调用得了什么结论"；弃权子项无派发，结果走普通 user 行留痕）
+- 主流的头/尾摘要行是 native user 行，content 为**人话摘要**（Turns 里直接可读），机器载荷在 `x_lake`（`cc-judge-run` v1，见 §4.7）；**派发行 = assistant 的 `Agent` tool_use**（`tool_use_id = j-<runId>-<itemId>`，`input.subagent_session_id = <itemId>`——bridge-builder 据此建 InteractionBridge，导入后页面才能按 subagent 组织；惰性：子项首次真实调用才写，弃权子项不派发不建流），**结果行 = 配对的 tool_result**（content 为 JSON `kind: judge-item-result`，与评分卡同源，日志侧即可对上"这次调用得了什么结论"；弃权子项无派发，结果走普通 user 行留痕）
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
@@ -260,7 +260,7 @@ schema 版本
 ### 4.8 `cc-bundle-meta` v1（`opsbot-bundle/<runId>/bundle.meta.json`，生产者 = insight 上传）
 
 ```json
-{ "x_cannbay": { "schema": "cc-bundle-meta", "version": 1,
+{ "x_lake": { "schema": "cc-bundle-meta", "version": 1,
   "data": { "runId": "...", "submitter": "...", "description": "...", "remark": "...",
     "uploadedAt": "...", "name": "...", "sessionCount": 197 } } }
 ```
@@ -286,7 +286,7 @@ bundle 目录级归属快照（上传时从提交信息与 manifest 合成，永
 | 信息单元 | 落点 |
 |---|---|
 | 逐轮消息增量（user / tool_result / 注入原文）、响应 blocks、model、usage 四段 | 信封 verbatim |
-| reasoning / latency / ttft / stopReason / system / tools / protocol / ccVersion / roundIndex / dedup / toolCall 明细 / 请求参数 / wire status | `x_cannbay` 直载（§4 各表） |
+| reasoning / latency / ttft / stopReason / system / tools / protocol / ccVersion / roundIndex / dedup / toolCall 明细 / 请求参数 / wire status | `x_lake` 直载（§4 各表） |
 | subagent 关联（toolUseId / name / type） | `cc-subagent-meta` |
 | session framework / version / producer | `cc-session-meta` |
 | 评分 judge 调用上下文/重试链（attempt、latency、maxTokens、错误） | `cc-judge-round` |
@@ -297,15 +297,15 @@ bundle 目录级归属快照（上传时从提交信息与 manifest 合成，永
 
 ```
 行/文件解析：
-  有 x_cannbay？
+  有 x_lake？
     ├─ 是 → 按 (schema, version) 查注册表
     │        ├─ 认识 → 按 payload schema 消费 data
     │        └─ 不认识 → 整块跳过（行本体照常按信封处理）
     └─ 否 → legacy 路径（现有 sniffing，永久保留）
-meta.json：有 x_cannbay → 用声明式 data；无 → 读顶层旧字段
-优先级：x_cannbay > legacy 字段 > 推断
+meta.json：有 x_lake → 用声明式 data；无 → 读顶层旧字段
+优先级：x_lake > legacy 字段 > 推断
 ```
 
-**双轨说明（存量例外）**：过渡期 legacy 顶层字段（`source` / `duration_ms` / `stopReason` / `system` / `tools` / `ttftMs` / `version` / `deduped` / `originalChars`）与 `x_cannbay` 并存写、同值。其中 `duration_ms` 是历史遗留的**信封字段复用**（claude 原生语义为会话时长，本格式用它装 wire latency）——它是本标准唯一的规则 2 例外，收敛期结束后停止写入，读方优先 `x_cannbay.latencyMs`。
+**双轨说明（存量例外）**：过渡期 legacy 顶层字段（`source` / `duration_ms` / `stopReason` / `system` / `tools` / `ttftMs` / `version` / `deduped` / `originalChars`）与 `x_lake` 并存写、同值。其中 `duration_ms` 是历史遗留的**信封字段复用**（claude 原生语义为会话时长，本格式用它装 wire latency）——它是本标准唯一的规则 2 例外，收敛期结束后停止写入，读方优先 `x_lake.latencyMs`。
 
-**收敛里程碑**：双生产者（claude-emitter + opencode-emitter）已对齐双轨写（P0-1 落地）。**下一个大版本**（v2 schema 上线时）停止写入 legacy 顶层字段（保留 `source` 作来源徽标例外），读方届时可只读 `x_cannbay`。在 v2 之前，双轨同值是硬性约束（由 `tests/cannbay-schema.test.ts` ②双写一致锁 + ⑥opencode-producer 形状锁守卫）。
+**收敛里程碑**：双生产者（claude-emitter + opencode-emitter）已对齐双轨写（P0-1 落地）。**下一个大版本**（v2 schema 上线时）停止写入 legacy 顶层字段（保留 `source` 作来源徽标例外），读方届时可只读 `x_lake`。在 v2 之前，双轨同值是硬性约束（由 cpx `tests/ut/claude-emitter.test.ts` 双写一致锁 + `tests/ut/opencode-emitter.test.ts` 形状锁守卫）。

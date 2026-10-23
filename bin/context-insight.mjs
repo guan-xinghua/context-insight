@@ -7,14 +7,14 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// CANNBot-Insight 全局启动器（npm install -g / npx 入口）。
+// Context-Insight 全局启动器（npm install -g / npx 入口）。
 // 无参数 → 启动 Web UI（首次自动 build + migrate，后续直接 start）；
 //          端口固定 BASE_PORT，被占 fail-fast（多人服务器每人固定端口）。
 // --stop → 停止自家实例（PID 文件 + 候选区间验明正身锚定，绝不盲杀）。
 // 子命令 → 透传给 CLI（tsx 运行 src/cli/index.ts）。
 
 import { spawn, spawnSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { homedir, platform } from 'node:os'
@@ -26,19 +26,41 @@ const __dirname = path.dirname(__filename)
 const PKG_DIR = path.resolve(__dirname, '..')
 const require = createRequire(PKG_DIR + '/')
 
-const DATA_DIR = process.env.CANNBOT_INSIGHT_HOME || path.join(homedir(), '.cannbot-insight')
-const BASE_PORT = Number.parseInt(process.env.CANNBOT_INSIGHT_PORT || '21025', 10)
+// 数据目录迁移：cannbot 时代（≤0.2.40）的 ~/.cannbot-insight 首启原子改名到
+// ~/.context-insight。仅当「旧在、新不在」时执行；显式 CONTEXT_INSIGHT_HOME
+// 覆盖 = 用户自管目录，不掺和；两目录并存 = 沿用新目录并提示（不合并）。
+const LEGACY_DATA_DIR = path.join(homedir(), '.cannbot-insight')
+function migrateLegacyDataDir() {
+  if (process.env.CONTEXT_INSIGHT_HOME) return
+  const next = path.join(homedir(), '.context-insight')
+  // 等路径 = cannbot 品牌变体（pack-cannbot 打包期翻转了新目录字面量）——迁移无意义
+  if (LEGACY_DATA_DIR === next || !existsSync(LEGACY_DATA_DIR)) return
+  if (existsSync(next)) {
+    process.stderr.write(`[ctxi] 检测到 ${LEGACY_DATA_DIR} 与 ${next} 并存——沿用新目录，旧目录请手动确认后清理\n`)
+    return
+  }
+  try {
+    renameSync(LEGACY_DATA_DIR, next)
+    process.stdout.write(`[ctxi] 数据目录已迁移: ${LEGACY_DATA_DIR} → ${next}\n`)
+  } catch (e) {
+    process.stderr.write(`[ctxi] 数据目录迁移失败（${e instanceof Error ? e.message : e}），继续使用 ${next}\n`)
+  }
+}
+migrateLegacyDataDir()
+
+const DATA_DIR = process.env.CONTEXT_INSIGHT_HOME || path.join(homedir(), '.context-insight')
+const BASE_PORT = Number.parseInt(process.env.CONTEXT_INSIGHT_PORT || '21025', 10)
 // --stop/-k 的击杀锚定：每次启动记录自家全家福（launcher/next/agent 的 PID）。
 // 崩溃（SIGKILL/断电）后残留进程仍记录在内 → 下次 --stop 可回收。
 const PID_FILE = path.join(DATA_DIR, 'insight.pid')
 
 // 发现契约登记文件（读侧：cpx src/cli/insight-discovery.ts 与本包 src/cli/config.ts，
-// 解析链 env → 本文件 → 21025 兜底）。锚定与读侧严格一致：设了 CANNBOT_PROXY_DIR
+// 解析链 env → 本文件 → 21025 兜底）。锚定与读侧严格一致：设了 CONTEXT_PROXY_DIR
 // 登记随它走（与其父目录同源），否则随 DATA_DIR。持久保留、不随实例退出删除
 // （删除会在实例未运行窗口期让 cpx 回落 21025，把捕获导进别人实例）。
 function registryPath() {
-  return process.env.CANNBOT_PROXY_DIR
-    ? path.join(path.dirname(process.env.CANNBOT_PROXY_DIR), 'insight-port')
+  return process.env.CONTEXT_PROXY_DIR
+    ? path.join(path.dirname(process.env.CONTEXT_PROXY_DIR), 'insight-port')
     : path.join(DATA_DIR, 'insight-port')
 }
 
@@ -49,8 +71,8 @@ const CLI_COMMANDS = new Set([
 ])
 
 const args = process.argv.slice(2)
-const log = (msg) => process.stdout.write(`[cbi] ${msg}\n`)
-const warn = (msg) => process.stderr.write(`[cbi] ${msg}\n`)
+const log = (msg) => process.stdout.write(`[ctxi] ${msg}\n`)
+const warn = (msg) => process.stderr.write(`[ctxi] ${msg}\n`)
 
 // ─── 0. --stop / -k 击杀机制 ────────────────────────────────────
 // （先于分发定义：dispatch 的同步段就会调到这里，放文件后部会 TDZ）
@@ -95,7 +117,7 @@ async function stopExisting() {
     }
   }
   if (!(await waitTcpFree(BASE_PORT, 10000))) {
-    console.error(`[cbi] 端口 ${BASE_PORT} 仍被占用 —— PID 记录与候选区间里都没有它，不是自家实例；请确认属主后手动处理，不代杀。`)
+    console.error(`[ctxi] 端口 ${BASE_PORT} 仍被占用 —— PID 记录与候选区间里都没有它，不是自家实例；请确认属主后手动处理，不代杀。`)
     process.exit(1)
   }
   if (hadPidFile) rmSync(PID_FILE, { force: true })
@@ -186,12 +208,12 @@ async function startWebUi(rawArgs) {
   // 加载/构造直接段错误）
   const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(n => Number.parseInt(n, 10))
   if (nodeMajor < 22 || (nodeMajor === 22 && (nodeMinor || 0) < 12)) {
-    console.error(`[cbi] Node.js ${process.versions.node} 不支持，需 >= 22.12.0（better-sqlite3@13 等依赖要求 Node ≥22，低版本会段错误）。`)
-    console.error('[cbi] 用 nvm: nvm install 22 && nvm use 22；或 https://nodejs.org 直接装。')
+    console.error(`[ctxi] Node.js ${process.versions.node} 不支持，需 >= 22.12.0（better-sqlite3@13 等依赖要求 Node ≥22，低版本会段错误）。`)
+    console.error('[ctxi] 用 nvm: nvm install 22 && nvm use 22；或 https://nodejs.org 直接装。')
     process.exit(1)
   }
 
-  // 数据目录：可写状态（库/登记/PID）集中到 ~/.cannbot-insight/。构建产物在包目录
+  // 数据目录：可写状态（库/登记/PID）集中到 ~/.context-insight/。构建产物在包目录
   // .next——Next 16 Turbopack 强制 distDir 不许逃出项目根（外置 distDir 会被拼进
   // 包目录深处成垃圾路径且 BUILD_ID 探测永远落空 → 每次启动重建）；多人隔离靠
   // 每人各自的 npm 安装（包目录按用户隔离）。
@@ -215,10 +237,10 @@ async function startWebUi(rawArgs) {
   if (killExisting) await stopExisting()
   if (!(await isTcpFree(BASE_PORT))) {
     const healthy = await isHttpHealthy(BASE_PORT, '/', 1500)
-    console.error(`[cbi] 端口 ${BASE_PORT} 被占用${healthy ? '（疑似另一个 insight 实例在运行）' : ''}。`)
-    console.error('[cbi] 自家旧实例：加 --stop 参数先停掉（或 -k 杀旧重启）。')
-    console.error('[cbi] 不是自家的，换自己的固定端口（多人每人固定、间隔 ≥5）：')
-    console.error('[cbi]   export CANNBOT_INSIGHT_PORT=<你的端口>')
+    console.error(`[ctxi] 端口 ${BASE_PORT} 被占用${healthy ? '（疑似另一个 insight 实例在运行）' : ''}。`)
+    console.error('[ctxi] 自家旧实例：加 --stop 参数先停掉（或 -k 杀旧重启）。')
+    console.error('[ctxi] 不是自家的，换自己的固定端口（多人每人固定、间隔 ≥5）：')
+    console.error('[ctxi]   export CONTEXT_INSIGHT_PORT=<你的端口>')
     process.exit(1)
   }
   const port = BASE_PORT
@@ -261,7 +283,7 @@ async function startWebUi(rawArgs) {
   const agent = await startSmartAgentClean(port)
 
   // 启动 next start
-  log('启动 CANNBot-Insight...')
+  log('启动 Context-Insight...')
   const nextProc = spawn(process.execPath, [nextBin(), 'start', '-H', '127.0.0.1', '-p', String(port)], {
     cwd: PKG_DIR,
     stdio: 'inherit',
@@ -281,7 +303,7 @@ async function startWebUi(rawArgs) {
 
   // 等待 ready → 端口登记 → 开浏览器
   await waitForReady(port)
-  // 发现契约登记（读侧 cpx insight-discovery / cbi config；持久保留，不随退出删除）
+  // 发现契约登记（读侧 cpx insight-discovery / ctxi config；持久保留，不随退出删除）
   try { writeFileSync(registryPath(), `${port}\n`) } catch (e) { warn(`端口登记写入失败: ${e.message}`) }
   openBrowser(port)
 
@@ -320,7 +342,7 @@ function prismaBin() {
 
 function runNext(nextArgs) {
   const r = spawnSync(process.execPath, [nextBin(), ...nextArgs], { cwd: PKG_DIR, stdio: 'inherit', env: process.env })
-  if (r.status !== 0) { console.error('[cbi] next 命令失败'); process.exit(r.status ?? 1) }
+  if (r.status !== 0) { console.error('[ctxi] next 命令失败'); process.exit(r.status ?? 1) }
 }
 
 function runPrisma(prismaArgs) {
@@ -329,7 +351,7 @@ function runPrisma(prismaArgs) {
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
   })
-  if (r.status !== 0) { console.error('[cbi] prisma 命令失败'); process.exit(r.status ?? 1) }
+  if (r.status !== 0) { console.error('[ctxi] prisma 命令失败'); process.exit(r.status ?? 1) }
 }
 
 function ensureNative() {
@@ -343,9 +365,9 @@ function ensureNative() {
     if (/NODE_MODULE_VERSION|did not self-register|was compiled against a different Node\.js version/i.test(msg)) {
       warn('better-sqlite3 二进制与 Node ABI 不匹配，rebuild...')
       try { execSync('npm rebuild better-sqlite3', { cwd: PKG_DIR, stdio: 'inherit' }) }
-      catch { console.error('[cbi] better-sqlite3 rebuild 失败'); process.exit(1) }
+      catch { console.error('[ctxi] better-sqlite3 rebuild 失败'); process.exit(1) }
     } else {
-      console.error('[cbi] better-sqlite3 加载失败:', msg)
+      console.error('[ctxi] better-sqlite3 加载失败:', msg)
       process.exit(1)
     }
   }
@@ -367,7 +389,7 @@ async function startSmartAgentClean(nextPort) {
   // ① 恒 clean（与 checkout 流 pick-smart-agent-port 同拍板）：候选区间内验明
   // 正身的旧 smart-agent 一律击杀回收、再起全新的——复用是残留泄漏的来源
   // （checkout 流实测 2026-09-21：keep 模式残留的 21026 python3 从上午活到
-  // 晚间）。正身判定：/health 响应体须带 cannbot-smart-agent 服务标识——通用
+  // 晚间）。正身判定：/health 响应体须带 context-smart-agent 服务标识——通用
   // /health 服务（Actuator、dev server 等）绝不击杀。属主定位走 /proc，
   // 他人进程天然定位不到 → 避让不越权。
   for (const p of agentPortCandidates(nextPort)) {
@@ -400,7 +422,7 @@ async function startSmartAgentClean(nextPort) {
   const child = spawn(pythonBin, ['server.py'], {
     cwd: path.join(PKG_DIR, 'smart-agent'),
     detached: true,
-    env: { ...process.env, CANNBOT_AGENT_PORT: String(agentPort) },
+    env: { ...process.env, CONTEXT_AGENT_PORT: String(agentPort) },
     stdio: 'ignore',
   })
   child.unref()
@@ -408,7 +430,7 @@ async function startSmartAgentClean(nextPort) {
   for (let i = 0; i < 10; i++) {
     if (await isSmartAgent(agentPort)) {
       log('smart-agent ready ✓')
-      process.env.CANNBOT_AGENT_URL = `http://localhost:${agentPort}`
+      process.env.CONTEXT_AGENT_URL = `http://localhost:${agentPort}`
       return child
     }
     await sleep(500)
@@ -439,7 +461,7 @@ function waitForReady(port) {
 function openBrowser(port) {
   // 测试环境熔断：vitest 子进程继承 VITEST env；显式 kill-switch 优先
   // （与 cpx openBrowser 同款纪律——PATH 桩对 cmd.exe 绝对路径分支无效）
-  if (process.env.CANNBOT_NO_BROWSER || process.env.VITEST) return
+  if (process.env.CONTEXT_NO_BROWSER || process.env.VITEST) return
   const url = `http://localhost:${port}`
   const isWin = platform() === 'win32'
   const isMac = platform() === 'darwin'

@@ -249,8 +249,8 @@ describe('lake 闭环：上传（治理）→ push → 列表 → 物化 → 导
     const metaJson = JSON.parse(execSync(
       `git -C "${BARE}" show "main:others/${SID}.native/${SID}.meta.json"`,
       { encoding: 'utf8' },
-    )) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
-    const env = metaJson.x_lake ?? metaJson.x_cannbay!;
+    )) as { x_lake?: { data: Record<string, unknown> } };
+    const env = metaJson.x_lake!;
     expect(typeof env.data.startTime).toBe('string');
     expect(typeof env.data.durationMs).toBe('number');
     expect(env.data.totalTokens).toBeGreaterThan(0);
@@ -299,8 +299,8 @@ describe('lake 归属快照（D 根治）：提交人/描述/备注随 meta 持�
   });
 
   function readMeta(): Record<string, unknown> {
-    const j = JSON.parse(execSync(`git -C "${BARE}" show "${metaRef}"`, { encoding: 'utf8' })) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
-    return (j.x_lake ?? j.x_cannbay!).data;
+    const j = JSON.parse(execSync(`git -C "${BARE}" show "${metaRef}"`, { encoding: 'utf8' })) as { x_lake?: { data: Record<string, unknown> } };
+    return (j.x_lake!).data;
   }
 
   it('上传 → meta 落 submitter/description/remark（与提交信息同源同值）', async () => {
@@ -316,8 +316,8 @@ describe('lake 归属快照（D 根治）：提交人/描述/备注随 meta 持�
     // A 的跳过管不到），meta 读改写保留既有字段（真实回填工具的行为）
     git('git pull -q origin main', SEED);
     const metaFile = path.join(SEED, 'others', `${D_SID}.native`, `${D_SID}.meta.json`);
-    const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
-    (meta.x_lake ?? meta.x_cannbay!).data.backfilledAt = '2026-08-20T00:00:00Z';
+    const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as { x_lake?: { data: Record<string, unknown> } };
+    (meta.x_lake!).data.backfilledAt = '2026-08-20T00:00:00Z';
     fs.writeFileSync(metaFile, JSON.stringify(meta));
     git('git add .', SEED);
     git('git -c user.name=maintbot -c user.email=maint@localhost commit -q -m "meta 指标回填: 耗时快照（模拟维护提交）"', SEED);
@@ -426,7 +426,7 @@ describe('lake 上传快路径（governed 直传）与兜底回退', () => {
     fs.writeFileSync(mainFile, plain);
     fs.writeFileSync(`${mainFile}.gz`, zlib.gzipSync(Buffer.from(plain)));
     fs.writeFileSync(path.join(dir, `${sid}.meta.json`), JSON.stringify({
-      x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'openai', ...(governed ? { governed: true } : {}), sid } },
+      x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'openai', ...(governed ? { governed: true } : {}), sid } },
     }));
     return mainFile;
   }
@@ -444,8 +444,8 @@ describe('lake 上传快路径（governed 直传）与兜底回退', () => {
       expect(remote.equals(expected7z)).toBe(true); // 字节级一致（确定性 7z，未重压）
       // cpx 伴生 meta 路径：annotateSessionMeta 补丁伴生 meta——governed 保留、
       // 提交信息快照落地（三条 staging 路径同一补丁点）
-      const fastMeta = JSON.parse(execSync(`git -C "${BARE}" show "main:others/${SID_F}/${SID_F}.meta.json"`, { encoding: 'utf8' })) as { x_lake?: { data: Record<string, unknown> }; x_cannbay?: { data: Record<string, unknown> } };
-      const fastData = (fastMeta.x_lake ?? fastMeta.x_cannbay!).data;
+      const fastMeta = JSON.parse(execSync(`git -C "${BARE}" show "main:others/${SID_F}/${SID_F}.meta.json"`, { encoding: 'utf8' })) as { x_lake?: { data: Record<string, unknown> } };
+      const fastData = (fastMeta.x_lake!).data;
       expect(fastData.governed).toBe(true);
       expect(fastData.producer).toBe('cpx');
       expect(fastData.submitter).toBe('测试者');
@@ -540,7 +540,7 @@ describe('lake route', () => {
       .rejects.toThrow(/Invalid session id/);
   });
 
-  it('提交人强制非空：缺失/空白提交人在网关拦截，不再落到机器身份 cannbot-insight', async () => {
+  it('提交人强制非空：缺失/空白提交人在网关拦截，不再落到机器身份 context-insight', async () => {
     for (const bad of [undefined, '', '内容描述: 无提交人', '提交人:\n内容描述: 空提交人', '提交人:    \n内容描述: 空白']) {
       await expect(lake.uploadLakeSession(prisma, SID, bad))
         .rejects.toThrow(/提交人不能为空/);
@@ -565,7 +565,7 @@ describe('lake route', () => {
         message: { role: 'assistant', id: `m_${round}`, content: [{ type: 'text', text: `答${round}` }], model: 'm', usage: { input_tokens: 1, output_tokens: 1 } },
         timestamp: `2026-08-26T03:0${round % 10}:05.000Z`,
         source: 'opencode-proxy', system: bigSys, tools: bigTools,
-        x_cannbay: { schema: 'cc-wire-round', version: 1, data: { roundIndex: round, protocol: 'openai', latencyMs: 10, status: 200, system: bigSys, tools: bigTools } },
+        x_lake: { schema: 'cc-wire-round', version: 1, data: { roundIndex: round, protocol: 'openai', latencyMs: 10, status: 200, system: bigSys, tools: bigTools } },
       }));
     }
     const bigFile = path.join(FIXTURES, `${SID_BIG}.jsonl`);

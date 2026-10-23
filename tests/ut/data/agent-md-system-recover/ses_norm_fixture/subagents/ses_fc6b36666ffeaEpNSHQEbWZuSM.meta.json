@@ -2,7 +2,7 @@
   "toolUseId": "call_81cd4faba5434784b98cf69e",
   "name": "Task15 生成分支设计Task",
   "agentType": "design-task-generator",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

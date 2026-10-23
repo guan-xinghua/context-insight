@@ -13,7 +13,7 @@
 //      原始输入原样落盘）
 //   ③ PUT 校验：缺地址/地址元字符/非法分支/非法目录 → 400（错误指向字段）
 //   ④ DELETE 清除后 GET 回到未配置态
-// 隔离：CANNBOT_PROXY_DIR 重定向到临时目录（server-config 路径随之前缀）。
+// 隔离：CONTEXT_PROXY_DIR 重定向到临时目录（server-config 路径随之前缀）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import fs from 'node:fs';
@@ -24,11 +24,11 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'lake-config-route-it-'));
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
-  for (const k of ['CANNBOT_PROXY_DIR']) {
+  for (const k of ['CONTEXT_PROXY_DIR']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
 });
 
 afterAll(() => {

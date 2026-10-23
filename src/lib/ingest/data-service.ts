@@ -9,7 +9,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
-import { BRAND_SOURCE_TYPE } from '@/lib/branding';
 import { getSource, sourceOfFramework, detectSourceByContent } from './adapters/registry';
 import { listSubagentSessionsWithDb, readSessionWithDb, readSessionMeta } from './adapters/opencode-db';
 import { extractVersion as extractClaudeVersion } from './adapters/claude-jsonl';
@@ -36,14 +35,12 @@ function toDate(v: string | null): Date | null {
 
 /** 行的记录类（framework 身份，方案一：同 sid 原生/proxy 各一行）：
  * - proxy 行（version 带 marker）按 version 推导——映射与分类器同源，
- *   framework 误标史不参与判定；存量误标行（容器身份冒充期落库的
- *   cannbot-insight，可能带 -proxy version——导出自捕获会话）保持原值
- *   （legacy shim：身份在目标库已丢失，重导出件即正确，此分支只护存量
- *   显示；导入链已改走 readSessionMeta 会话级声明，新行不再产生该值）
+ *   framework 误标史不参与判定（容器身份冒充期的存量行保持原值——
+ *   旧值随品牌契约退役，身份在目标库已丢失，此分支只按 version 推导；
+ *   导入链已改走 readSessionMeta 会话级声明，新行不再产生误标值）
  * - 非 proxy 行原样 framework */
 function recordingClassOfSessionRow(row: { framework: string; version: string | null }): string {
   if (isProxyVersion(row.version)) {
-    if (row.framework === BRAND_SOURCE_TYPE) return row.framework;
     return proxyRecordingFrameworkFromVersion(row.version) ?? row.framework;
   }
   return row.framework;
@@ -541,7 +538,7 @@ async function importSessionInner(
     // framework 是 agent 归属（opencode / claude-code / codex），marker 进 version。
     let proxyClass: ReturnType<typeof classifyProxyCapture> | null = null;
     // 载体声明的会话框架（身份轴，Session.framework 落库优先级之一）：容器
-    // 导出件（cannbot-insight 的 Session 行 / lake meta.json producer 声明）
+    // 导出件（context-insight 的 Session 行 / lake meta.json producer 声明）
     // 在此声明"这个会话是谁"——身份属于会话不属于文件格式。容器件重导入
     // 并回既有记录类行（如 claude-code-proxy），而不是按源缺省新建重复行
     // （(taskId, framework) 唯一索引下还会让 patchXLakeColumns 的 meta 恢复

@@ -8,8 +8,8 @@
 
 // insight 侧 git-lfs 自举 IT（与 cpx lfs-setup.test.ts 同构——受控双实现
 // parity 锁）。全程离线：下载走注入 fetchImpl + 测试内构造的真实 tar.gz
-// 夹具；bin 目录经 CANNBOT_PROXY_DIR 重定向隔离（绝不触碰真实
-// ~/.cannbot-insight/bin）。
+// 夹具；bin 目录经 CONTEXT_PROXY_DIR 重定向隔离（绝不触碰真实
+// ~/.context-insight/bin）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,7 +24,7 @@ import { ensureLfsReadyWithBootstrap } from '../../src/lib/lake/mirror';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-lfs-setup-it-'));
 // 重定向数据目录：私有 bin 落在测试沙箱（与 cpx 同语义）
-process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
 
 function git(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: 'pipe', timeout: 60_000 });
@@ -78,13 +78,13 @@ describe('insight git-lfs 自举（与 cpx 受控双实现 parity）', () => {
     expect(lfsAssetName('linux-arm64')).toBe('git-lfs-linux-arm64-v3.8.0.tar.gz');
     expect(lfsAssetName('darwin-x64')).toBe('git-lfs-darwin-amd64-v3.8.0.zip');
     expect(lfsDownloadUrl('linux-x64')).toBe('https://github.com/git-lfs/git-lfs/releases/download/v3.8.0/git-lfs-linux-amd64-v3.8.0.tar.gz');
-    process.env.CANNBOT_CPX_LFS_BASE = 'https://mirror.example.com/git-lfs/';
+    process.env.CONTEXT_CPX_LFS_BASE = 'https://mirror.example.com/git-lfs/';
     expect(lfsDownloadUrl('linux-x64')).toBe('https://mirror.example.com/git-lfs/v3.8.0/git-lfs-linux-amd64-v3.8.0.tar.gz');
-    delete process.env.CANNBOT_CPX_LFS_BASE;
+    delete process.env.CONTEXT_CPX_LFS_BASE;
     expect(lfsDownloadUrl('linux-x64', 'https://dep.example.com/')).toBe('https://dep.example.com/v3.8.0/git-lfs-linux-amd64-v3.8.0.tar.gz');
   });
 
-  it('privateLfsBinDir：CANNBOT_PROXY_DIR 重定向优先（与镜像/cpx 同语义）', () => {
+  it('privateLfsBinDir：CONTEXT_PROXY_DIR 重定向优先（与镜像/cpx 同语义）', () => {
     expect(privateLfsBinDir()).toBe(path.join(TMP, 'bin'));
     expect(lfsBinaryPath()).toBe(path.join(TMP, 'bin', 'git-lfs'));
   });
@@ -110,7 +110,7 @@ describe('insight git-lfs 自举（与 cpx 受控双实现 parity）', () => {
       fetchImpl: fetchOf({ 'git-lfs-linux-amd64-v3.8.0.tar.gz': path.join(TMP, 'fixture-linux-x64', 'git-lfs-linux-amd64-v3.8.0.tar.gz') }),
       sha256: 'deadbeef'.repeat(8),
       log: () => {},
-    })).rejects.toThrow(/CANNBOT_CPX_LFS_BASE/);
+    })).rejects.toThrow(/CONTEXT_CPX_LFS_BASE/);
     expect(fs.existsSync(lfsBinaryPath())).toBe(false);
   });
 

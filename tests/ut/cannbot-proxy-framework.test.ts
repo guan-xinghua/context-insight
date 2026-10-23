@@ -22,14 +22,14 @@ import { isClaudeFormatSession, isProxyVersion } from '@/lib/shared/session-form
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-proxy-fw-'));
 
 // 形状 = opencode-emitter 对 UA cannbot/* 记录的真实产物（Gen6 双轨）：
-// meta（framework=cannbot + ccVersion）+ 行级 source + x_cannbay 声明 + wire 字段
+// meta（framework=cannbot + ccVersion）+ 行级 source + x_lake 声明 + wire 字段
 function cannbotCapture(name: string, sid: string): string {
   const file = path.join(tmpDir, name);
   fs.writeFileSync(file, [
     JSON.stringify({
       type: 'user', message: { role: 'user', content: '帮我看一下这个算子' }, timestamp: '2026-08-25T10:00:00.000Z',
       source: 'cannbot-proxy',
-      x_cannbay: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } },
+      x_lake: { schema: 'cc-wire-input', version: 1, data: { roundIndex: 0, kind: 'user' } },
     }),
     JSON.stringify({
       type: 'assistant',
@@ -38,14 +38,14 @@ function cannbotCapture(name: string, sid: string): string {
       source: 'cannbot-proxy', version: '1.1.2',
       duration_ms: 1200, stopReason: 'stop', ttftMs: 200,
       system: 'You are cannbot, the CANN coding agent.', tools: [{ name: 'bash', description: 'Run a command.' }],
-      x_cannbay: {
+      x_lake: {
         schema: 'cc-wire-round', version: 1,
         data: { roundIndex: 0, protocol: 'openai', latencyMs: 1200, ttftMs: 200, stopReason: 'stop', status: 200, requestParams: { model: 'glm-5.2' } },
       },
     }),
   ].join('\n') + '\n');
   fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({
-    x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid } },
+    x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid } },
   }));
   return file;
 }
@@ -96,7 +96,7 @@ describe('cannbot proxy 捕获（Gen6）framework 归属闭环', () => {
     expect(row!.version).toBe('1.1.2-cannbot-proxy');
   });
 
-  it('wire 数据完整落库：latency/finishReason/ttft 经 x_cannbay 通道，turns/toolCalls 齐全', async () => {
+  it('wire 数据完整落库：latency/finishReason/ttft 经 x_lake 通道，turns/toolCalls 齐全', async () => {
     const sid = 'cb-proxy-fw-it-3';
     const file = cannbotCapture('cb-proxy-3.jsonl', sid);
     const res = await POST(req({ source: 'claude-jsonl', sessionId: sid, filePath: file }));
@@ -110,7 +110,7 @@ describe('cannbot proxy 捕获（Gen6）framework 归属闭环', () => {
     expect(asst.latencyMs).toBe(1200);
     expect(asst.finishReason).toBe('stop');
     // ttftMs 不在普通导入落库（DB 无通道），由 turns API 按需读 jsonl 的
-    // x_cannbay/顶层 ttftMs —— 与 opencode 形状锁同边界，此处不断言
+    // x_lake/顶层 ttftMs —— 与 opencode 形状锁同边界，此处不断言
     expect(turns[0].role).toBe('user');
     expect(turns[0].content).toContain('帮我看一下这个算子');
   });

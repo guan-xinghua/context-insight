@@ -10,11 +10,6 @@ import { BRAND_SLUG } from "@/lib/branding"
 
 export const LAKE_CONFIG_STORAGE_KEY = `${BRAND_SLUG}-lake-config`
 
-// 上一版 saveCannbayConfig（cannbay-config.ts，平台化改名前）写入的存量键：
-// 新键 miss 时回落读（升级用户表单预填/凭据匹配键的现实来源——当前代码
-// 不再写 localStorage，升级机器上只有这个键），清除时一并移除防残留复活
-const LEGACY_LAKE_CONFIG_STORAGE_KEY = `${BRAND_SLUG}-cannbay-config`
-
 export type LakeAuthMode = "none" | "password" | "token"
 
 // 无占位默认地址：空串 = 未自定义 → 请求不带地址，后端 env 接管；后端也未
@@ -68,7 +63,7 @@ export function migrateLakeConfig(raw: unknown): LakeConfig | null {
 export function loadLakeConfig(): LakeConfig | null {
   if (typeof window === "undefined") return null
   try {
-    const raw = localStorage.getItem(LAKE_CONFIG_STORAGE_KEY) ?? localStorage.getItem(LEGACY_LAKE_CONFIG_STORAGE_KEY)
+    const raw = localStorage.getItem(LAKE_CONFIG_STORAGE_KEY)
     if (!raw) return null
     return migrateLakeConfig(JSON.parse(raw))
   } catch {
@@ -81,12 +76,10 @@ export function loadLakeConfig(): LakeConfig | null {
 
 // 单源架构：远端偏好（地址/分支/目录）的唯一存储是服务端 lake-config.json
 // （设置页保存/清除，全机生效）。localStorage 仅作 legacy 预填源（loadLakeConfig
-// 供设置页把存量值带进表单——新键 miss 回落旧键 cannbay-config，保存一次即
-// 迁移完成；clearLakeConfig 在保存/清除时清掉新旧两键防复活）
+// 供设置页把存量值带进表单；clearLakeConfig 在保存/清除时清掉键防复活）
 export function clearLakeConfig(): void {
   if (typeof window === "undefined") return
   localStorage.removeItem(LAKE_CONFIG_STORAGE_KEY)
-  localStorage.removeItem(LEGACY_LAKE_CONFIG_STORAGE_KEY)
 }
 
 // 保存时的服务端凭据操作决策（设置页 handleSave 消费）：填了令牌/密码 →

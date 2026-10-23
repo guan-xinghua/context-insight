@@ -160,19 +160,19 @@ describe('notes api（本地 bare 湖 + 真测试库评分卡）', () => {
   it('opgen：修正任务结果标注（meta.json 落湖），清除后字段移除', async () => {
     const { POST } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
     const metaRef = 'main:elementwise/ele-note0001/ele-note0001.meta.json';
-    const metaJson = () => JSON.parse(execSync(`git -C "${BARE}" show "${metaRef}"`).toString('utf8')) as { x_cannbay: { data: Record<string, unknown> } };
+    const metaJson = () => JSON.parse(execSync(`git -C "${BARE}" show "${metaRef}"`).toString('utf8')) as { x_lake: { data: Record<string, unknown> } };
 
-    expect(metaJson().x_cannbay.data.opGen).toBeUndefined(); // 夹具未标注
+    expect(metaJson().x_lake.data.opGen).toBeUndefined(); // 夹具未标注
 
     const ok = await POST(postReq(JSON.stringify({ kind: 'opgen', value: 'success' })), ctx('ele-note0001'));
     expect(ok.status).toBe(200);
-    expect(metaJson().x_cannbay.data.opGen).toBe('success');
+    expect(metaJson().x_lake.data.opGen).toBe('success');
     // envelope 其余字段不被破坏
-    expect(metaJson().x_cannbay.data.framework).toBe('claude-code');
+    expect(metaJson().x_lake.data.framework).toBe('claude-code');
 
     const clear = await POST(postReq(JSON.stringify({ kind: 'opgen', value: null })), ctx('ele-note0001'));
     expect(clear.status).toBe(200);
-    expect(metaJson().x_cannbay.data.opGen).toBeUndefined();
+    expect(metaJson().x_lake.data.opGen).toBeUndefined();
 
     const bad = await POST(postReq(JSON.stringify({ kind: 'opgen', value: 'maybe' })), ctx('ele-note0001'));
     expect(bad.status).toBe(400);
@@ -343,13 +343,13 @@ describe('notes api（本地 bare 湖 + 真测试库评分卡）', () => {
 
 describe('归属取当前位置首传（跨位置迁移）', () => {
   it('cpx 自动上传 others/ → 人工范式上传 → 维护提交：作者=放进范式的人，不被 bot/维护顶掉', async () => {
-    // 独立 bare + 镜像：others/ 首传（cann-robot 自动上传）→ 迁入 elementwise/
+    // 独立 bare + 镜像：others/ 首传（acme-robot 自动上传）→ 迁入 elementwise/
     //（zhang3）→ 普通格式维护提交触碰（回填形态）——归属必须落在 zhang3
     const BARE2 = path.join(TMP, 'lake-mig.git');
     makeBareLake(BARE2, [
       {
         time: '2026-09-10T10:00:00+08:00',
-        message: '提交人: cann-robot 日志路径: /tmp/cpx-ele-mig0001.jsonl 备注: 框架 opencode',
+        message: '提交人: acme-robot 日志路径: /tmp/cpx-ele-mig0001.jsonl 备注: 框架 opencode',
         sessions: [{ sid: 'ele-mig0001', paradigm: 'others', framework: 'opencode' }],
       },
       {
@@ -378,7 +378,7 @@ describe('归属取当前位置首传（跨位置迁移）', () => {
       expect(row?.author).toBe('zhang3');
       expect(row?.description).toBe('范式上传');
       // GET /notes 的提交信息面板同口径：readSubmitInfo 按 sessionDir（当前
-      // 位置）限定 log，others/ 时代的 cann-robot 更老也不参与
+      // 位置）限定 log，others/ 时代的 acme-robot 更老也不参与
       const { GET: getNotes } = await import('../../../src/app/lake_viewer/api/runs/[sid]/notes/route');
       const notes = await (await getNotes(new Request('http://viewer.test/'), { params: Promise.resolve({ sid: 'ele-mig0001' }) })).json() as {
         submit: { author: string | null; description: string | null };

@@ -1,4 +1,4 @@
-# CANNBot-Insight
+# Context-Insight
 
 Session-level observability for LLM coding agents: import agent session logs and analyze tokens, context, subagents, and skill usage turn by turn.
 
@@ -26,25 +26,25 @@ Import SQLite (opencode.db) or JSONL (native Claude Code / Codex `rollout-*.json
 
 The homepage Sessions list supports keyword / session-ID search; the import dialog offers one-click default paths.
 
-**Run Observation** — A top-level Runs domain (next to Sessions) for Opsbot graph runs: import a workflow-bundle directory (`workflow.json` + `sessions/`) via the web "导入 Bundle" entry (same dialog flow as Import Session: browse directories, bundle dirs containing `workflow.json`/`manifest.json` are highlighted and import on click) or `cbi import-bundle <dir>`; the same dialog also imports straight from the CANNBay data lake (source toggle: local directory / CANNBay, with the same two-phase flow as Import Session — pick a top-level lake directory first, then filter and check bundles inside it, importing them in batch with per-item progress); all member sessions are imported immediately through the standard pipeline — **run-imported sessions live only inside the run detail view, never in the Sessions list** (deleting a run also deletes the sessions it imported; sessions that existed before the import are untouched). The run page renders the multi-generation DAG (rollback generation bands, retry history, carried / not-yet-run placeholders, generator subgraphs) as pure SVG in a workbench matching the site theme — orthogonal circuit-style edge routing (edges always flow rightward/downward, never leftward) with PCB hop bridges at crossings (crossing ≠ connection), click-to-light edge marquee (select a node to highlight its connected edges with status-colored flowing lights while the rest dim to static; click empty canvas to turn them off), Ctrl/⌘+wheel cursor-anchored zoom, drag panning and fit-to-view — with per-node attempt history (verification verdicts, Bash output) and click-through to member session turns; session pages show a run badge linking back to the run. `cbi runs` lists imported runs. After importing, each run can be uploaded to CANNBay from the runs list row (or the run page header): fill in submitter/description and the whole package — manifest, report and member sessions — is assembled from insight and pushed to the `opsbot-bundle/` zone of the data lake (member sessions re-exported from the local database, compressed uniformly, secrets scrubbed across the board; re-uploading the same runId replaces it atomically); the opsbot-bundle section in the CANNBay Viewer sidebar browses lake-hosted bundles and imports them locally in one click.
+**Run Observation** — A top-level Runs domain (next to Sessions) for Opsbot graph runs: import a workflow-bundle directory (`workflow.json` + `sessions/`) via the web "导入 Bundle" entry (same dialog flow as Import Session: browse directories, bundle dirs containing `workflow.json`/`manifest.json` are highlighted and import on click) or `ctxi import-bundle <dir>`; the same dialog also imports straight from the data lake (source toggle: local directory / data lake, with the same two-phase flow as Import Session — pick a top-level lake directory first, then filter and check bundles inside it, importing them in batch with per-item progress); all member sessions are imported immediately through the standard pipeline — **run-imported sessions live only inside the run detail view, never in the Sessions list** (deleting a run also deletes the sessions it imported; sessions that existed before the import are untouched). The run page renders the multi-generation DAG (rollback generation bands, retry history, carried / not-yet-run placeholders, generator subgraphs) as pure SVG in a workbench matching the site theme — orthogonal circuit-style edge routing (edges always flow rightward/downward, never leftward) with PCB hop bridges at crossings (crossing ≠ connection), click-to-light edge marquee (select a node to highlight its connected edges with status-colored flowing lights while the rest dim to static; click empty canvas to turn them off), Ctrl/⌘+wheel cursor-anchored zoom, drag panning and fit-to-view — with per-node attempt history (verification verdicts, Bash output) and click-through to member session turns; session pages show a run badge linking back to the run. `ctxi runs` lists imported runs. After importing, each run can be uploaded to the data lake from the runs list row (or the run page header): fill in submitter/description and the whole package — manifest, report and member sessions — is assembled from insight and pushed to the `opsbot-bundle/` zone of the data lake (member sessions re-exported from the local database, compressed uniformly, secrets scrubbed across the board; re-uploading the same runId replaces it atomically); the opsbot-bundle section in the data lake viewer sidebar browses lake-hosted bundles and imports them locally in one click.
 
-**Run Logging** — Server-side process logs (import pipeline, lake sync, API errors) are written to `~/.cannbot-insight/logs/insight-<date>.log` (daily rolling) and optionally mirrored to the startup terminal. Level, file output and screen output switches are adjustable live in Settings → Run Logging (log location shown there; no restart); env vars (`CANNBOT_LOG` / `CANNBOT_LOG_LEVEL` / `CANNBOT_LOG_FILE` / `CANNBOT_LOG_STDOUT` / `CANNBOT_LOG_DIR`) take precedence over the settings page.
+**Run Logging** — Server-side process logs (import pipeline, lake sync, API errors) are written to `~/.context-insight/logs/insight-<date>.log` (daily rolling) and optionally mirrored to the startup terminal. Level, file output and screen output switches are adjustable live in Settings → Run Logging (log location shown there; no restart); env vars (`CONTEXT_LOG` / `CONTEXT_LOG_LEVEL` / `CONTEXT_LOG_FILE` / `CONTEXT_LOG_STDOUT` / `CONTEXT_LOG_DIR`) take precedence over the settings page.
 
 ## Install & Usage
 
 ### Option 0: npm install (Recommended)
 
 ```bash
-npm install -g cannbot-insight
-cannbot-insight            # first run: auto-build + migrate (~30s-2min), then start + open browser
+npm install -g context-insight
+context-insight            # first run: auto-build + migrate (~30s-2min), then start + open browser
 ```
 
 - Requires Node.js >= 22.12; mainland-China networks can add `--registry=https://registry.npmmirror.com`
-- Offline fallback: `npm install -g ./cannbot-insight-<version>.tgz`
-- Writable state lives in `~/.cannbot-insight/`; default port 21025 (auto-increments if occupied)
-- CLI subcommands pass through: `cannbot-insight upload --file … --list` / `sessions`; short alias `cbi`
+- Offline fallback: `npm install -g ./context-insight-<version>.tgz`
+- Writable state lives in `~/.context-insight/`; default port 21025 (auto-increments if occupied)
+- CLI subcommands pass through: `context-insight upload --file … --list` / `sessions`; short alias `ctxi`
 - Python 3 optional (starts the smart-agent analysis backend when present)
-- Alternate brand: `npm install -g context-insight` — the same tool published under the Context-Insight name (commands `context-insight` / `ctxi`, data dir `~/.context-insight/`); session data is fully interchangeable with cannbot-insight (shared format identity)
+- Alternate brand: `npm install -g cannbot-insight` — the same tool published under the CANNBot-Insight name (commands `cannbot-insight` / `cbi`, data dir `~/.cannbot-insight/`); session data is fully interchangeable with context-insight (shared format identity)
 
 | Flag | Effect |
 |------|--------|

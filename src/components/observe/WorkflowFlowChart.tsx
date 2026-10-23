@@ -152,7 +152,7 @@ const SEV_COLOR: Record<Severity, string> = {
 const SEV_LABEL: Record<Severity, string> = { high: "高", medium: "中", low: "低" }
 
 function shortName(s: string): string {
-  return s.replace(/^ascendc-ops-/, "").replace(/^ascendc-/, "").replace(/^ops-registry-invoke-/, "wf-")
+  return s.replace(/^acme-ops-/, "").replace(/^acme-/, "").replace(/^ops-registry-invoke-/, "wf-")
 }
 
 function truncateText(text: string, maxLen: number): string {

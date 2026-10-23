@@ -20,7 +20,7 @@ import { joinSessionRefs } from '@/lib/run/session-link';
 const prisma = new PrismaClient();
 
 const manifest = {
-  schema: 'cannbot.workflow-bundle',
+  schema: 'context.workflow-bundle',
   version: 1,
   id: 'waterdemo01',
   kind: 'workflow',

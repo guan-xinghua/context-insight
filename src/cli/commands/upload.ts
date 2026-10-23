@@ -57,7 +57,7 @@ async function inputPrompt(label: string, defaultVal: string): Promise<string> {
 }
 
 // 提交人必填：回车跳过（默认值为空）时重复提示 —— 空提交人的 commit author
-// 会顶替为机器身份 cannbot-insight（lake/index.ts 网关同样强制拦截）
+// 会顶替为机器身份 context-insight（lake/index.ts 网关同样强制拦截）
 async function submitterPrompt(defaultVal: string): Promise<string> {
   for (;;) {
     const v = await inputPrompt('提交人（必填）', defaultVal);

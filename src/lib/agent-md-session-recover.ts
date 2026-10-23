@@ -16,7 +16,7 @@ import { readEnvelope } from '@/lib/shared/envelope';
  * 依据（ses_fc73d17d7ffer 正常会话实测，88/88 覆盖）：显式 agent 派发
  * （Task(subagent_type=xxx)，cannbot proxy 形态）的子代理，运行时把 agent .md 作为
  * system prompt 注入——proxy 捕获的子代理 jsonl 里每条 assistant 行带顶层 `system`
- * 字段（legacy）= `x_cannbay.data.system`（cc-wire-round），内容 = agent .md 正文 +
+ * 字段（legacy）= `x_lake.data.system`（cc-wire-round），内容 = agent .md 正文 +
  * 运行时附加块（`<available_skills>` 技能清单等，实测占 system 的 ~62%）。
  *
  * 这是声明恢复的**主路径**：运行时真正生效的那份（远端机器当时的版本——本机磁盘
@@ -56,7 +56,7 @@ function isAgentHeading(systemBody: string, agentName: string): boolean {
   return heading === agentName;
 }
 
-/** 从子代理 jsonl 首条带 system 的 assistant 行提取 system 文本（x_cannbay 优先，legacy 兜底）。 */
+/** 从子代理 jsonl 首条带 system 的 assistant 行提取 system 文本（x_lake 优先，legacy 兜底）。 */
 function extractSystemFromSubagentJsonl(filePath: string): string | null {
   let lines: ReturnType<typeof parseJsonlLines>;
   try {
@@ -92,7 +92,7 @@ function stripRuntimeTail(system: string): string {
   return body.replace(/\s+$/, '');
 }
 
-/** 读子代理 meta.json 的 agentType（meta 与 jsonl 同目录、恒明文；x_cannbay 优先、legacy 兜底）。 */
+/** 读子代理 meta.json 的 agentType（meta 与 jsonl 同目录、恒明文；x_lake 优先、legacy 兜底）。 */
 function readMetaAgentType(subFilePath: string): string | null {
   const metaPath = subFilePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
   try {

@@ -2,7 +2,7 @@
   "toolUseId": "call_bed3dc2c4e624b5c882e7a5d",
   "name": "验收 Task27 Branch-0 Tiling",
   "agentType": "tiling-verifier",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

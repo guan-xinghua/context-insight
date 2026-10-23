@@ -70,9 +70,9 @@ export interface RunListItem {
 const MANIFEST_FILE = 'manifest.json';
 const META_FILE = 'import.json';
 
-/** 数据主目录（与 lake-config/proxy 同源锚定：CANNBOT_INSIGHT_HOME 优先）。 */
+/** 数据主目录（与 lake-config/proxy 同源锚定：CONTEXT_INSIGHT_HOME 优先）。 */
 export function insightDataHome(): string {
-  return path.resolve(expandHome(process.env.CANNBOT_INSIGHT_HOME ?? '~/.cannbot-insight'));
+  return path.resolve(expandHome(process.env.CONTEXT_INSIGHT_HOME ?? '~/.context-insight'));
 }
 
 export function runsRoot(): string {

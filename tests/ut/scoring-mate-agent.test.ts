@@ -199,7 +199,7 @@ const RULE_ITEMS: Record<string, { verdict?: string; score?: number; value?: num
   'D2.destructive': { verdict: 'clean' },
   'D2.secrets': { verdict: 'clean' },
   'D2.access': { verdict: 'clean' },
-  'D3.cannBench': { score: 0.8 },
+  'D3.benchScore': { score: 0.8 },
   'D3.testResults': { verdict: 'passed', score: 1 },
   'D3.nakedWrite': { score: 0.6 },
   'D4.tokens': { score: 0.8 },

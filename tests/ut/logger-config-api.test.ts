@@ -8,7 +8,7 @@
 
 // 设置页「运行日志」API IT：PUT 校验（level 白名单/布尔）→ 落盘 0600 →
 // GET 回读一致（缺省回默认）→ envOverrides 反映 env 压制 → DELETE 恢复默认。
-// 直调路由 handler（import-file-api.test.ts 先例），CANNBOT_LOG_CONFIG 指
+// 直调路由 handler（import-file-api.test.ts 先例），CONTEXT_LOG_CONFIG 指
 // mkdtemp 隔离。
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
@@ -18,11 +18,11 @@ import { NextRequest } from 'next/server';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'insight-logger-cfg-api-'));
 const CFG_FILE = path.join(TMP, 'logger-config.json');
-process.env.CANNBOT_LOG_CONFIG = CFG_FILE;
-process.env.CANNBOT_LOG = '0';   // 路由内部 logger 调用静音（不写真实目录）
+process.env.CONTEXT_LOG_CONFIG = CFG_FILE;
+process.env.CONTEXT_LOG = '0';   // 路由内部 logger 调用静音（不写真实目录）
 
 const savedEnv: Record<string, string | undefined> = {};
-for (const k of ['CANNBOT_LOG', 'CANNBOT_LOG_CONFIG', 'CANNBOT_LOG_LEVEL', 'CANNBOT_LOG_FILE', 'CANNBOT_LOG_STDOUT'] as const) {
+for (const k of ['CONTEXT_LOG', 'CONTEXT_LOG_CONFIG', 'CONTEXT_LOG_LEVEL', 'CONTEXT_LOG_FILE', 'CONTEXT_LOG_STDOUT'] as const) {
   savedEnv[k] = process.env[k];
 }
 
@@ -37,9 +37,9 @@ function put(body: unknown): Promise<Response> {
 }
 
 beforeAll(() => {
-  delete process.env.CANNBOT_LOG_LEVEL;
-  delete process.env.CANNBOT_LOG_FILE;
-  delete process.env.CANNBOT_LOG_STDOUT;
+  delete process.env.CONTEXT_LOG_LEVEL;
+  delete process.env.CONTEXT_LOG_FILE;
+  delete process.env.CONTEXT_LOG_STDOUT;
 });
 
 afterAll(() => {
@@ -58,7 +58,7 @@ describe('settings/logger-config 路由', () => {
   it('GET 缺省：configured=false + 全默认值（开/info/文件与屏幕双开）+ logDir 提示', async () => {
     const res = await route.GET();
     expect(res.status).toBe(200);
-    // envOverrides 会包含本测试自设的 CANNBOT_LOG（静音用）——语义由专测覆盖
+    // envOverrides 会包含本测试自设的 CONTEXT_LOG（静音用）——语义由专测覆盖
     const data = await res.json() as Record<string, unknown>;
     expect(data).toMatchObject({ configured: false, enabled: true, level: 'info', file: true, stdout: true });
     expect(String(data.logDir)).toMatch(/logs$/);
@@ -82,16 +82,16 @@ describe('settings/logger-config 路由', () => {
     expect(fs.existsSync(CFG_FILE)).toBe(false);
   });
 
-  it('envOverrides：CANNBOT_LOG_LEVEL 设了就被列出（UI 提示被压制）', async () => {
-    process.env.CANNBOT_LOG_LEVEL = 'debug';
+  it('envOverrides：CONTEXT_LOG_LEVEL 设了就被列出（UI 提示被压制）', async () => {
+    process.env.CONTEXT_LOG_LEVEL = 'debug';
     try {
       const res = await route.GET();
       const data = await res.json() as { envOverrides: string[] };
-      expect(data.envOverrides).toContain('CANNBOT_LOG_LEVEL');
-      expect(data.envOverrides).not.toContain('CANNBOT_LOG_FILE');
-      expect(data.envOverrides).not.toContain('CANNBOT_LOG_STDOUT');
+      expect(data.envOverrides).toContain('CONTEXT_LOG_LEVEL');
+      expect(data.envOverrides).not.toContain('CONTEXT_LOG_FILE');
+      expect(data.envOverrides).not.toContain('CONTEXT_LOG_STDOUT');
     } finally {
-      delete process.env.CANNBOT_LOG_LEVEL;
+      delete process.env.CONTEXT_LOG_LEVEL;
     }
   });
 

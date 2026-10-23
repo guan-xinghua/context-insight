@@ -44,8 +44,8 @@ function makePrisma(opts: {
 describe("stripSkillContent", () => {
   it("剥掉 <skill_content name=…> 外壳、返回内部正文（trim）", () => {
     const resultJson =
-      '<skill_content name="ascendc-crash-debug">\n# Skill: ascendc-crash-debug\n调试算子卡死\n</skill_content>';
-    expect(stripSkillContent(resultJson)).toBe("# Skill: ascendc-crash-debug\n调试算子卡死");
+      '<skill_content name="acme-crash-debug">\n# Skill: acme-crash-debug\n调试算子卡死\n</skill_content>';
+    expect(stripSkillContent(resultJson)).toBe("# Skill: acme-crash-debug\n调试算子卡死");
   });
 
   it("name 属性带别的值也能剥", () => {
@@ -73,7 +73,7 @@ describe("stripSkillContent", () => {
   });
 
   it("S3：turn0 注入体剥尾部保留用户请求（行级过滤，不删无关注释）", () => {
-    const body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者，读取 STATE.md 按顺序派发。";
+    const body = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者，读取 STATE.md 按顺序派发。";
     const withTail = body + "\n\nBase directory for this skill: /home/hwd/x/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/) are relative to this base directory.\n\nsoftplus_v2_grad";
     const stripped = stripSkillRuntimeTail(withTail);
     expect(stripped).toBe(body + "\n\nsoftplus_v2_grad");
@@ -95,12 +95,12 @@ describe("recoverSkillBody", () => {
       toolCalls: [
         {
           toolName: "skill",
-          argsJson: '{"name":"ascendc-crash-debug"}',
-          resultJson: '<skill_content name="ascendc-crash-debug">\nBODY\n</skill_content>',
+          argsJson: '{"name":"acme-crash-debug"}',
+          resultJson: '<skill_content name="acme-crash-debug">\nBODY\n</skill_content>',
         },
       ],
     });
-    expect(await recoverSkillBody(SID, "ascendc-crash-debug", prisma)).toBe("BODY");
+    expect(await recoverSkillBody(SID, "acme-crash-debug", prisma)).toBe("BODY");
   });
 
   it("无 invoke 事件（只有 dispatch）→ null", async () => {
@@ -240,7 +240,7 @@ describe("recoverMainAgentWorkflowBody", () => {
   // 主 agent 通常只 dispatch、不 invoke skill，其 workflow 声明是 session 首条
   // user/system turn（S3：opencode ≥1.17 注入体带 Base directory 标记被 adapter
   // 重分类为 system）的注入系统提示。内容过短（<500）→ null。
-  const body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），" + "x".repeat(500);
+  const body = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），" + "x".repeat(500);
   const shortQuery = "帮我写个 hello world";
   const makeTurnPrisma = (content: string | null) =>
     ({ turn: { findFirst: vi.fn().mockResolvedValue(content === null ? null : { content }) } }) as unknown as PrismaClient;
@@ -606,7 +606,7 @@ describe("resolveWorkflowSkillName + recoverWorkflowDeclaration", () => {
 
   it("S1 型：无 Skill invoke → 退 turn0 ≥500（注入编排规程）", async () => {
     // S1 的 turn0 是 1809 字的编排规程（"你是纯编排者，读取 STATE.md..."）
-    const turn0Body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
+    const turn0Body = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
     const prisma = {
       skillEvent: { findFirst: vi.fn().mockResolvedValue(null) }, // 无 Skill invoke
       turn: { findFirst: vi.fn().mockResolvedValue({ content: turn0Body }) },
@@ -618,7 +618,7 @@ describe("resolveWorkflowSkillName + recoverWorkflowDeclaration", () => {
   });
 
   it("S3 型：无 Skill invoke + turn0 为 system（opencode ≥1.17 skill 注入）→ 剥尾部提取", async () => {
-    const turn0Body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
+    const turn0Body = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
     const s3Turn0 = turn0Body + "\n\nBase directory for this skill: /home/hwd/x/.opencode/skills/ops-registry-invoke-glacier\nRelative paths in this skill (e.g., scripts/) are relative to this base directory.\n\nsoftplus_v2_grad";
     const prisma = {
       skillEvent: { findFirst: vi.fn().mockResolvedValue(null) }, // 无 Skill invoke（主 agent 只 dispatch）
@@ -646,7 +646,7 @@ describe("recoverCombinedWorkflowDeclaration（root 组合声明：规程层 + �
   // 分层拼接。双层 → 带分层标题；单层 → 原文直出（与该层单独使用逐字节一致）；皆无 → null。
   const resourceBody = "# Task 调用参数\n\n## 1.1 开发准备\n\n- [ ] 开发日志已创建\n- [ ] 问题目录已创建\n- [ ] 环境检查已执行\n" + "x".repeat(120);
   const stateBody = "# STATE\n\n## Tasks\n\n- [ ] 1. 派发 developer\n- [ ] 2. 验收 st-verifier\n- [ ] 3. 收尾归档\n" + "y".repeat(120);
-  const turn0Body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
+  const turn0Body = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500);
 
   /** mock 调用序列：resolveWorkflowSkillName → (resources 命中则止) → recoverPlanFileDeclaration。 */
   const makeS2Prisma = (planTcs: Array<{ toolName: string; argsJson: string; resultJson: string | null }>) =>
@@ -874,7 +874,7 @@ describe("buildStructuredRecords", () => {
         { id: "t2", turnIndex: 2, role: "assistant", content: "调用 skill 排查", agentName: "kernel-developer" },
       ],
       toolCalls: [
-        { turnId: "t2", toolName: "skill", argsJson: '{"name":"ascendc-crash-debug"}', resultJson: '<skill_content name="x">B</skill_content>' },
+        { turnId: "t2", toolName: "skill", argsJson: '{"name":"acme-crash-debug"}', resultJson: '<skill_content name="x">B</skill_content>' },
         { turnId: "t2", toolName: "read", argsJson: '{"file_path":"x.py"}', resultJson: "content" },
       ],
     });
@@ -887,7 +887,7 @@ describe("buildStructuredRecords", () => {
     const tcs = asst.tool_calls as Array<Record<string, unknown>>;
     // result(resultJson)恒不带:audit 判定只读 user_turns + tool 输入(input)+ assistant 文本,
     // 工具结果是死重量。即便 resultJson 非空也不回传(见下条 payload 守卫测试)。
-    expect(tcs[0]).toEqual({ name: "skill", input: { name: "ascendc-crash-debug" } });
+    expect(tcs[0]).toEqual({ name: "skill", input: { name: "acme-crash-debug" } });
     expect(tcs[1]).toEqual({ name: "read", input: { file_path: "x.py" } });
     expect("result" in tcs[0]).toBe(false);
     expect("result" in tcs[1]).toBe(false);

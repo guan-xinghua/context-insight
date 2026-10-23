@@ -11,7 +11,7 @@ POST /analyze  body: {trajectoryText, provider:{baseUrl,apiKey,model}, promptMd?
   → NDJSON stream: progress events → {stage:"result", outputPath, rounds, analysis}
 POST /compress  body: 同 /analyze 但只压缩 → NDJSON stream → {stage:"result", outputPath}
 POST /compress-and-analyze  body: 同 /analyze → 先压缩再分析，单 NDJSON 流
-GET /health → {status: ok, service: cannbot-smart-agent}
+GET /health → {status: ok, service: context-smart-agent}
   service 标识供启动器验明正身：带通用 /health 的无关服务（Actuator、
   dev server 等）不得被误认为 smart-agent 而复用/击杀
 """
@@ -31,7 +31,7 @@ from trajectory_compressor import compress_trajectory, deterministic_compress
 from trajectory_parser import inject_flow_metrics
 from jsonl_logger import JsonlLogger
 
-PORT = int(os.environ.get("CANNBOT_AGENT_PORT", "21026"))
+PORT = int(os.environ.get("CONTEXT_AGENT_PORT", "21026"))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROMPTS_DIR = os.path.join(PROJECT_ROOT, "prompts")
 
@@ -51,7 +51,7 @@ def _output_roots() -> list[str]:
     刻意不含裸 cwd/项目根本身：产物文件名嵌请求方可控的 outputBasename，
     裸根会让整个项目树（含 .git/src/prompts）落入可写范围。
     """
-    extras = [p.strip() for p in os.environ.get("CANNBOT_AGENT_OUTPUT_ROOTS", "").split(",") if p.strip()]
+    extras = [p.strip() for p in os.environ.get("CONTEXT_AGENT_OUTPUT_ROOTS", "").split(",") if p.strip()]
     candidates = [
         os.path.join(os.getcwd(), "tmp"), os.path.join(os.getcwd(), "logs"),
         os.path.join(PROJECT_ROOT, "tmp"), os.path.join(PROJECT_ROOT, "logs"),
@@ -253,10 +253,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_get(self) -> None:
         if self.path == "/health":
-            # service 标识是启动器（bin/cannbot-insight.mjs 复用判定）与
+            # service 标识是启动器（bin/context-insight.mjs 复用判定）与
             # scripts/pick-smart-agent-port.sh（杀旧重启判定）的正身依据：
             # 仅凭 2xx 无法区分 smart-agent 与任意带 /health 的无关服务
-            self._json(200, {"status": "ok", "service": "cannbot-smart-agent"})
+            self._json(200, {"status": "ok", "service": "context-smart-agent"})
             return
         self._json(404, {"error": "not found"})
 

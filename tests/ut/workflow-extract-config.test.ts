@@ -43,9 +43,9 @@ afterEach(() => {
 });
 
 describe("workflow-extract-config（主 agent 组合声明提取插件）", () => {
-  it("默认插件 = cann-ops 现值（STATE.md 白名单 / 阈值），native 行为不变", () => {
+  it("默认插件 = workflow-ops 现值（STATE.md 白名单 / 阈值），native 行为不变", () => {
     const p = getWorkflowExtractPlugin();
-    expect(p.name).toBe("cann-ops");
+    expect(p.name).toBe("workflow-ops");
     expect(p.plan.fileNames).toEqual(["STATE.md"]);
     expect(p.plan.fileNames).not.toContain("MILESTONES.md");
     expect(p.plan.bodyMinChars).toBe(100);
@@ -138,7 +138,7 @@ describe("workflow-extract-config（主 agent 组合声明提取插件）", () =
     expect(getWorkflowExtractPlugin().name).toBe("example-milestone");
     setWorkflowExtractPluginForTests(null);
     resetWorkflowExtractConfigCache();
-    expect(getWorkflowExtractPlugin().name).toBe("cann-ops");
+    expect(getWorkflowExtractPlugin().name).toBe("workflow-ops");
   });
 
   it("resolvePluginFromRaw：部分字段覆盖、缺省/非法回退默认", () => {
@@ -165,8 +165,8 @@ describe("workflow-extract-config（主 agent 组合声明提取插件）", () =
     const p2 = ensureWorkflowExtractPluginLoaded();
     expect(p2).toBe(p1);
     if (!hasLocalConfig) {
-      expect(p1.name).toBe("cann-ops");
-      expect(getWorkflowExtractPlugin().name).toBe("cann-ops");
+      expect(p1.name).toBe("workflow-ops");
+      expect(getWorkflowExtractPlugin().name).toBe("workflow-ops");
     }
     resetWorkflowExtractConfigCache();
   });

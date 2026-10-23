@@ -228,10 +228,10 @@ describe('opencode 标题作 Query（title 优先决议）', () => {
 
   it('小模型生成的标题直接作 Query（任务通知不掺和）', async () => {
     await prisma.session.deleteMany({ where: { taskId: TITLE_TASK } }).catch(() => {});
-    writeTitleDb('ConfusionMulGrad Ascend C 算子开发');
+    writeTitleDb('ConfusionMulGrad Acme C 算子开发');
     await importSession(TITLE_DB, TITLE_TASK, prisma, TITLE_DB, 'opencode-db');
     const s = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
-    expect(s.query).toBe('ConfusionMulGrad Ascend C 算子开发');
+    expect(s.query).toBe('ConfusionMulGrad Acme C 算子开发');
   });
 
   it('缺省占位标题（New session - …）回落：任务通知跳过、取真人输入', async () => {
@@ -244,14 +244,14 @@ describe('opencode 标题作 Query（title 优先决议）', () => {
 
   it('delta 刷新（快路径回写）同样保持标题决议', async () => {
     await prisma.session.deleteMany({ where: { taskId: TITLE_TASK } });
-    writeTitleDb('ConfusionMulGrad Ascend C 算子开发');
+    writeTitleDb('ConfusionMulGrad Acme C 算子开发');
     await importSession(TITLE_DB, TITLE_TASK, prisma, TITLE_DB, 'opencode-db');
     // 手动污染 query（模拟旧版残留），刷新后应回到标题
     const s = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
     await prisma.session.update({ where: { id: s.id }, data: { query: '<task id="x" state="completed">旧残留</task>' } });
     await deltaRefreshSession(TITLE_TASK, prisma);
     const after = await prisma.session.findFirstOrThrow({ where: { taskId: TITLE_TASK } });
-    expect(after.query).toBe('ConfusionMulGrad Ascend C 算子开发');
+    expect(after.query).toBe('ConfusionMulGrad Acme C 算子开发');
   });
 
   afterAll(async () => {

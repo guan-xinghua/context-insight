@@ -14,11 +14,11 @@ import path from 'node:path';
 import os from 'node:os';
 
 // Isolate HOME to a tmpdir so the config tests never touch the REAL
-// ~/.cannbot-insight (which holds the proxy/ capture dir + session jsonl).
+// ~/.context-insight (which holds the proxy/ capture dir + session jsonl).
 // config.ts reads os.homedir() lazily, so setting HOME here (before any
 // loadConfig/saveConfig call in the it-blocks) redirects CONFIG_DIR to the
 // tmpdir. Without this, fs.rmSync(CONFIG_DIR, recursive) below would nuke
-// the real ~/.cannbot-insight on every test run — the recurring "proxy dir
+// the real ~/.context-insight on every test run — the recurring "proxy dir
 // vanishing" root cause.
 let CONFIG_DIR = '';
 let CONFIG_FILE = '';
@@ -77,26 +77,26 @@ describe('config', () => {
     });
 
     it('overrides defaults with environment variables', () => {
-      process.env.CANNBOT_SERVER = 'http://env-server:9999';
-      process.env.CANNBOT_TIMEOUT = '30000';
+      process.env.CONTEXT_SERVER = 'http://env-server:9999';
+      process.env.CONTEXT_TIMEOUT = '30000';
       const config = loadConfig();
       expect(config.server).toBe('http://env-server:9999');
       expect(config.timeout).toBe(30000);
-      delete process.env.CANNBOT_SERVER;
-      delete process.env.CANNBOT_TIMEOUT;
+      delete process.env.CONTEXT_SERVER;
+      delete process.env.CONTEXT_TIMEOUT;
     });
 
     it('command line opts override environment variables', () => {
-      process.env.CANNBOT_SERVER = 'http://env-server:9999';
+      process.env.CONTEXT_SERVER = 'http://env-server:9999';
       const config = loadConfig({ server: 'http://cli-server:8080' });
       expect(config.server).toBe('http://cli-server:8080');
-      delete process.env.CANNBOT_SERVER;
+      delete process.env.CONTEXT_SERVER;
     });
 
     it('reads os.homedir() lazily so an after-import HOME change redirects CONFIG_DIR', () => {
       // Regression guard: config.ts must NOT capture CONFIG_DIR at module
       // load. If it did, the test's HOME isolation would fail and
-      // fs.rmSync(CONFIG_DIR) would nuke the real ~/.cannbot-insight (the
+      // fs.rmSync(CONFIG_DIR) would nuke the real ~/.context-insight (the
       // recurring "proxy capture dir vanishing" root cause).
       const altHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cannbot-config-alt-'));
       const prev = process.env.HOME;
@@ -179,9 +179,9 @@ describe('config', () => {
 
     afterEach(() => {
       fs.rmSync(registryFile(), { force: true });
-      delete process.env.CANNBOT_SERVER;
-      delete process.env.CANNBOT_PROXY_DIR;
-      delete process.env.CANNBOT_INSIGHT_HOME;
+      delete process.env.CONTEXT_SERVER;
+      delete process.env.CONTEXT_PROXY_DIR;
+      delete process.env.CONTEXT_INSIGHT_HOME;
     });
 
     it('falls back to registry port when no explicit source exists', () => {
@@ -196,9 +196,9 @@ describe('config', () => {
       expect(loadConfig().server).toBe('http://saved:7777');
     });
 
-    it('CANNBOT_SERVER env suppresses registry', () => {
+    it('CONTEXT_SERVER env suppresses registry', () => {
       writeRegistry('21226\n');
-      process.env.CANNBOT_SERVER = 'http://env-server:9999';
+      process.env.CONTEXT_SERVER = 'http://env-server:9999';
       expect(loadConfig().server).toBe('http://env-server:9999');
     });
 
@@ -214,20 +214,20 @@ describe('config', () => {
       }
     });
 
-    it('registry anchor follows CANNBOT_PROXY_DIR parent', () => {
+    it('registry anchor follows CONTEXT_PROXY_DIR parent', () => {
       const custom = path.join(tmpHome, 'custom-root', 'proxy');
       fs.mkdirSync(custom, { recursive: true });
       fs.writeFileSync(path.join(path.dirname(custom), 'insight-port'), '23000\n');
-      process.env.CANNBOT_PROXY_DIR = custom;
+      process.env.CONTEXT_PROXY_DIR = custom;
       expect(loadConfig().server).toBe('http://localhost:23000');
       fs.rmSync(path.dirname(custom), { recursive: true, force: true });
     });
 
-    it('registry anchor follows CANNBOT_INSIGHT_HOME (no CANNBOT_PROXY_DIR)', () => {
+    it('registry anchor follows CONTEXT_INSIGHT_HOME (no CONTEXT_PROXY_DIR)', () => {
       const dataDir = path.join(tmpHome, 'relocated-data');
       fs.mkdirSync(dataDir, { recursive: true });
       fs.writeFileSync(path.join(dataDir, 'insight-port'), '24000\n');
-      process.env.CANNBOT_INSIGHT_HOME = dataDir;
+      process.env.CONTEXT_INSIGHT_HOME = dataDir;
       expect(loadConfig().server).toBe('http://localhost:24000');
       fs.rmSync(dataDir, { recursive: true, force: true });
     });

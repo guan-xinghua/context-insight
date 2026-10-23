@@ -87,7 +87,7 @@ beforeAll(() => {
         RESULT_2X),
       // 1.x 方言共存：task + subagent_type（回归：不被 2.x 分支互扰）
       dispatchToolCall('call-1x-1', 'task',
-        { subagent_type: 'ascendc-ops-architect', description: 'P1 需求分析', prompt: '执行需求分析任务。' },
+        { subagent_type: 'acme-ops-architect', description: 'P1 需求分析', prompt: '执行需求分析任务。' },
         'task_id: ' + SUB1_ID),
       // 2.x 后台异步形态：sessionID 在括号文本里（现场 83/102 次派发走此
       // 形态，提不出 id 曾被失败派发守卫误杀——0 桥）
@@ -96,7 +96,7 @@ beforeAll(() => {
         JSON.stringify([{ type: 'text', text: 'The subagent is working in the background (sessionID: ' + SUB2_BG_ID + '). You will be notified automatically when it finishes.\nDO NOT sleep, poll for progress.' }])),
       // 1.18 task 方言：XML 标签字段叫 id（非 sessionID/task_id）
       dispatchToolCall('call-118-1', 'task',
-        { subagent_type: 'ascendc-ops-architect', description: 'P1 需求分析', prompt: '执行需求分析任务。' },
+        { subagent_type: 'acme-ops-architect', description: 'P1 需求分析', prompt: '执行需求分析任务。' },
         JSON.stringify([{ type: 'text', text: '<task id="' + SUB118_ID + '" state="completed">\n<task_result>\n需求分析完成，产物已落盘。\n</task_result>\n</task>' }])),
     ]),
     subagentInteraction(SUB2_ID, 1772275202000),
@@ -164,14 +164,14 @@ describe('bridge-builder: opencode 2.x subagent 派发方言', () => {
   it('1.18 task 方言：<task id="..."> 锚定（现场 92/94 派发此形态曾全跳）', () => {
     const b = bridges.find(x => x.subagentSessionId === SUB118_ID)!;
     expect(b).toBeDefined();
-    expect(b!.subagentType).toBe('ascendc-ops-architect');
+    expect(b!.subagentType).toBe('acme-ops-architect');
     expect(b!.dispatchContent).toBe('P1 需求分析');
   });
 
   it('1.x task 方言共存不互扰（subagent_type 优先级不变）', () => {
     const b = bridges.find(x => x.subagentSessionId === SUB1_ID)!;
-    expect(b!.subagentType).toBe('ascendc-ops-architect');
+    expect(b!.subagentType).toBe('acme-ops-architect');
     expect(b!.dispatchContent).toBe('P1 需求分析');
-    expect(skillEvents.some(e => e.skillName === 'ascendc-ops-architect')).toBe(true);
+    expect(skillEvents.some(e => e.skillName === 'acme-ops-architect')).toBe(true);
   });
 });

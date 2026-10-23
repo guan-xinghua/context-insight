@@ -59,18 +59,18 @@ const route = await import('../../src/app/api/ingest/lake/route');
 
 const SID = 'cc-dual-rec-it-0001';
 
-// wire 捕获形态：行级 source 标记 + x_cannbay wire 证据（分类器规则 2）
+// wire 捕获形态：行级 source 标记 + x_lake wire 证据（分类器规则 2）
 function writeCaptureFixture(): string {
   fs.mkdirSync(FIXTURES, { recursive: true });
   const f = path.join(FIXTURES, `${SID}.jsonl`);
   fs.writeFileSync(f, [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: 'wire-q1' }, source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
-    JSON.stringify({ type: 'assistant', message: { id: 'm_cap', role: 'assistant', content: [{ type: 'text', text: 'wire-a1' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-09-17T03:00:05.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'wire-q1' }, source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } }),
+    JSON.stringify({ type: 'assistant', message: { id: 'm_cap', role: 'assistant', content: [{ type: 'text', text: 'wire-a1' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-09-17T03:00:05.000Z', source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } }),
   ].join('\n') + '\n');
   return f;
 }
 
-// 原生 claude 会话形态：无 source/x_cannbay
+// 原生 claude 会话形态：无 source/x_lake
 function writeNativeFixture(sid = SID): string {
   fs.mkdirSync(FIXTURES, { recursive: true });
   const f = path.join(FIXTURES, `${sid}.native-src.jsonl`);
@@ -95,7 +95,7 @@ function seedLegacyBareDir(sid: string, meta: { producer: 'insight-export' | 'in
     JSON.stringify({ type: 'user', message: { role: 'user', content: `legacy-${sid}` }, timestamp: '2026-09-16T03:00:00.000Z' }),
   ].join('\n') + '\n');
   fs.writeFileSync(path.join(dir, `${sid}.meta.json`), JSON.stringify({
-    x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: meta.producer, framework: 'claude-code', ccVersion: meta.ccVersion, sid } },
+    x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: meta.producer, framework: 'claude-code', ccVersion: meta.ccVersion, sid } },
   }));
   // mirror 侧上传（①-④）推进过远端，SEED 先 rebase 再推
   git('git pull --rebase -q origin main', SEED);
@@ -223,7 +223,7 @@ describe('同 sid 双记录·lake 侧（sid × 记录类 全仓唯一）', () =>
     // 恶意 root + 恶意文件名（含换行，模拟 `evil-root/<sid>/` 形态的伪造行）
     fs.writeFileSync(path.join(dir, `${SID_X}.jsonl`), 'x\n');
     fs.writeFileSync(path.join(dir, `${SID_X}.meta.json`), JSON.stringify({
-      x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'claude-code', sid: SID_X } },
+      x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'insight-export', framework: 'claude-code', sid: SID_X } },
     }));
     git('git pull --rebase -q origin main', SEED);
     git('git add .', SEED);

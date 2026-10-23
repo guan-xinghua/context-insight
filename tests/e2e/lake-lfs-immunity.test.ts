@@ -69,7 +69,7 @@ process.env.LAKE_CACHE_DIR = CACHE;
 
 // ── 真实会话 fixture（两份，content 相同、sid 不同）──
 const FIXTURE_LINES = [
-  JSON.stringify({ type: 'user', message: { role: 'user', content: 'lfs immunity fixture' }, timestamp: '2026-09-03T03:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
+  JSON.stringify({ type: 'user', message: { role: 'user', content: 'lfs immunity fixture' }, timestamp: '2026-09-03T03:00:00.000Z', source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } }),
   JSON.stringify({ type: 'assistant', message: { id: 'm1', role: 'assistant', content: [{ type: 'text', text: 'ok' }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-09-03T03:00:05.000Z' }),
 ].join('\n') + '\n';
 

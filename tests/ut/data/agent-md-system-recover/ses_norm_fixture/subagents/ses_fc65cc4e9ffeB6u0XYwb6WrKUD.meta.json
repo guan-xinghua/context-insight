@@ -2,7 +2,7 @@
   "toolUseId": "call_cd60c99ddcd64883a8433633",
   "name": "Task19 黑盒ST用例",
   "agentType": "blackbox-designer",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

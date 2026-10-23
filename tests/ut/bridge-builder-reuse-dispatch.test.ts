@@ -49,7 +49,7 @@ function reuseDispatchInteractions(): RawInteraction[] {
       timeInfo: { created: T0 + 1000, completed: T0 + 2000 }, agent: 'build', subagent_name: null,
       subagent_session_id: null, subagent_type: null,
       tool_calls: dispatch('call_sub_001', {
-        agent: 'ascendc-ops-architect',
+        agent: 'acme-ops-architect',
         description: 'P1 需求分析 confusion_mul_grad',
         prompt: '请分析 P1 需求……',
         sessionID: 'ses_reuse_001',
@@ -68,7 +68,7 @@ function reuseDispatchInteractions(): RawInteraction[] {
       timeInfo: { created: T0 + 61_000, completed: T0 + 62_000 }, agent: 'build', subagent_name: null,
       subagent_session_id: null, subagent_type: null,
       tool_calls: dispatch('call_sub_002', {
-        agent: 'ascendc-ops-architect',
+        agent: 'acme-ops-architect',
         description: 'P1 返工 r1 需求分析',
         prompt: '在你上一轮产物基线上修改……',
         sessionID: 'ses_reuse_001',   // 复用：同一子会话二次派发
@@ -147,7 +147,7 @@ describe('bridge-builder：reuseDispatch 自定义派发形态', () => {
     expect(first).toBeDefined();
     expect(first.subagentSessionId).toBe('ses_reuse_001');       // sessionID 直连
     expect(first.subagentName).toBe('P1 需求分析 confusion_mul_grad');
-    expect(first.subagentType).toBe('ascendc-ops-architect');
+    expect(first.subagentType).toBe('acme-ops-architect');
     expect(first.dispatchContent).toBe('P1 需求分析 confusion_mul_grad');
     expect(first.status).toBe('completed');
     expect(first.responseTurnId).not.toBeNull();                  // 锚到子会话末轮

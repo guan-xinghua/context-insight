@@ -6,9 +6,9 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// `cbi auth` 命令 IT：交互流程（注入 prompts/probe）、非交互三件套、
+// `ctxi auth` 命令 IT：交互流程（注入 prompts/probe）、非交互三件套、
 // --status 脱敏清单、--clear、非 TTY 拒绝与令牌空输入取消。隔离：
-// CANNBOT_PROXY_DIR 重定向到临时目录（凭据文件跟随），env 快照恢复。
+// CONTEXT_PROXY_DIR 重定向到临时目录（凭据文件跟随），env 快照恢复。
 // 夹具一律 example.com（安全规范）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -23,11 +23,11 @@ const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'cbi-auth-it-'));
-  for (const k of ['CANNBOT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN', 'LAKE_REMOTE_URL']) {
+  for (const k of ['CONTEXT_PROXY_DIR', 'LAKE_PUSH_URL', 'LAKE_USERNAME', 'LAKE_TOKEN', 'LAKE_REMOTE_URL']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
-  process.env.CANNBOT_PROXY_DIR = path.join(home, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(home, 'proxy');
   // 单源：回车默认地址 = 服务端 lake-config.json 的当前远端（夹具零真实地址）
   writeServerLakeConfig({ address: 'https://example.com/env-lake.git' });
 });
@@ -40,7 +40,7 @@ afterAll(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-describe('cbi auth 交互流程', () => {
+describe('ctxi auth 交互流程', () => {
   it('默认远端回车 → 用户名 → 凭据静默输入 → 保存 + 探测通过落 verifiedAt', async () => {
     const answers = ['', 'wangwu', 'cli-credential-998877'];
     const mutedQueries: string[] = [];
@@ -75,7 +75,7 @@ describe('cbi auth 交互流程', () => {
   });
 });
 
-describe('cbi auth 非交互与子操作', () => {
+describe('ctxi auth 非交互与子操作', () => {
   it('--remote/--username/--token 三件套：探测失败仍保存但不落 verifiedAt', async () => {
     const code = await runAuthAction(
       { remote: 'https://example.com/org/repo.git', username: 'u1', token: 't1-987654321' },

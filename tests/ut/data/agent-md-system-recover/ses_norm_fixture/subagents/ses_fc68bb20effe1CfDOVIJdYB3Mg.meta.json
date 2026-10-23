@@ -2,7 +2,7 @@
   "toolUseId": "call_d1b696f9fba542bbae9dd74c",
   "name": "Task15.5 评审DESIGN",
   "agentType": "designer",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

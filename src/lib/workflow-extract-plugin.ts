@@ -13,10 +13,10 @@
  * 的模块都会进 client bundle——所以 fs 读配置的逻辑必须隔离在 server-only 的
  * `workflow-extract-config.ts`（镜像 agent-md-scan.ts 的隔离模式）：
  *
- * - 本模块：类型 + cann-ops 默认值 + 纯合并 + 生效插件的内存 holder（fs-free）。
+ * - 本模块：类型 + workflow-ops 默认值 + 纯合并 + 生效插件的内存 holder（fs-free）。
  * - workflow-extract-config.ts（server-only）：读 workflow-extract-plugins.json，
  *   `ensureWorkflowExtractPluginLoaded()` 把结果灌进本模块 holder。API 路由入口调用
- *   一次激活；不激活（单测直调 recover*）→ 回退 DEFAULT_PLUGIN（cann-ops 现行为）。
+ *   一次激活；不激活（单测直调 recover*）→ 回退 DEFAULT_PLUGIN（workflow-ops 现行为）。
  *
  * 提取管线本身（两层模型、计划层 named-Read 过滤、首次实质读取）是领域无关引擎，不进配置。
  */
@@ -46,10 +46,10 @@ export interface WorkflowExtractPlugin {
   plan: PlanPluginConfig;
 }
 
-/** cann-ops 默认插件：与重构前 sift-audit.ts 的硬编码值逐一相等（native 行为不变）。 */
+/** workflow-ops 默认插件：与重构前 sift-audit.ts 的硬编码值逐一相等（native 行为不变）。 */
 export const DEFAULT_PLUGIN: WorkflowExtractPlugin = {
-  name: "cann-ops",
-  description: "算子生成任务（CANN ops workflow）的定制提取——STATE.md 任务清单 + workflow skill 编排规程",
+  name: "workflow-ops",
+  description: "算子生成任务（ops workflow）的领域定制提取——STATE.md 任务清单 + workflow skill 编排规程",
   regulation: {
     resourceDirs: ["resources"],
     turn0MinChars: 500,
@@ -84,7 +84,7 @@ export type PartialPluginConfig = {
 };
 
 /**
- * 纯合并：JSON 里的部分字段覆盖 cann-ops 默认值（缺省/非法字段回退默认）。
+ * 纯合并：JSON 里的部分字段覆盖 workflow-ops 默认值（缺省/非法字段回退默认）。
  * 导出供 server 加载器与测试复用。
  */
 export function resolvePluginFromRaw(name: string, raw: PartialPluginConfig): WorkflowExtractPlugin {
@@ -126,7 +126,7 @@ export function resetWorkflowExtractPlugin(): void {
   loadedPlugin = null;
 }
 
-/** 取当前生效的提取插件：测试注入 > server 加载的文件插件 > 代码默认（cann-ops）。 */
+/** 取当前生效的提取插件：测试注入 > server 加载的文件插件 > 代码默认（workflow-ops）。 */
 export function getWorkflowExtractPlugin(): WorkflowExtractPlugin {
   if (testOverride) return testOverride;
   if (loadedPlugin) return loadedPlugin;

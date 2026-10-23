@@ -94,7 +94,7 @@ describe('opencode 家族提取器（<available_skills> xml + Instructions from:
   it('readFullContext：fc.skills = xml 块原文；fc.memoryFiles = 记忆段原文（到 skills 块止）', () => {
     const fc = readFullContext(path.join(DATA_DIR, 'dispatch-opencode.jsonl'))!;
     expect(fc.skills.startsWith('<available_skills>')).toBe(true);
-    expect(fc.skills).toContain('<name>ascendc-docs-search</name>');
+    expect(fc.skills).toContain('<name>acme-docs-search</name>');
     expect(fc.memoryFiles.startsWith('Instructions from: /home/dev/project/AGENTS.md')).toBe(true);
     expect(fc.memoryFiles).toContain('# 项目工程指南');
     expect(fc.memoryFiles).not.toContain('<available_skills>');
@@ -103,8 +103,8 @@ describe('opencode 家族提取器（<available_skills> xml + Instructions from:
   it('readAvailableSkills：xml 全集 + listFormat opencode-xml（迁移后行为保持）', () => {
     const parsed = readAvailableSkills(path.join(DATA_DIR, 'dispatch-opencode.jsonl'))!;
     expect(parsed.format).toBe('opencode-xml');
-    expect(parsed.skills.map(s => s.name)).toEqual(['ascendc-docs-search', 'report-writer']);
-    expect(parsed.skills[0].origin).toBe('/home/dev/skills/ascendc-docs-search');
+    expect(parsed.skills.map(s => s.name)).toEqual(['acme-docs-search', 'report-writer']);
+    expect(parsed.skills[0].origin).toBe('/home/dev/skills/acme-docs-search');
   });
 });
 

@@ -69,14 +69,14 @@ describe('TurnTimeline 复用会话 lane 按派发窗拆分', () => {
     {
       bridgeId: 'br-first', dispatchTurnId: 't-10', dispatchContent: 'P1 需求分析',
       dispatchTimestamp: T0, responseTimestamp: '2026-10-13T09:24:00.000Z',
-      subagentSessionId: SID, subagentType: 'ascendc-ops-architect', subagentName: 'P1 需求分析',
+      subagentSessionId: SID, subagentType: 'acme-ops-architect', subagentName: 'P1 需求分析',
       agentName: null, status: 'completed', subagentTokens: 500, subagentLatencyMs: 720_000,
       dispatchBackground: false,
     },
     {
       bridgeId: 'br-rework', dispatchTurnId: 't-19', dispatchContent: 'P1 返工 r1',
       dispatchTimestamp: R1, responseTimestamp: '2026-10-13T09:40:18.000Z',
-      subagentSessionId: SID, subagentType: 'ascendc-ops-architect', subagentName: 'P1 返工 r1',
+      subagentSessionId: SID, subagentType: 'acme-ops-architect', subagentName: 'P1 返工 r1',
       agentName: null, status: 'completed', subagentTokens: 400, subagentLatencyMs: 387_000,
       dispatchBackground: false,
     },

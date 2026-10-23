@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("resolveWorkflowSkillName", () => {
   it("turn0 body 前缀匹配 disk SKILL.md → frontmatter name", () => {
-    const body = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），" + "x".repeat(500)
+    const body = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），" + "x".repeat(500)
     writeSkill("plugins-official/ops-registry-invoke-glacier/skills/ops-registry-invoke-glacier/SKILL.md", "ops-registry-invoke-glacier", body)
     // turn0 = skill body + 末尾用户查询
     const turn0 = body + "\n\neuclidean_norm,参考/.../需求文档.md"

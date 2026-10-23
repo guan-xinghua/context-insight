@@ -109,16 +109,16 @@ const HARD: Array<{ label: string; a: TurnData[]; b: TurnData[]; assert: (pairs:
   {
     label: "H2: 20轮对话(A有子代理深度探索,B无子代理)",
     a: [
-      t(0, "user", "请深入阅读 cannbot-insight 仓库的完整代码架构，理解所有模块"),
+      t(0, "user", "请深入阅读 context-insight 仓库的完整代码架构，理解所有模块"),
       t(1, "assistant", "<thinking>需要系统性探索整个仓库架构</thinking>\n我来深入阅读整个仓库。", [tc("1","Read"), tc("2","Read"), tc("3","Read")]),
       t(2, "assistant", "", [tc("4","task")], [se("explore")]),
-      t(3, "user", "Thoroughly explore the cannbot-insight codebase...", undefined, undefined),
+      t(3, "user", "Thoroughly explore the context-insight codebase...", undefined, undefined),
       t(4, "assistant", "<thinking>Systematic exploration needed</thinking>\nLet me explore all directories.", [tc("5","Read"), tc("6","Read")]),
       t(5, "assistant", "", [tc("7","Read"), tc("8","Read"), tc("9","bash")]),
       t(6, "assistant", "", [tc("10","Read"), tc("11","Read"), tc("12","Read")]),
       t(7, "assistant", "", [tc("13","Read"), tc("14","Read")]),
       t(8, "assistant", "Comprehensive exploration complete. Here's the architecture overview:\n\n- Data flow: opencode sessions.db → adapter → normalize → turn-split → bridge-builder → execution-split → Prisma\n- 9 tab views\n- CLI with Ink v7\n- Breather monitor module"),
-      t(9, "assistant", "<thinking>子代理探索完毕，整理结果给用户</thinking>\n已深入阅读 cannbot-insight 仓库。以下是架构概览：\n\n**数据流**：opencode sessions.db → adapter → normalize → turn-split → bridge-builder → execution-split → data-service → Prisma\n\n**Web UI**：9 个 tab（Overview, Turns, Workflow, Trace, Subagents, Skills, Interactions, AI Workflow, Context）\n\n**CLI**：Ink v7 + Commander.js，10 个命令\n\n**Breather**：上下文监控模块"),
+      t(9, "assistant", "<thinking>子代理探索完毕，整理结果给用户</thinking>\n已深入阅读 context-insight 仓库。以下是架构概览：\n\n**数据流**：opencode sessions.db → adapter → normalize → turn-split → bridge-builder → execution-split → data-service → Prisma\n\n**Web UI**：9 个 tab（Overview, Turns, Workflow, Trace, Subagents, Skills, Interactions, AI Workflow, Context）\n\n**CLI**：Ink v7 + Commander.js，10 个命令\n\n**Breather**：上下文监控模块"),
       t(10, "user", "看看 bridge-builder 模块的实现细节"),
       t(11, "assistant", "<thinking>用户要求查看bridge-builder细节</thinking>\n我来查看 bridge-builder 的实现细节。", [tc("15","Read")]),
       t(12, "assistant", "bridge-builder 的核心逻辑是追踪主代理→子代理的 dispatch/response 。它通过 ToolCall 的 dispatchBridgeId 和 Execution 的 parentExecutionId 建立桥接关系。"),
@@ -131,7 +131,7 @@ const HARD: Array<{ label: string; a: TurnData[]; b: TurnData[]; assert: (pairs:
       t(19, "assistant", "<thinking>用户要求查看execution-split</thinking>\n我来查看 execution-split 的实现。", [tc("20","Read")]),
     ],
     b: [
-      t(0, "user", "请阅读 cannbot-insight 仓库的代码架构"),
+      t(0, "user", "请阅读 context-insight 仓库的代码架构"),
       t(1, "assistant", "<thinking>用户要求阅读仓库架构</thinking>\n我来阅读这个仓库。", [tc("21","Read"), tc("22","Read"), tc("23","Read")]),
       t(2, "assistant", "", [tc("24","Read"), tc("25","Read"), tc("26","Read")]),
       t(3, "assistant", "", [tc("27","Read"), tc("28","Read")]),
@@ -439,7 +439,7 @@ const HARD: Array<{ label: string; a: TurnData[]; b: TurnData[]; assert: (pairs:
     label: "H10: 编码对话+subagent+skill+error综合场景",
     a: [
       t(0, "system", "You are an expert coding assistant. Use skills when available. Always validate changes."),
-      t(1, "user", "为 cannbot-insight 实现完整的 export 功能，支持 markdown 导出"),
+      t(1, "user", "为 context-insight 实现完整的 export 功能，支持 markdown 导出"),
       t(2, "assistant", "<thinking>需要实现session的markdown导出功能</thinking>\n我来实现 markdown 导出功能。先看看现有的数据结构和导出需求。", [tc("1","Read"), tc("2","Read")]),
       t(3, "assistant", "", [tc("3","Read"), tc("4","Read")]),
       t(4, "assistant", "已了解数据结构。我来实现 MarkdownExporter 类。", [tc("5","Write")]),
@@ -453,7 +453,7 @@ const HARD: Array<{ label: string; a: TurnData[]; b: TurnData[]; assert: (pairs:
       t(12, "assistant", "stream error handling 修复完成。集成测试已通过。", [tc("12","Bash")]),
     ],
     b: [
-      t(0, "user", "实现 cannbot-insight 的 export 功能，支持 markdown 导出"),
+      t(0, "user", "实现 context-insight 的 export 功能，支持 markdown 导出"),
       t(1, "assistant", "<thinking>实现markdown导出功能</thinking>\n我来实现 markdown 导出。", [tc("13","Read"), tc("14","Read")]),
       t(2, "assistant", "", [tc("15","Read")]),
       t(3, "assistant", "设计完毕。我来写 MarkdownExporter。", [tc("16","Write")]),

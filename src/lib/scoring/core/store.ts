@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 评分卡存取（文件实现）：~/.cannbot-insight/scorecards/<sessionId>.json + archive/ 留历史。
+// 评分卡存取（文件实现）：~/.context-insight/scorecards/<sessionId>.json + archive/ 留历史。
 // 事实源永远是 turns 数据，表里的卡只是缓存——随时可删、可整目录重算。
 // 不动 Prisma（"零 schema 改动"红线不破例）；将来上库只换本文件一个实现。
 // 运行时产物住用户目录不住代码目录（与 cpx 捕获文件同惯例，dev.db 迁移另议）；
@@ -138,9 +138,9 @@ export class FileScorecardStore implements ScorecardStore {
 }
 
 /** 用户目录下的应用数据根（cpx 捕获文件同址） */
-export const CANNBOT_HOME = path.join(os.homedir(), '.cannbot-insight');
+export const CONTEXT_HOME = path.join(os.homedir(), '.context-insight');
 
-const DEFAULT_DIR = path.join(CANNBOT_HOME, 'scorecards');
+const DEFAULT_DIR = path.join(CONTEXT_HOME, 'scorecards');
 
 /**
  * 一次性迁移：把仓库内旧位置的数据搬到用户目录（目标已有数据则不动，防覆盖；

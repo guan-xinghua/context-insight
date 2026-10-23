@@ -2,7 +2,7 @@
   "toolUseId": "call_83173dafe8b24f11aa346e0b",
   "name": "验收 15.5 整包评审",
   "agentType": "design-verifier",
-  "x_cannbay": {
+  "x_lake": {
     "schema": "cc-subagent-meta",
     "version": 1,
     "data": {

@@ -35,7 +35,7 @@ export const IMPORT_SOURCES_UI: Record<string, ImportSourceUi> = {
     buttonLabel: 'JSONL (auto)',
     placeholder: '/path/to/*.jsonl(.7z/.gz) or sessions-dir — claude/codex/dsh 自动识别',
     quickDirs: [
-      { label: 'cpx proxy 捕获', path: '~/.cannbot-insight/proxy' },
+      { label: 'cpx proxy 捕获', path: '~/.context-insight/proxy' },
       { label: 'Claude 原生', path: '~/.claude/projects' },
       { label: 'Codex 原生', path: '~/.codex/sessions' },
       { label: 'DSH 原生', path: '~/.dsh/sessions' },
@@ -47,7 +47,7 @@ export const IMPORT_SOURCES_UI: Record<string, ImportSourceUi> = {
     buttonLabel: 'JSONL',
     placeholder: '/path/to/session.jsonl(.7z/.gz) or /path/to/sessions-dir',
     quickDirs: [
-      { label: 'cpx proxy 捕获', path: '~/.cannbot-insight/proxy' },
+      { label: 'cpx proxy 捕获', path: '~/.context-insight/proxy' },
       { label: 'Claude 原生', path: '~/.claude/projects' },
     ],
     directFileImport: true,
@@ -71,9 +71,9 @@ export const IMPORT_SOURCES_UI: Record<string, ImportSourceUi> = {
     directFileImport: false,
     badgeLabel: 'SQLite DB',
   },
-  // cannbot-insight 导出库与 opencode-db 同属 sqlite tab（浏览点击
-  // cannbot_session_*.db 时 sourceType 被设为本值），UI 数据对齐
-  'cannbot-insight': {
+  // context-insight 导出库与 opencode-db 同属 sqlite tab（浏览点击
+  // context_session_*.db 时 sourceType 被设为本值），UI 数据对齐
+  'context-insight': {
     buttonLabel: 'SQLite',
     placeholder: '/path/to/sessions.db',
     quickDirs: [

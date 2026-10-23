@@ -15,7 +15,7 @@ import { BundleImport } from '@/components/run/BundleImport';
 import { listRuns } from '@/lib/run/run-store';
 import { SettingsIcon } from 'lucide-react';
 
-// run 数据是 fs 落盘（~/.cannbot-insight/runs/），导入后必须反映到下一次请求：
+// run 数据是 fs 落盘（~/.context-insight/runs/），导入后必须反映到下一次请求：
 // 未声明动态渲染时该页会被构建期静态预渲染，把「空列表」烘焙进缓存——
 // 导入完成后页面仍显示暂无 Run。强制每请求渲染（同首页 searchParams 语义）。
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ export default async function RunsPage() {
               <BundleImport />
               {/* 设置入口（数据仓/日志等配置页）：bundle 上传到数据仓的远端与
                   凭据在这里配，run 域需要直达（33c64e9 曾随 session 侧 chrome
-                  一并移除，cannbay-bundle 上传入口落地后恢复） */}
+                  一并移除，lake-bundle 上传入口落地后恢复） */}
               <a href="/settings" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium hover:bg-accent/30 transition-colors">
                 <SettingsIcon className="size-4 text-muted-foreground" />
                 设置

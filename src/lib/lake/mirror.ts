@@ -12,7 +12,7 @@
 // 缺失 blob 批量预取后 cat-file --batch 分批物化（重排成 proxy 布局）；
 // 上传 = narrow sparse-checkout + scoped add + commit + push main。
 // 写操作进程内 mutex 串行。单源架构：远端配置只从服务端 lake-config.json
-// 来（测试经 CANNBOT_PROXY_DIR 隔离 + 写该文件，镜像缓存 LAKE_CACHE_DIR）。
+// 来（测试经 CONTEXT_PROXY_DIR 隔离 + 写该文件，镜像缓存 LAKE_CACHE_DIR）。
 import { execSync, spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -391,7 +391,7 @@ function resolveSessionPath(p: string): { folder: string; root: string; baseline
   if (slash < 0) return null;
   const segs = p.slice(0, slash).split('/');
   // bundle 专区（opsbot-bundle/<runId>/…）不是会话布局：成员会话只归 bundle，
-  // 不进会话列表/定位视野（设计 cannbay-bundle R5）
+  // 不进会话列表/定位视野（设计 lake-bundle R5）
   if (segs[0] === BUNDLE_ROOT_DIR) return null;
   let fi = segs.length - 1;
   if (segs[fi] === 'subagents') {
@@ -989,11 +989,11 @@ export function hasGitLfs(): boolean {
   }
 }
 
-/** 私有 bin 目录（~/.cannbot-insight/bin）与自举下载见 lfs-setup.ts——
+/** 私有 bin 目录（~/.context-insight/bin）与自举下载见 lfs-setup.ts——
  *  与 cpx 自举产物同位互用。此处仅消费目录。 */
-// cpx 私有 git-lfs 件（~/.cannbot-insight/bin/git-lfs，cpx lfs-setup 自举产物：
+// cpx 私有 git-lfs 件（~/.context-insight/bin/git-lfs，cpx lfs-setup 自举产物：
 // 系统 git-lfs 缺失时下载，零全局污染）。insight 复用同一份——两包数据目录
-// 同源，PATH 注入后 git 子进程（filter/钩子）自然命中。CANNBOT_PROXY_DIR 重定向
+// 同源，PATH 注入后 git 子进程（filter/钩子）自然命中。CONTEXT_PROXY_DIR 重定向
 // 优先（与 cpx lfs-setup 同语义，测试隔离用）。
 // （privateLfsBinDir 已收敛到 ./lfs-setup.ts 单一来源）
 
@@ -1014,13 +1014,13 @@ const LFS_PRE_PUSH_HOOK = '#!/bin/sh\ncommand -v git-lfs >/dev/null 2>&1 || { ec
 
 /** 镜像内 LFS 就绪：fail-fast git-lfs 在机检查 + 仓级 filter 配置 + pre-push
  *  钩子。幂等；不触碰全局配置（仓级配置优先级高于全局，双保险）。
- *  git-lfs 解析链：系统件 > cpx/insight 私有件（~/.cannbot-insight/bin，PATH 注入）。 */
+ *  git-lfs 解析链：系统件 > cpx/insight 私有件（~/.context-insight/bin，PATH 注入）。 */
 export function ensureLfsReady(dir: string): void {
   ensurePrivateLfsOnPath();
   if (!hasGitLfs()) {
     throw new Error('LFS 模式需要 git-lfs（`git lfs version` 不可用），三条出路任选：'
       + ' ① 系统安装 git-lfs 并确保在 PATH（https://git-lfs.github.com）；'
-      + ' ② 直接重试上传——insight 会自动下载私有件到 ~/.cannbot-insight/bin（与 cpx lfs-setup 产物同位互用，零全局污染；慢网络可设 CANNBOT_CPX_LFS_BASE 镜像）；'
+      + ' ② 直接重试上传——insight 会自动下载私有件到 ~/.context-insight/bin（与 cpx lfs-setup 产物同位互用，零全局污染；慢网络可设 CONTEXT_CPX_LFS_BASE 镜像）；'
       + ' ③ 设置 env LAKE_LFS=0 关闭 LFS 走普通 git 存储');
   }
   runGit('git config filter.lfs.process "git-lfs filter-process"', dir, 10_000, { raw: true });
@@ -1207,7 +1207,7 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
     fs.writeFileSync(msgFile, commitMessage);
     let unchanged = false;
     try {
-      runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost commit -F "${msgFile}"`, dir);
+      runGit(`git -c user.name=context-insight -c user.email=insight@localhost commit -F "${msgFile}"`, dir);
     } catch {
       // commit 失败 ≠ 无变化：staged 仍有差异说明是真实失败（hook 拒绝/index 损坏等），
       // 不能静默报 unchanged 跳过 push。git diff --cached --quiet：exit 0 = 无 staged 差异
@@ -1227,7 +1227,7 @@ export async function uploadFolder(stagingDir: string, sid: string, commitMessag
       } catch {
         lakeLog.warn('push 被拒，fetch+merge 换父提交后重试', { sid, category: category ?? '' });
         runGit(`git fetch --quiet origin ${remote.branch}`, dir);
-        runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost merge --allow-unrelated-histories --no-edit origin/${remote.branch}`, dir);
+        runGit(`git -c user.name=context-insight -c user.email=insight@localhost merge --allow-unrelated-histories --no-edit origin/${remote.branch}`, dir);
         push();
       }
     }
@@ -1804,7 +1804,7 @@ export function readParadigmDirs(dir: string, remote: LakeRemote): string[] {
   return lsTreeTopDirs(dir, remote).sort();
 }
 
-// ── bundle 对象（opsbot-bundle/<runId>/，设计 cannbay-bundle）───────────
+// ── bundle 对象（opsbot-bundle/<runId>/，设计 lake-bundle）───────────
 // 与会话对象共用 runGit/ensureMirror/pushMirror/withWriteLock 原语；语义差异
 // （无 baseline/记录类/范式位）不进会话函数——各自独立函数，互不触碰。
 
@@ -2022,7 +2022,7 @@ export async function uploadBundleFolder(
     fs.writeFileSync(msgFile, commitMessage);
     let unchanged = false;
     try {
-      runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost commit -F "${msgFile}"`, dir);
+      runGit(`git -c user.name=context-insight -c user.email=insight@localhost commit -F "${msgFile}"`, dir);
     } catch {
       try {
         runGit('git diff --cached --quiet', dir);
@@ -2040,7 +2040,7 @@ export async function uploadBundleFolder(
       } catch {
         lakeLog.warn('push 被拒，fetch+merge 换父提交后重试', { runId });
         runGit(`git fetch --quiet origin ${remote.branch}`, dir);
-        runGit(`git -c user.name=cannbot-insight -c user.email=insight@localhost merge --allow-unrelated-histories --no-edit origin/${remote.branch}`, dir);
+        runGit(`git -c user.name=context-insight -c user.email=insight@localhost merge --allow-unrelated-histories --no-edit origin/${remote.branch}`, dir);
         push();
       }
     }

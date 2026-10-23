@@ -8,20 +8,20 @@
 
 // 疑似人工复核（adjudication）：规则层「疑似」是静态解析不了的线索，不定罪——
 // 默认先不扣分，用户逐点确认（有问题 → 恢复扣分；没问题 → 出疑似池）。
-// 确认状态独立落盘（~/.cannbot-insight/adjudications/<sessionId>.json）；
+// 确认状态独立落盘（~/.context-insight/adjudications/<sessionId>.json）；
 // 评分卡是缓存可重算，GET/重算后由 applyAdjudications 重新覆盖应用。
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { profileMatches, aggregateCard, aggregateDimension } from './aggregator';
-import { CANNBOT_HOME } from './store';
+import { CONTEXT_HOME } from './store';
 import type { DimensionDefinition } from './schema';
 import type { Evidence, Scorecard, SubItemResult } from './types';
 
 export type AdjudicationVerdict = 'problem' | 'fine';
 
 export function adjudicationDir(): string {
-  return process.env.SCORING_ADJUDICATION_DIR ?? path.join(CANNBOT_HOME, 'adjudications');
+  return process.env.SCORING_ADJUDICATION_DIR ?? path.join(CONTEXT_HOME, 'adjudications');
 }
 
 /** 疑似点标识：子项 × 轮次 × 标签（评分可重算，轮次与标签稳定即可对上） */

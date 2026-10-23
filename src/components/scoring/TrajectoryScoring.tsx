@@ -27,7 +27,7 @@ import { VERDICT_TEXT as SHARED_VERDICT_TEXT } from '@/lib/scoring/core/verdict-
 import { ScoringCriteria } from '@/components/scoring/ScoringCriteria';
 import { UserDimensionManager } from '@/components/scoring/UserDimensionManager';
 import { ProfileManager } from '@/components/scoring/ProfileManager';
-import { OpBenchDialog } from '@/components/scoring/OpBenchDialog';
+import { BenchReportDialog } from '@/components/scoring/BenchReportDialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DimensionRadar } from '@/components/scoring/DimensionRadar';
 
@@ -442,7 +442,7 @@ export function TrajectoryScoring({ taskId, framework, embedded = false, onJumpT
   }, [taskId, framework]);
   const [showUserDefs, setShowUserDefs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [showOpBench, setShowOpBench] = useState(false);
+  const [showBenchReport, setShowBenchReport] = useState(false);
   const [reportConfirm, setReportConfirm] = useState<{ latest: { totalScore?: number | null; completedAt?: string } } | null>(null);
   const [mateTools, setMateTools] = useState<string[]>([]);
   const [mateTool, setMateTool] = useState<string>('opencode');
@@ -909,7 +909,7 @@ export function TrajectoryScoring({ taskId, framework, embedded = false, onJumpT
           })()}
 
           <p className="text-[11px] text-muted-foreground">
-            确定性子项零 LLM、可复算；语义子项由「LLM / Mate Agent 评审」激活；CANN-Bench 评分按用户填报折算（未填默认 80）。
+            确定性子项零 LLM、可复算；语义子项由「LLM / Mate Agent 评审」激活；基准测试评分按用户填报折算（未填默认 80）。
             评分模板由「评分配置」管理，跨模板总分不可直接比；评分卡随时可重算。
           </p>
          </>
@@ -932,11 +932,11 @@ export function TrajectoryScoring({ taskId, framework, embedded = false, onJumpT
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <OpBenchDialog open={showOpBench} onOpenChange={setShowOpBench} taskId={taskId} framework={framework} onSaved={() => {
+      <BenchReportDialog open={showBenchReport} onOpenChange={setShowBenchReport} taskId={taskId} framework={framework} onSaved={() => {
         // 填报是读时覆盖：GET 刷新即生效，不整卡重算（不动评审卡）；未跑评审时提醒
         void fetchCard().then(c => {
           if (c && !c.review) {
-            setNotice('CANN-Bench 填报已保存（立即生效）。当前卡尚未跑 LLM / Mate Agent 评审——语义子项还没有分，建议跑一次评审。');
+            setNotice('基准测试填报已保存（立即生效）。当前卡尚未跑 LLM / Mate Agent 评审——语义子项还没有分，建议跑一次评审。');
           }
         });
       }} />
@@ -1008,9 +1008,9 @@ export function TrajectoryScoring({ taskId, framework, embedded = false, onJumpT
         运行评审
       </Button>
       {state === 'ok' && card && card.status === 'completed' && card.taskType === 'operator' && (
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowOpBench(true)} disabled={busy !== 'none'} title="填入 cannbench.com 总分（百分制），D3「CANN-Bench 评分」按它折算 0-10；未填默认 80 持平档">
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowBenchReport(true)} disabled={busy !== 'none'} title="填入排行榜总分（百分制），D3「基准测试评分」按它折算 0-10；未填默认 80 持平档">
           <FlaskConicalIcon className="size-3.5" />
-          CANN-Bench 填报
+          基准测试填报
         </Button>
       )}
       {state === 'ok' && card && card.status === 'completed' && (

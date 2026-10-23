@@ -8,11 +8,11 @@
 
 // Run 域领域类型（workflow-bundle manifest 的内部模型）。
 // 契约源头：docs/design/run-observation/design.md §4.1 + 格式手册
-// workflow-bundle-format.md（草案 v1，schema "cannbot.workflow-bundle"）。
-// 信封冻结原则（对齐 cannbay-schema-spec）：(schema, version) 声明式分发；
+// workflow-bundle-format.md（草案 v1，schema "context.workflow-bundle"）。
+// 信封冻结原则（对齐 lake-schema-spec）：(schema, version) 声明式分发；
 // 未知字段一律透传（索引签名），加可选字段不升版，改语义必升版。
 
-export const BUNDLE_SCHEMA = 'cannbot.workflow-bundle' as const;
+export const BUNDLE_SCHEMA = 'context.workflow-bundle' as const;
 export const BUNDLE_VERSION = 1 as const;
 
 /** workflow-bundle 清单文件在包目录内的候选名（workflow.json 优先，manifest.json

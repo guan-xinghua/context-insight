@@ -170,9 +170,9 @@ describe('resolveLakeRemote：单源（服务端 lake-config.json 唯一）', ()
   it('服务端未配置 → fail-fast 指引配置入口', () => {
     const saved = { ...process.env };
     try {
-      // serverConfigPath = dirname(CANNBOT_PROXY_DIR)/lake-config.json——
+      // serverConfigPath = dirname(CONTEXT_PROXY_DIR)/lake-config.json——
       // 隔离须换父目录（同父不同 proxy 子目录共享同一配置文件）
-      process.env.CANNBOT_PROXY_DIR = path.join(TMP_UNIT, 'empty', 'proxy');
+      process.env.CONTEXT_PROXY_DIR = path.join(TMP_UNIT, 'empty', 'proxy');
       expect(() => remote.resolveLakeRemote()).toThrow(/未配置数据仓地址/);
     } finally {
       for (const [k, v] of Object.entries(saved)) {
@@ -193,7 +193,7 @@ describe('resolveLakeRemote：单源（服务端 lake-config.json 唯一）', ()
     const saved = { ...process.env };
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lake-auth-ut-'));
     try {
-      process.env.CANNBOT_PROXY_DIR = path.join(tmpHome, 'proxy');
+      process.env.CONTEXT_PROXY_DIR = path.join(tmpHome, 'proxy');
       switchLakeConfig({ address: '/tmp/unit-env-remote.git' });
       const { setStoredCredentials, clearStoredCredentials } = await import('../../src/lib/lake/auth');
       setStoredCredentials('/tmp/unit-env-remote.git', 'stored-u', 'stored-t-123456');
@@ -239,7 +239,7 @@ describe('resolveAdhocRemote：编辑态探测（test/branches/dirs 消费）', 
     const saved = { ...process.env };
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lake-auth-ut-'));
     try {
-      process.env.CANNBOT_PROXY_DIR = path.join(tmpHome, 'proxy');
+      process.env.CONTEXT_PROXY_DIR = path.join(tmpHome, 'proxy');
       const { setStoredCredentials, clearStoredCredentials } = await import('../../src/lib/lake/auth');
       setStoredCredentials('https://example.com/a/b.git', 'stored-u', 'stored-t');
       const r = remote.resolveAdhocRemote({ address: 'https://example.com/a/b.git' });
@@ -503,10 +503,10 @@ describe('ls-remote 凭据通道接线（源级锁，PR #38 审查意见回归�
     expect(branchBody).not.toContain('execSync(');
   });
 
-  it('无凭据指引指向真实入口 cbi auth（cpx auth 已随重构移除，照做会撞 unknown command）', () => {
+  it('无凭据指引指向真实入口 ctxi auth（cpx auth 已随重构移除，照做会撞 unknown command）', () => {
     const authSrc = read('../../src/lib/lake/auth.ts');
     expect(authSrc).not.toContain('cpx auth');
-    expect(authSrc).toContain('cbi auth');
+    expect(authSrc).toContain('ctxi auth');
     expect(read('../../src/lib/lake/remote.ts')).not.toContain('cpx auth');
   });
 });

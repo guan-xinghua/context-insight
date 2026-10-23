@@ -65,11 +65,11 @@ describe('skill dispatch display integration', () => {
     });
 
     it('extracts subagent_type from Agent tool call args', () => {
-      expect(extractSkillNameFromArgs(JSON.stringify({ subagent_type: 'ascendc-ops-architect', prompt: '需求分析' }))).toBe('ascendc-ops-architect');
+      expect(extractSkillNameFromArgs(JSON.stringify({ subagent_type: 'acme-ops-architect', prompt: '需求分析' }))).toBe('acme-ops-architect');
     });
 
     it('extracts subagent_name from Task tool call args', () => {
-      expect(extractSkillNameFromArgs(JSON.stringify({ subagent_name: 'ascendc-ops-designer' }))).toBe('ascendc-ops-designer');
+      expect(extractSkillNameFromArgs(JSON.stringify({ subagent_name: 'acme-ops-designer' }))).toBe('acme-ops-designer');
     });
 
     it('returns null for args without skill identifiers', () => {
@@ -92,31 +92,31 @@ describe('skill dispatch display integration', () => {
       const dispatchGroups = groups.filter(g => g.dispatchEvent !== null);
       expect(dispatchGroups.length).toBe(3);
       const names = dispatchGroups.map(g => g.skillName);
-      expect(names).toContain('ascendc-ops-architect');
-      expect(names).toContain('ascendc-ops-designer');
-      expect(names).toContain('ascendc-ops-tester');
+      expect(names).toContain('acme-ops-architect');
+      expect(names).toContain('acme-ops-designer');
+      expect(names).toContain('acme-ops-tester');
     });
 
     it('dispatch group has dispatchResultJson from Agent tool call', () => {
-      const architectGroup = groups.find(g => g.skillName === 'ascendc-ops-architect');
+      const architectGroup = groups.find(g => g.skillName === 'acme-ops-architect');
       expect(architectGroup).toBeDefined();
       expect(architectGroup!.dispatchResultJson).not.toBeNull();
       expect(architectGroup!.dispatchResultJson).toContain('需求分析已完成');
     });
 
     it('dispatch group has dispatchArgsJson from Agent tool call', () => {
-      const architectGroup = groups.find(g => g.skillName === 'ascendc-ops-architect');
+      const architectGroup = groups.find(g => g.skillName === 'acme-ops-architect');
       expect(architectGroup).toBeDefined();
       expect(architectGroup!.dispatchArgsJson).not.toBeNull();
       expect(architectGroup!.dispatchArgsJson).toContain('subagent_type');
-      expect(architectGroup!.dispatchArgsJson).toContain('ascendc-ops-architect');
+      expect(architectGroup!.dispatchArgsJson).toContain('acme-ops-architect');
     });
 
     it('dispatch group dispatchEvent is correctly set', () => {
-      const architectGroup = groups.find(g => g.skillName === 'ascendc-ops-architect');
+      const architectGroup = groups.find(g => g.skillName === 'acme-ops-architect');
       expect(architectGroup!.dispatchEvent).not.toBeNull();
       expect(architectGroup!.dispatchEvent!.eventType).toBe('dispatch');
-      expect(architectGroup!.dispatchEvent!.skillName).toBe('ascendc-ops-architect');
+      expect(architectGroup!.dispatchEvent!.skillName).toBe('acme-ops-architect');
     });
 
     it('invoke group has invokeResultJson from Skill tool call', () => {
@@ -134,14 +134,14 @@ describe('skill dispatch display integration', () => {
     });
 
     it('dispatch group has no invoke fields', () => {
-      const architectGroup = groups.find(g => g.skillName === 'ascendc-ops-architect');
+      const architectGroup = groups.find(g => g.skillName === 'acme-ops-architect');
       expect(architectGroup!.invokeEvent).toBeNull();
       expect(architectGroup!.invokeResultJson).toBeNull();
     });
 
     it('parallel dispatches produce separate groups with their own results', () => {
-      const designerGroup = groups.find(g => g.skillName === 'ascendc-ops-designer');
-      const testerGroup = groups.find(g => g.skillName === 'ascendc-ops-tester');
+      const designerGroup = groups.find(g => g.skillName === 'acme-ops-designer');
+      const testerGroup = groups.find(g => g.skillName === 'acme-ops-tester');
       expect(designerGroup).toBeDefined();
       expect(testerGroup).toBeDefined();
       expect(designerGroup!.dispatchResultJson).toContain('设计准备任务完成');

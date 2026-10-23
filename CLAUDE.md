@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-CANNBot-Insight: Session-level observability tool for LLM coding agents (opencode).
+Context-Insight: Session-level observability tool for LLM coding agents (opencode).
 Next.js 16 App Router + Prisma 6 + SQLite. Chinese/English mixed UI.
 UI version tracked in `src/lib/version.ts` — `package.json` version stays in sync (same value, for npm publish); the display source of truth is `src/lib/version.ts`.
 
@@ -38,7 +38,7 @@ opencode opencode.db (external)
   → Prisma write (8 models, SQLite)
 ```
 
-Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework，设计见 `docs/design/agent-source-framework/design.md`）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探）；目前注册 `cannbot-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源。新框架接入 = 适配器模块 + registry 一行 + import-ui 一条，data-service/API 路由/normalize 零改动。
+Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework，设计见 `docs/design/agent-source-framework/design.md`）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探）；目前注册 `context-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源。新框架接入 = 适配器模块 + registry 一行 + import-ui 一条，data-service/API 路由/normalize 零改动。
 
 ### Frontend Modes (shared backend)
 
@@ -74,8 +74,8 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - proxy 以后加新扩展字段（`metadata`/`cache`/`retry`/`dedup` 标记…）在同一
   扩展层文件内加，核心不动。
 
-**格式契约**：捕获/导出 jsonl 的扩展字段格式一律参考 `docs/cannbay-schema-spec.md`
-（信封冻结 + `x_cannbay` 命名空间 + `(schema,version)` 声明式分发；加可选字段
+**格式契约**：捕获/导出 jsonl 的扩展字段格式一律参考 `docs/lake-schema-spec.md`
+（信封冻结 + `x_lake` 命名空间 + `(schema,version)` 声明式分发；加可选字段
 不升版本，改语义/类型必升版本并配 IT 锁）。新增或修改任何扩展字段前先读它；
 规范落地前的现状（legacy 顶层字段 `source`/`duration_ms`/`system`/`tools`）与
 双轨优先级见该文档 §6。
@@ -88,12 +88,12 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 | `src/lib/ingest/normalize.ts` | ❌ 不透传 proxy 数据 |
 | `src/lib/ingest/turn-split.ts` | ❌ 不读 proxy 扩展字段 |
 | `src/lib/ingest/data-service.ts` | ⚠️ 只允许 proxy 专用的 guard（如 reshape 检测），不透传数据 |
-| `src/lib/ingest/adapters/claude-jsonl.ts` | ✅ 入口分流（`classifyProxyCapture` 统一分类），行级只读标准语义字段（`source`/`stopReason`/`duration_ms`/`x_cannbay` core），不内联 proxy 逻辑；注入分类单点调 `injections/` 分发（cpx 把异框架捕获归一成 claude 布局，本适配器是通用格式入口，不持有异框架指纹） |
+| `src/lib/ingest/adapters/claude-jsonl.ts` | ✅ 入口分流（`classifyProxyCapture` 统一分类），行级只读标准语义字段（`source`/`stopReason`/`duration_ms`/`x_lake` core），不内联 proxy 逻辑；注入分类单点调 `injections/` 分发（cpx 把异框架捕获归一成 claude 布局，本适配器是通用格式入口，不持有异框架指纹） |
 | `src/lib/ingest/adapters/injections/` | ✅ 框架注入分类层（纯函数，无 fs）：指纹规则框架自持（`claude-code.ts`/`codex.ts`/`opencode.ts` 家族），`index.ts` 按行级 `source` 标记 → `agentFrameworkOf` 分发；新框架 = 新指纹模块 + 分发表一行（设计见 agent-source-framework §2.5b） |
 | `src/lib/ingest/adapters/system-structure/` | ✅ 系统提示结构层（读侧对偶 injections/，纯函数无 fs）：memory/skills 结构段与结构化解析框架自持（`claude-code.ts`/`codex.ts`/`opencode.ts` 家族），`index.ts` 按行级 `source` 标记分发；消费侧 `readFullContext`/`readAvailableSkills` 零框架分支，禁止格式试探序嗅探（设计见 agent-source-framework §2.5c） |
 | `src/lib/ingest/proxy-classify.ts` | ✅ proxy 统一分类器（meta > 行级 `source` 标记 > wire 指纹），只产出 Session.framework/version 元数据 |
 | `src/lib/ingest/adapters/claude-jsonl-full-context.ts` | ✅ proxy 扩展层（system/tools/memory/skills + requestParams + 可用 skills 全集） |
-| `src/app/api/observe/session/wire-rounds/route.ts` | ✅ wire 轮次 API 直接解析捕获 jsonl（roundIndex 以 `x_cannbay.data.roundIndex` 为权威） |
+| `src/app/api/observe/session/wire-rounds/route.ts` | ✅ wire 轮次 API 直接解析捕获 jsonl（roundIndex 以 `x_lake.data.roundIndex` 为权威） |
 | `src/app/api/observe/session/turns/[turnId]/route.ts` | ✅ API 层调扩展层读 proxy 数据（像 `readFullContext`） |
 
 **判定标准**：如果改动让 native（非 proxy）的 `RawInteraction` /
@@ -106,7 +106,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 
 - **framework 值域（方案一：同 sid 双会话）**：proxy 捕获行 = agent 框架 + `-proxy` 后缀（`claude-code-proxy` / `opencode-proxy` / `codex-proxy` / `cannbot-proxy`），与同 sid 原生会话共存两行。**判断一律走谓词，禁止对 framework 裸等值**：格式判断用 `isClaudeFormatSession`（放行 `-proxy` 变体）、agent 归属用 `agentFrameworkOf`（剥后缀）、proxy 与否用 `isProxyVersion(version)`；按 taskId 解析会话的 API 必须接受 `framework` 消歧参数（同 sid 可能两行）
 
-- **双名发布（context 品牌变体）**：`node scripts/pack-context.mjs` 产出 `context-insight` 同内容变体 tgz（staging 精确字面量替换 + 每规则 minHits 哨兵，源码仓零改动）。新增/改动品牌字面量（显示名 `CANNBot-Insight`、CLI 别名 `cbi`、bin 文件名、数据目录 `~/.cannbot-insight`）时必须同步 `scripts/pack-context.mjs` 规则表与 `tests/context-pack.test.ts` 泄漏哨兵；格式契约（`BRAND_SOURCE_TYPE` / `x_cannbay` / `LAKE_*`·`CANNBOT_*` env 名 / `cannbot-smart-agent` 服务标识 / lake 机器提交身份）**不得品牌化**——两品牌数据互通靠它们
+- **双名发布（cannbot 品牌变体）**：`node scripts/pack-cannbot.mjs` 产出 `cannbot-insight` 同内容变体 tgz（staging 精确字面量替换 + 每规则 minHits 哨兵，源码仓零改动）。新增/改动品牌字面量（显示名 `Context-Insight`、CLI 别名 `ctxi`、bin 文件名、数据目录 `~/.context-insight`）时必须同步 `scripts/pack-cannbot.mjs` 规则表与 `tests/cannbot-pack.test.ts` 泄漏哨兵；格式契约（`BRAND_SOURCE_TYPE` / `x_lake` / `LAKE_*`·`CONTEXT_*` env 名 / `context-smart-agent` 服务标识 / lake 机器提交身份）**不得品牌化**——两品牌数据互通靠它们
 - **ESM strict** (`"type": "module"` in package.json) — no `require()`, use `import`
 - **Ink v7 has no lastFrame/frames/output** on native `render()` — use `ink-testing-library` for tests only
 - **No third-party Ink components** — ink-table/ink-select/ink-spinner incompatible with Ink v7; self-implement all components

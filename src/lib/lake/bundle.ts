@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// bundle 编排层（cannbay-bundle 板块）：
+// bundle 编排层（lake-bundle 板块）：
 // list / upload / import。bundle = opsbot workflow 包（workflow.json +
 // sessions/），仓内布局 opsbot-bundle/<runId>/（mirror 层三函数）。上传数据流
 // （与会话上传同款「导入后上传」——数据源 = insight，sessions/runs 归一基础）：
@@ -74,7 +74,7 @@ function collectSessionMembers(data: RunWorkflowData): { sessionId: string; loca
   return out;
 }
 
-/** 上传时合成 bundle.meta.json（cc-bundle-meta，x_cannbay 信封）：提交信息
+/** 上传时合成 bundle.meta.json（cc-bundle-meta，x_lake 信封）：提交信息
  *  快照（与 commit message 同源同值）+ 展示快照（name/规模），列表
  *  归属的权威字段（读方 meta 优先、git log 推导回落——与会话 meta 同款）。 */
 function synthesizeBundleMeta(

@@ -15,7 +15,7 @@ import { buildAgentIO } from "@/lib/export/agent-io-export"
 import { isSafeTaskId } from "@/lib/task-id"
 import { logError, logInfo } from '@/lib/logger';
 
-const PYTHON_AGENT_URL = process.env.CANNBOT_AGENT_URL ?? "http://localhost:21026"
+const PYTHON_AGENT_URL = process.env.CONTEXT_AGENT_URL ?? "http://localhost:21026"
 
 export async function POST(req: Request) {
   const { taskId, framework, provider, mode } = await req.json()
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     const msg = e instanceof Error ? e.message : "unknown error"
     logError("route:ai/audit-session-py", "上游不可达", { taskId, error: msg.slice(0, 200) })
     return NextResponse.json({
-      error: `Python 分析后端（${PYTHON_AGENT_URL}）不可达：${msg}${cause ? `（${cause}）` : ""}。Audit v2/v3/v4 依赖本机 Python 后端（smart-agent，默认 :21026）：未随主服务启动（python3 缺失或启动失败）、正忙于上一次生成，或地址被 CANNBOT_AGENT_URL 覆盖不符。排查：启动服务的终端里有 [audit-py]/smart-agent 日志；连续失败请重启 ./start.sh（会拉起 smart-agent）。`,
+      error: `Python 分析后端（${PYTHON_AGENT_URL}）不可达：${msg}${cause ? `（${cause}）` : ""}。Audit v2/v3/v4 依赖本机 Python 后端（smart-agent，默认 :21026）：未随主服务启动（python3 缺失或启动失败）、正忙于上一次生成，或地址被 CONTEXT_AGENT_URL 覆盖不符。排查：启动服务的终端里有 [audit-py]/smart-agent 日志；连续失败请重启 ./start.sh（会拉起 smart-agent）。`,
     }, { status: 502 })
   }
 

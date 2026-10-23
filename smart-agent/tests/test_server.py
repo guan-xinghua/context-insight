@@ -14,7 +14,7 @@
 
 另有 outputDir/outputBasename 收敛 IT（安全修复）：outputBasename 剥离路径
 组件（../ 与绝对路径前缀不再参与 os.path.join），outputDir 必须落在允许根
-（cwd/PROJECT_ROOT 的 tmp、logs + CANNBOT_AGENT_OUTPUT_ROOTS 扩展）内，
+（cwd/PROJECT_ROOT 的 tmp、logs + CONTEXT_AGENT_OUTPUT_ROOTS 扩展）内，
 否则回退端点默认目录。
 """
 from __future__ import annotations
@@ -55,7 +55,7 @@ def test_call_done_records_error_msg():
 
 def test_concurrent_same_basename_409_then_reacquire(tmp_path, monkeypatch):
     """同一 output_basename 并发第二轮 → 409；第一轮结束释放后同 basename 可重入。"""
-    monkeypatch.setenv("CANNBOT_AGENT_OUTPUT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("CONTEXT_AGENT_OUTPUT_ROOTS", str(tmp_path))
     entered = threading.Event()   # pipeline 已进入 ⇒ 守卫已被第一轮占住
     release = threading.Event()   # 主线程放行第一轮
     result = SimpleNamespace(output_path="x.md", steps=[], analysis={})
@@ -102,7 +102,7 @@ def test_concurrent_same_basename_409_then_reacquire(tmp_path, monkeypatch):
 
 def test_guard_release_on_error(tmp_path, monkeypatch):
     """handler 异常路径（缺字段）也必须释放守卫，否则一次失败永久锁死该 session。"""
-    monkeypatch.setenv("CANNBOT_AGENT_OUTPUT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("CONTEXT_AGENT_OUTPUT_ROOTS", str(tmp_path))
     body = {"provider": _LLM_PROVIDER,
             "outputDir": str(tmp_path), "outputBasename": "it-release-basename"}
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -149,7 +149,7 @@ def _capture_compress(captured: dict):
 
 def test_output_basename_traversal_confined(tmp_path, monkeypatch):
     """outputBasename 带 ../ 或绝对路径前缀 → 只取最后一段，产物落在允许根内。"""
-    monkeypatch.setenv("CANNBOT_AGENT_OUTPUT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("CONTEXT_AGENT_OUTPUT_ROOTS", str(tmp_path))
     captured = {}
 
     with patch.object(server, "compress_trajectory", _capture_compress(captured)):
@@ -226,7 +226,7 @@ def test_prompt_path_confined_to_prompts_dir():
 
 def test_prompt_path_http_level_confined(tmp_path, monkeypatch):
     """HTTP 层：/compress 请求体 promptPath 指向敏感文件 → 压缩器收到默认 prompt。"""
-    monkeypatch.setenv("CANNBOT_AGENT_OUTPUT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("CONTEXT_AGENT_OUTPUT_ROOTS", str(tmp_path))
     captured = {}
 
     with patch.object(server, "compress_trajectory", _capture_compress(captured)):

@@ -206,10 +206,10 @@ function detectFinishReason(sourcePath: string | null, turns: ScoreTurn[]): Coll
     let lastStop: string | null = null;
     for (const line of lines) {
       if (line.type !== 'assistant') continue;
-      // 原生 claude：message.stop_reason；opencode-proxy：x_cannbay.data.stopReason。
+      // 原生 claude：message.stop_reason；opencode-proxy：x_lake.data.stopReason。
       // proxy 每个 assistant 行都带 stopReason，中间轮是 tool_calls（非终态），要跳过。
       const native = (line.message as { stop_reason?: unknown } | undefined)?.stop_reason;
-      const proxy = (line as { x_cannbay?: { data?: { stopReason?: unknown } } }).x_cannbay?.data?.stopReason;
+      const proxy = readEnvelope(line)?.data.stopReason;
       const sr = typeof native === 'string' ? native : typeof proxy === 'string' ? proxy : null;
       if (sr === 'tool_calls') continue;
       if (typeof sr === 'string') lastStop = sr;

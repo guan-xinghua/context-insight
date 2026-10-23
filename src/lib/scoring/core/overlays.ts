@@ -6,13 +6,13 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 读时覆盖层总入口（所有评分卡出口统一走这里）：CANN-Bench 填报 → 人工复核。
+// 读时覆盖层总入口（所有评分卡出口统一走这里）：基准测试填报 → 人工复核。
 // 都是不需要重算的确定性覆盖——保存即生效，且不覆盖 LLM/Mate 评审盖章。
 
 import type { DimensionDefinition } from './schema';
 import type { Scorecard } from './types';
 import { applyAdjudications } from './adjudicate';
-import { applyOpBench } from './op-bench/overlay';
+import { applyBenchReport } from './bench-report/overlay';
 import { aggregateCard, profileMatches, reaggregateWith } from './aggregator';
 
 export async function applyOverlays(
@@ -32,5 +32,5 @@ export async function applyOverlays(
       base = reAgged;
     }
   }
-  return applyAdjudications(await applyOpBench(base, defs, liveProfile), defs, liveProfile);
+  return applyAdjudications(await applyBenchReport(base, defs, liveProfile), defs, liveProfile);
 }

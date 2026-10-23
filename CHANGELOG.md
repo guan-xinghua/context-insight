@@ -2,6 +2,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.2.41] - 2026-10-22
+
+> 更名说明：主体品牌自本版起为 Context-Insight（npm 包 `context-insight`，命令 `context-insight` / `ctxi`，数据目录 `~/.context-insight/`——首启自动迁移 `~/.cannbot-insight/` 存量数据）；`cannbot-insight` 转为同内容变体包，老用户的部署脚本与目录习惯在变体包内不变。数据格式契约不随品牌变，两包数据完全互通。
+
+### Changed
+- 【品牌主体更名】显示名、包名、CLI 别名、数据目录与环境变量前缀（`CANNBOT_*` → `CONTEXT_*`）全面切换为 Context 品牌；`LAKE_*` 前缀不变；来源类型、信封键、服务标识等数据契约保持品牌中立，两品牌共用同一值
+- 【wire 扩展信封更名】捕获/导出 jsonl 的扩展信封键 `x_cannbay` 更名为 `x_lake`（与 cpx ≥ v0.1.12 配套单轨读写）；携带旧键的行按无扩展导入
+- 【基准测试填报中性化】原「CANN-Bench 填报」更名为「基准测试填报」（评分目录、schema 与 API 同步更名）；存量旧目录、旧 schema 填报自动兼容读取
+- 【文档全面更新】README、使用手册、数据湖格式规范与 agent 指引按新品牌与现行为重写
+
 ## [0.2.40] - 2026-10-22
 
 > 对齐说明：npm v0.2.39 为 v0.2.38 撤回重发的换号版（产物基线不含 git 侧 [0.2.39] 段与本段内容）；自本版起 npm 产物与 git master 对齐。

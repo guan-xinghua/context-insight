@@ -1,5 +1,5 @@
 {
-  "schema": "cannbot.workflow-bundle",
+  "schema": "context.workflow-bundle",
   "version": 1,
   "id": "WA0B1C2D3E4F5001",
   "kind": "workflow",

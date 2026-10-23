@@ -31,7 +31,7 @@ describe('reader：结构样例全量断言', () => {
   const index = parseAndIndex(raw);
 
   it('根信封：schema/version/id/kind + exportDataComplete', () => {
-    expect(index.manifest.schema).toBe('cannbot.workflow-bundle');
+    expect(index.manifest.schema).toBe('context.workflow-bundle');
     expect(index.manifest.version).toBe(1);
     expect(index.manifest.id).toBe('WC7D09351F7D2B9E0');
     expect(index.manifest.kind).toBe('workflow');

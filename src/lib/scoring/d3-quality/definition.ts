@@ -61,7 +61,7 @@ function llmItem(id: string, name: string, itemBands: Band[], note?: string): Sc
 }
 
 const items: ScoreItemSchema[] = [
-  { id: 'D3.cannBench', dimension: 'D3', name: 'CANN-Bench 评分', scorerKind: 'user-input', note: '用户填报 CANN-Bench 总分（cannbench.com，百分制）折算 0-10；未填报按默认 80 持平档计并明标' },
+  { id: 'D3.benchScore', dimension: 'D3', name: '基准测试评分', scorerKind: 'user-input', note: '用户填报 基准测试总分（基准测试排行榜，百分制）折算 0-10；未填报按默认 80 持平档计并明标' },
   { id: 'D3.testResults', dimension: 'D3', name: '测试结果', scorerKind: 'rule', note: '从工具输出数通过/失败——质量最硬的证据；部分失败给部分分' },
   { id: 'D3.nakedWrite', dimension: 'D3', name: '不读就写', scorerKind: 'rule', note: '改文件前从没读过——没看过就动手，写错概率高（v1 迁移）' },
   llmItem('D3.correctness', '正确性', [...COMMON_BANDS.correctness], '逻辑对不对、验证证据、错误闭环'),

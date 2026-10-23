@@ -21,7 +21,7 @@ export { aggregateCard, aggregateDimension, deriveItemScores, itemEffScoreOf, is
 export { isValidBaseline, positionScore, gradeOf, lookupMetric, displayBaselineValue, type BaselineFile, type BaselineMetric, type BaselineGrade } from './core/baseline/service';
 export { loadSessionBaseline, writeSessionBaseline, ratioScore, ratioGrade, isValidSessionBaseline, sessionBaselinesDir, type SessionBaselineFile } from './core/baseline/session-baseline';
 export { BASELINE_MEASURES } from './core/baseline/measures';
-export { loadSessionOpBench, writeSessionOpBench, isValidSessionOpBench, opBenchDir, benchToScore10, type SessionOpBenchFile } from './core/op-bench/session-op-bench';
+export { loadSessionBenchReport, writeSessionBenchReport, isValidSessionBenchReport, benchReportDir, benchToScore10, type SessionBenchReportFile } from './core/bench-report/session-bench-report';
 export { loadUserGroups, loadUserDefinitions, saveUserGroup, deleteUserGroup, importUserGroups, isValidUserDimension, isValidUserGroup, userDimensionToDef, userDimensionScorers, type UserDimensionFile, type UserGroup, type UserGroupsBundle, type ImportSummary } from './user/loader';
 export { SIGNALS, validateRuleSpec, compareVerdict, type RuleSpec } from './user/rule-scorer';
 export { splitShell, hasFlag } from './core/shell-parser';

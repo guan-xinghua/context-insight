@@ -6,28 +6,26 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 信封双名单一真身 IT：x_lake 优先 / x_cannbay 兜底的读优先级、形态校验、
-// 双名写；+ 源级哨兵——insight/src 内（envelope 模块自身除外）不得再出现
-// 'x_lake'/'x_cannbay' 引号字面量（新内联点 = 退役旧键时漏改 + 哨兵无法借
-// 单一真身判定的复燃，PR #49 审查意见正是死模块 + 内联散落的脱节）。
+// 信封键单一真身 IT：x_lake 单轨读写（旧键 x_cannbay 已退役——携带旧键的
+// 存量数据按无信封处理）、形态校验；+ 源级哨兵——insight/src 内（envelope
+// 模块自身除外）不得再出现 'x_lake'/'x_cannbay' 引号字面量（新内联点 =
+// 漏改 + 哨兵无法借单一真身判定的复燃；旧键字面量复现 = 退役轨回潮）。
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readEnvelope, envelopeFields, ENVELOPE_KEY, ENVELOPE_KEY_LEGACY, type Envelope } from '../../src/lib/shared/envelope.ts';
+import { readEnvelope, envelopeFields, ENVELOPE_KEY, type Envelope } from '../../src/lib/shared/envelope.ts';
 
 const ENV: Envelope = { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx' } };
 
-describe('readEnvelope 双名读优先级', () => {
-  it('新键优先、旧键兜底、双无 → undefined', () => {
+describe('readEnvelope 单轨读', () => {
+  it('x_lake 命中、空/无键 → undefined', () => {
     expect(readEnvelope({ [ENVELOPE_KEY]: ENV })).toBe(ENV);
-    expect(readEnvelope({ [ENVELOPE_KEY_LEGACY]: ENV })).toBe(ENV);
     expect(readEnvelope({})).toBeUndefined();
     expect(readEnvelope(null)).toBeUndefined();
   });
-  it('两键并存取新键（退役旧键的迁移语义）', () => {
-    const old = { schema: 'x', version: 9, data: {} };
-    expect(readEnvelope({ [ENVELOPE_KEY]: ENV, [ENVELOPE_KEY_LEGACY]: old })).toBe(ENV);
+  it('旧键 x_cannbay 已退役：携带旧键的数据按无信封处理', () => {
+    expect(readEnvelope({ x_cannbay: ENV })).toBeUndefined();
   });
   it('形态不合法（缺 schema/version/data）→ undefined 按无信封处理', () => {
     expect(readEnvelope({ [ENVELOPE_KEY]: { version: 1, data: {} } })).toBeUndefined();
@@ -37,15 +35,15 @@ describe('readEnvelope 双名读优先级', () => {
   });
 });
 
-describe('envelopeFields 双名写', () => {
-  it('同一信封对象挂两个键（老版本读方不丢）', () => {
-    expect(envelopeFields(ENV)).toEqual({ x_lake: ENV, x_cannbay: ENV });
-    expect(envelopeFields(ENV)[ENVELOPE_KEY]).toBe(envelopeFields(ENV)[ENVELOPE_KEY_LEGACY]);
+describe('envelopeFields 单轨写', () => {
+  it('信封对象只挂 x_lake（旧键不写）', () => {
+    expect(envelopeFields(ENV)).toEqual({ x_lake: ENV });
+    expect('x_cannbay' in envelopeFields(ENV)).toBe(false);
   });
 });
 
 describe('源级哨兵：信封键字面量单一真身（envelope 模块外零内联）', () => {
-  it("insight/src 内无 'x_lake'/'x_cannbay' 引号字面量（防内联复燃，退役旧键单点改）", () => {
+  it("insight/src 内无 'x_lake'/'x_cannbay' 引号字面量（防内联复燃 / 旧轨回潮）", () => {
     const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
     const offenders: string[] = [];
     const walk = (dir: string): void => {

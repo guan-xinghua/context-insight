@@ -27,7 +27,7 @@ const BARE = path.join(TMP, 'remote.git');
 const SEED = path.join(TMP, 'seed');
 
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ['CANNBOT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS'] as const;
+const ENV_KEYS = ['CONTEXT_PROXY_DIR', 'LAKE_CACHE_DIR', 'LAKE_LFS'] as const;
 
 function git(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: 'pipe', timeout: 60_000 });
@@ -35,7 +35,7 @@ function git(cmd: string, cwd: string): void {
 
 function metaJson(sid: string): string {
   return JSON.stringify({
-    x_cannbay: {
+    x_lake: {
       schema: 'cc-session-meta',
       version: 1,
       data: { producer: 'cpx', framework: 'opencode', ccVersion: '1.2.3', sid },
@@ -61,7 +61,7 @@ function seedSession(paradigm: string, sid: string, withNotes?: Record<string, u
 
 beforeAll(async () => {
   for (const k of ENV_KEYS) { savedEnv[k] = process.env[k]; delete process.env[k]; }
-  process.env.CANNBOT_PROXY_DIR = path.join(TMP, 'proxy');
+  process.env.CONTEXT_PROXY_DIR = path.join(TMP, 'proxy');
   process.env.LAKE_CACHE_DIR = path.join(TMP, 'cache');
   process.env.LAKE_LFS = '0';
 

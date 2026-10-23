@@ -24,7 +24,7 @@ function makeRequest(qs: string): Request {
 
 const RESOURCE_BODY = "# Task 调用参数\n\n## 1.1 开发准备\n\n- [ ] 开发日志已创建\n- [ ] 问题目录已创建\n- [ ] 环境检查已执行\n" + "x".repeat(120)
 const STATE_BODY = "# STATE\n\n## Tasks\n\n- [ ] 1. 派发 developer\n- [ ] 2. 验收 st-verifier\n- [ ] 3. 收尾归档\n" + "y".repeat(120)
-const TURN0_BODY = "# 基于 ACLNN 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500)
+const TURN0_BODY = "# 基于 ACLIB 的算子开发工作流\n\n你是纯编排者（Orchestrator），读取 STATE.md 按顺序派发 SubAgent。" + "x".repeat(500)
 
 describe("main-agent-workflow route（root 组合声明可用性）", () => {
   beforeEach(() => {

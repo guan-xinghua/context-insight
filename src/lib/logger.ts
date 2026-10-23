@@ -11,9 +11,9 @@
 // 设计要点：
 // - 懒初始化：模块顶层零副作用（CLI 经 auth/server-config/data-service 传递
 //   引入时 import 即安全），首条日志才 mkdir / 读配置
-// - 双通道：文件 + stdout 默认同开（CANNBOT_LOG_FILE / CANNBOT_LOG_STDOUT
-//   置 0/off 关对应通道；CANNBOT_LOG=off 全关）
-// - 按天滚动：<CANNBOT_LOG_DIR ?? ~/.cannbot-insight/logs>/insight-YYYY-MM-DD.log
+// - 双通道：文件 + stdout 默认同开（CONTEXT_LOG_FILE / CONTEXT_LOG_STDOUT
+//   置 0/off 关对应通道；CONTEXT_LOG=off 全关）
+// - 按天滚动：<CONTEXT_LOG_DIR ?? ~/.context-insight/logs>/insight-YYYY-MM-DD.log
 //   （UTC），不清理旧文件；目录 0700、文件 0600（与 lake-auth.json 同级权限
 //   纪律——日志含错误原文，不应比凭据文件更可读）
 // - 配置链 env（每次调用现读——vitest 晚赋值即生效，judge-log 同语义）>
@@ -26,7 +26,7 @@
 //   目录被外部删除（ENOENT）时重建一次再写——文件通道不因目录消失静默失效
 import fs from 'node:fs';
 import path from 'node:path';
-import { CANNBOT_HOME } from './scoring/core/store';
+import { CONTEXT_HOME } from './scoring/core/store';
 import { loggerConfigPath, normalizeLoggerLevel, readLoggerConfigFile, type LoggerConfigFile, type LoggerLevel } from './logger-config';
 
 export type LogLevel = LoggerLevel;
@@ -83,7 +83,7 @@ function cachedFileConfig(): LoggerConfigFile | null {
 }
 
 function envLevel(): LogLevel | null {
-  return normalizeLoggerLevel(process.env.CANNBOT_LOG_LEVEL);
+  return normalizeLoggerLevel(process.env.CONTEXT_LOG_LEVEL);
 }
 
 // env 三态：未设/空 → null（走下一候选）；设了 → off 模式为 false、其余为 true
@@ -98,11 +98,11 @@ export interface LoggerRuntimeConfig { enabled: boolean; level: LogLevel; file: 
 function resolveConfig(): LoggerRuntimeConfig {
   const file = cachedFileConfig();
   return {
-    enabled: envFlag(process.env.CANNBOT_LOG) ?? file?.enabled ?? true,
+    enabled: envFlag(process.env.CONTEXT_LOG) ?? file?.enabled ?? true,
     level: envLevel() ?? file?.level ?? 'info',
-    file: envFlag(process.env.CANNBOT_LOG_FILE) ?? file?.file ?? true,
-    stdout: envFlag(process.env.CANNBOT_LOG_STDOUT) ?? file?.stdout ?? true,
-    dir: process.env.CANNBOT_LOG_DIR?.trim() || path.join(CANNBOT_HOME, 'logs'),
+    file: envFlag(process.env.CONTEXT_LOG_FILE) ?? file?.file ?? true,
+    stdout: envFlag(process.env.CONTEXT_LOG_STDOUT) ?? file?.stdout ?? true,
+    dir: process.env.CONTEXT_LOG_DIR?.trim() || path.join(CONTEXT_HOME, 'logs'),
   };
 }
 
@@ -151,7 +151,7 @@ function appendLine(dir: string, now: Date, line: string): void {
 
 export function logLine(level: LogLevel, scope: string, message: string, fields?: LogFields): void {
   // 廉价短路：env 显式关日志时零配置解析（全静默态如测试每行只付一次 env 读）
-  if (envFlag(process.env.CANNBOT_LOG) === false) return;
+  if (envFlag(process.env.CONTEXT_LOG) === false) return;
   const cfg = resolveConfig();
   if (!cfg.enabled) return;
   if (LEVEL_ORDER[level] < LEVEL_ORDER[cfg.level]) return;
@@ -182,12 +182,12 @@ export function resetLoggerConfigCache(): void {
   cfgCache = null;
 }
 
-/** 当前日志目录（env CANNBOT_LOG_DIR > 默认 ~/.cannbot-insight/logs）——设置页展示用 */
+/** 当前日志目录（env CONTEXT_LOG_DIR > 默认 ~/.context-insight/logs）——设置页展示用 */
 export function logsDir(): string {
   return resolveConfig().dir;
 }
 
-/** 仅测试用：清配置缓存与目录初始化标记（换 CANNBOT_LOG_DIR/配置文件后重置） */
+/** 仅测试用：清配置缓存与目录初始化标记（换 CONTEXT_LOG_DIR/配置文件后重置） */
 export function resetLoggerForTest(): void {
   resetLoggerConfigCache();
   ensuredDir = null;

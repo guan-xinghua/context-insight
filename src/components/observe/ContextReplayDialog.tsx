@@ -47,8 +47,8 @@ interface TurnRowItem {
 const AGENT_COLORS: Record<string, string> = {
   build: "#3b82f6",
   general: "#10b981",
-  "ascendc-kernel-architect": "#f97316",
-  "ascendc-kernel-developer": "#8b5cf6",
+  "acme-kernel-architect": "#f97316",
+  "acme-kernel-developer": "#8b5cf6",
 }
 const DEFAULT_AGENT_COLOR = "#6b7280"
 
@@ -110,7 +110,7 @@ function computeTimelines(turns: TurnRowItem[]): AgentTimeline[] {
 
 function displayLabel(s: AgentTimeline, numbers: Map<string, number>): string {
   if (s.isRoot) return s.agentName
-  const aname = s.agentName === "ascendc-kernel-architect" ? "ascendc-arch" : s.agentName === "ascendc-kernel-developer" ? "ascendc-dev" : s.agentName
+  const aname = s.agentName === "acme-kernel-architect" ? "acme-arch" : s.agentName === "acme-kernel-developer" ? "acme-dev" : s.agentName
   const num = numbers.get(s.sessionId)
   return num !== undefined ? `${aname} #${num}` : aname
 }

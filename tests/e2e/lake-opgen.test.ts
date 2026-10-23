@@ -53,7 +53,7 @@ const SID_FAIL = 'opgen-it-fail-0002';
 fs.mkdirSync(FIXTURES, { recursive: true });
 for (const [sid, firstLine] of [[SID_OK, '生成成功场景'], [SID_FAIL, '生成失败场景']] as const) {
   fs.writeFileSync(path.join(FIXTURES, `${sid}.jsonl`), [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: firstLine }, timestamp: '2026-09-02T03:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: firstLine }, timestamp: '2026-09-02T03:00:00.000Z', source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } }),
     JSON.stringify({ type: 'assistant', message: { id: `msg_${sid}`, role: 'assistant', content: [{ type: 'text', text: '完成' }], model: 'test-model', usage: { input_tokens: 100, output_tokens: 20 } }, timestamp: '2026-09-02T03:00:05.000Z' }),
   ].join('\n') + '\n');
 }
@@ -110,15 +110,15 @@ describe('lake 任务结果标注（opGen）round-trip', () => {
     const up2 = await uploadViaRoute(SID_FAIL, 'failure');
     expect(up2.ok, JSON.stringify(up2.data)).toBe(true);
 
-    // 仓内 meta 事实源：x_cannbay.data.opGen（明文 meta，直接从镜像 cat）——
+    // 仓内 meta 事实源：x_lake.data.opGen（明文 meta，直接从镜像 cat）——
     // 镜像在按远端哈希的缓存子目录（lakeCacheDir 取解析后的真实路径）
     const cache = mirror.lakeCacheDir();
     for (const [sid, want] of [[SID_OK, 'success'], [SID_FAIL, 'failure']] as const) {
       const metaRaw = execSync(`git cat-file -p HEAD:others/${sid}/${sid}.meta.json`, { cwd: cache, encoding: 'utf-8' });
       const meta = JSON.parse(metaRaw);
-      expect((meta.x_lake ?? meta.x_cannbay).schema).toBe('cc-session-meta');
-      expect((meta.x_lake ?? meta.x_cannbay).version).toBe(1);
-      expect((meta.x_lake ?? meta.x_cannbay).data.opGen).toBe(want);
+      expect((meta.x_lake).schema).toBe('cc-session-meta');
+      expect((meta.x_lake).version).toBe(1);
+      expect((meta.x_lake).data.opGen).toBe(want);
     }
 
     // 列表读回（route → listSessions → readSessionMetas）
@@ -131,7 +131,7 @@ describe('lake 任务结果标注（opGen）round-trip', () => {
     // 缺省：不传 opGen
     const SID3 = 'opgen-it-plain-0003';
     await prisma.session.deleteMany({ where: { taskId: SID3 } });
-    fs.writeFileSync(path.join(FIXTURES, `${SID3}.jsonl`), JSON.stringify({ type: 'user', message: { role: 'user', content: '未标注场景' }, timestamp: '2026-09-02T04:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }) + '\n');
+    fs.writeFileSync(path.join(FIXTURES, `${SID3}.jsonl`), JSON.stringify({ type: 'user', message: { role: 'user', content: '未标注场景' }, timestamp: '2026-09-02T04:00:00.000Z', source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } }) + '\n');
     await prisma.session.create({ data: { taskId: SID3, framework: 'claude-code-proxy', version: 'claude-proxy', sourcePath: path.join(FIXTURES, `${SID3}.jsonl`) } });
     try {
       const up = await uploadViaRoute(SID3);
@@ -145,7 +145,7 @@ describe('lake 任务结果标注（opGen）round-trip', () => {
       sessions = await listViaRoute();
       expect(sessions.find(s => s.sid === SID3)?.opGen ?? null).toBeNull();
       const metaRaw = execSync(`git cat-file -p HEAD:others/${SID3}/${SID3}.meta.json`, { cwd: mirror.lakeCacheDir(), encoding: 'utf-8' });
-      expect(JSON.parse(metaRaw).x_cannbay.data.opGen).toBeUndefined();
+      expect(JSON.parse(metaRaw).x_lake.data.opGen).toBeUndefined();
     } finally {
       try { await prisma.session.deleteMany({ where: { taskId: SID3 } }); } catch { /* ignore */ }
     }

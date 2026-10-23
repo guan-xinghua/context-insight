@@ -1,9 +1,9 @@
 {
-  "_comment": "主 agent 组合声明提取插件配置。复制为 workflow-extract-plugins.json（已被 .gitignore 忽略）后按需修改；active 选 plugins 中的一个。未提供某字段时回退 cann-ops 默认值（见 src/lib/workflow-extract-config.ts 的 DEFAULT_PLUGIN，与算子生成任务的现行为一致）。换领域 = 复制一份改 fileNames/planLikeHeadings/excludedDirs 等约定，零代码改动。",
-  "active": "cann-ops",
+  "_comment": "主 agent 组合声明提取插件配置。复制为 workflow-extract-plugins.json（已被 .gitignore 忽略）后按需修改；active 选 plugins 中的一个。未提供某字段时回退 workflow-ops 默认值（见 src/lib/workflow-extract-config.ts 的 DEFAULT_PLUGIN，与算子生成任务的现行为一致）。换领域 = 复制一份改 fileNames/planLikeHeadings/excludedDirs 等约定，零代码改动。",
+  "active": "workflow-ops",
   "plugins": {
-    "cann-ops": {
-      "description": "算子生成任务（CANN ops workflow）的定制提取——STATE.md 任务清单 + workflow skill 编排规程",
+    "workflow-ops": {
+      "description": "算子生成任务（ops workflow）的领域定制提取——STATE.md 任务清单 + workflow skill 编排规程",
       "regulation": {
         "resourceDirs": ["resources"],
         "turn0MinChars": 500,

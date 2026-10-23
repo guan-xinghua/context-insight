@@ -28,7 +28,7 @@ export const POST = withRouteLog('ingest/export-session', async (request: NextRe
   const filePath = await exportSession(taskId, undefined, prisma, framework);
 
   const fileBuffer = fs.readFileSync(filePath);
-  const filename = `cannbot_session_${taskId}.db`;
+  const filename = `context_session_${taskId}.db`;
   logInfo('route:ingest/export-session', '会话已导出（db）', { taskId, bytes: fileBuffer.length });
 
   // Clean up temp file

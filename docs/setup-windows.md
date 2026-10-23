@@ -1,6 +1,6 @@
-# CANNBot-Insight Windows 原生环境搭建指南
+# Context-Insight Windows 原生环境搭建指南
 
-> 面向零基础用户，从一台干净的 Windows 10/11 电脑开始，一步步把 CANNBot-Insight 跑起来。
+> 面向零基础用户，从一台干净的 Windows 10/11 电脑开始，一步步把 Context-Insight 跑起来。
 >
 > 预计耗时：20–30 分钟（含下载安装）。
 >
@@ -28,7 +28,7 @@
 
 ## 1. 它是什么
 
-CANNBot-Insight 是 LLM 编码 Agent（如 opencode、Claude Code）的 Session 级可观测工具。导入 Agent 的运行日志后，可以逐轮查看 Token 消耗、上下文增长、子 Agent 调度、Skill 事件、文件读写、工作流审计等 9 个维度的分析。
+Context-Insight 是 LLM 编码 Agent（如 opencode、Claude Code）的 Session 级可观测工具。导入 Agent 的运行日志后，可以逐轮查看 Token 消耗、上下文增长、子 Agent 调度、Skill 事件、文件读写、工作流审计等 9 个维度的分析。
 
 它由两部分组成：
 
@@ -170,7 +170,7 @@ Python 3.11.x
 
 ## 第四步：获取源码
 
-CANNBot-Insight 是 `cannbot-skills` 仓库里的一个子目录。我们克隆整个仓库再进去即可。
+Context-Insight 是 `cannbot-skills` 仓库里的一个子目录。我们克隆整个仓库再进去即可。
 
 ### 4.1 选择存放位置
 
@@ -191,7 +191,7 @@ git clone https://gitcode.com/cann/cannbot-skills.git
 
 首次克隆会下载较全量代码，耐心等待。看到 `Updating objects: 100% done` 即完成。
 
-### 4.3 进入 cannbot-insight 目录
+### 4.3 进入 context-insight 目录
 
 ```bat
 cd cannbot-skills\plugins-community\cannbot-insight
@@ -244,7 +244,7 @@ start.bat
   ... Applied migration ...
 [start] Launching smart-agent (Python) on port 21026...
 [start] smart-agent ready at http://localhost:21026
-[start] Launching CANNBot-Insight on port 21025...
+[start] Launching Context-Insight on port 21025...
 [start] Starting Next.js dev server...
 [start] Waiting for server at http://localhost:21025...
 [start] Server ready - opening http://localhost:21025
@@ -297,7 +297,7 @@ Insight 能导入两种日志：
 npx tsx src\cli\index.ts upload --file .\sessions.db
 ```
 
-上传后会交互式填写描述，后端自动起停。之后在 Web UI 导入时点 **CANNBay** 按钮直接选库导入。
+上传后会交互式填写描述，后端自动起停。之后在 Web UI 导入时点 **contextBay** 按钮直接选库导入。
 
 ---
 
@@ -398,7 +398,7 @@ Node 没加入 PATH。最简单办法：**关闭所有 cmd 窗口，重新打开
 
 ### Q7：Prisma 报 `DATABASE_URL` 找不到
 
-`start.bat` 会自动创建 `.env`。若仍报错，手动在 `cannbot-insight` 目录下新建文件 `.env`，内容一行：
+`start.bat` 会自动创建 `.env`。若仍报错，手动在 `context-insight` 目录下新建文件 `.env`，内容一行：
 
 ```
 DATABASE_URL="file:./dev.db"
@@ -436,7 +436,7 @@ start.bat
 - 读懂功能全貌：[README-zh.md](../README-zh.md)
 - 看整体架构：[docs/architecture.md](architecture.md)
 - 学 CLI 高级用法：[docs/cli-commands.md](cli-commands.md)
-- 在多机器间分享 session：用 Web UI 里的 **CANNBay** 上传 / 导入功能
+- 在多机器间分享 session：用 Web UI 里的 **contextBay** 上传 / 导入功能
 
 ---
 

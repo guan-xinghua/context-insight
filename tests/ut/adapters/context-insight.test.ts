@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { listSessions, readSessionMeta } from '../../../src/lib/ingest/adapters/cannbot-insight.ts';
+import { listSessions, readSessionMeta } from '../../../src/lib/ingest/adapters/context-insight.ts';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,9 +64,9 @@ function buildMetaDb(dbPath: string) {
   db.close();
 }
 
-describe('cannbot-insight adapter listSessions', () => {
+describe('context-insight adapter listSessions', () => {
   beforeEach(() => {
-    tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cannbot-insight-')), 'sample.db');
+    tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'context-insight-')), 'sample.db');
     buildDb(tmpFile);
   });
 
@@ -96,7 +96,7 @@ describe('cannbot-insight adapter listSessions', () => {
   });
 });
 
-describe('cannbot-insight adapter readSessionMeta（会话级身份声明）', () => {
+describe('context-insight adapter readSessionMeta（会话级身份声明）', () => {
   beforeEach(() => {
     tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cannbot-meta-')), 'meta.db');
   });

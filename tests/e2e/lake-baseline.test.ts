@@ -61,7 +61,7 @@ function writeFixture(sid: string, marker: string): string {
   fs.mkdirSync(FIXTURES, { recursive: true });
   const f = path.join(FIXTURES, `${sid}.jsonl`);
   fs.writeFileSync(f, [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: `baseline IT ${marker}` }, timestamp: '2026-08-28T03:00:00.000Z', source: 'claude-proxy', x_cannbay: { schema: 'it-wire-evidence', version: 1, data: {} } }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: `baseline IT ${marker}` }, timestamp: '2026-08-28T03:00:00.000Z', source: 'claude-proxy', x_lake: { schema: 'it-wire-evidence', version: 1, data: {} } }),
     JSON.stringify({ type: 'assistant', message: { id: `m_${sid}`, role: 'assistant', content: [{ type: 'text', text: `回复 ${marker}` }], model: 'test-model', usage: { input_tokens: 10, output_tokens: 2 } }, timestamp: '2026-08-28T03:00:05.000Z' }),
   ].join('\n') + '\n');
   return f;
@@ -191,7 +191,7 @@ describe('baseline：位置即身份（上传 → 落位 → 列表 → 交换 �
     ].join('\n') + '\n';
     fs.writeFileSync(path.join(manualDir, `${manualSid}.jsonl`), plain);
     fs.writeFileSync(path.join(manualDir, `${manualSid}.meta.json`), JSON.stringify({
-      x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', ccVersion: '9.9.9', sid: manualSid } },
+      x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'claude-code', ccVersion: '9.9.9', sid: manualSid } },
     }));
     git('git add .', SEED);
     git('git -c user.name=seed -c user.email=seed@t commit -q -m "manual baseline structure"', SEED);

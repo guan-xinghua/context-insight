@@ -7,7 +7,7 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // SQLite 来源嗅探 IT：单一 SQLite 导入入口靠 schema 区分 opencode 库
-// （小写表 session/message/part）与 CANNBot-Insight 导出库（Prisma 大写表
+// （小写表 session/message/part）与 context-insight 导出库（Prisma 大写表
 // "Session"/"Turn"），路由层据此纠正用户选错的 source。
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import fs from "node:fs"
@@ -77,8 +77,8 @@ describe("detectSqliteSource（schema 嗅探）", () => {
     expect(detectSqliteSource(opencodeV2Db)).toBe("opencode-db")
   })
 
-  it("CANNBot-Insight 导出库（大写 Session 表）→ cannbot-insight，与文件名无关", () => {
-    expect(detectSqliteSource(insightDb)).toBe("cannbot-insight")
+  it("context-insight 导出库（大写 Session 表）→ context-insight，与文件名无关", () => {
+    expect(detectSqliteSource(insightDb)).toBe("context-insight")
   })
 
   it("缺失文件 / 非 sqlite 内容 / 无特征表 → null", () => {
@@ -105,20 +105,20 @@ describe("import-file/sessions 路由自动纠正", () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     const ids = (data.sessions ?? []).map((s: { id: string }) => s.id)
-    // cannbot-insight adapter 的 SessionListItem.id = taskId
+    // context-insight adapter 的 SessionListItem.id = taskId
     expect(ids).toContain("task-it-1")
   })
 
-  it("source 选 cannbot-insight 但文件是 opencode 库 → 同样纠正", async () => {
-    const res = await listSessionsRoute(req({ source: "cannbot-insight", filePath: opencodeDb }))
+  it("source 选 context-insight 但文件是 opencode 库 → 同样纠正", async () => {
+    const res = await listSessionsRoute(req({ source: "context-insight", filePath: opencodeDb }))
     expect(res.status).toBe(200)
     const data = await res.json()
     const ids = (data.sessions ?? []).map((s: { id: string }) => s.id)
     expect(ids).toContain("ses_it_1")
   })
 
-  it("source 选 cannbot-insight 但文件是 opencode 2.x 库 → 同样纠正并列出会话", async () => {
-    const res = await listSessionsRoute(req({ source: "cannbot-insight", filePath: opencodeV2Db }))
+  it("source 选 context-insight 但文件是 opencode 2.x 库 → 同样纠正并列出会话", async () => {
+    const res = await listSessionsRoute(req({ source: "context-insight", filePath: opencodeV2Db }))
     expect(res.status).toBe(200)
     const data = await res.json()
     const ids = (data.sessions ?? []).map((s: { id: string }) => s.id)

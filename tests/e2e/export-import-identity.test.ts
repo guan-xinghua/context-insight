@@ -7,9 +7,9 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // DB 导出→再导入的会话身份保持 IT（身份归会话、格式归文件）。
-// 客户路径：会话列表「导出」→ cannbot_session_<taskId>.db → 别处导入。
-// 修复前：导入链只认容器格式（srcType=cannbot-insight），源级 framework
-// 兜底把容器身份冒充 agent 身份落库（framework='cannbot-insight'、version
+// 客户路径：会话列表「导出」→ context_session_<taskId>.db → 别处导入。
+// 修复前：导入链只认容器格式（srcType=context-insight），源级 framework
+// 兜底把容器身份冒充 agent 身份落库（framework='context-insight'、version
 // null），且记录类不命中既有行 → 同实例重导入产生重复行；导出件无格式头。
 // 修复后：身份从导出件 Session 行的会话级声明读取（readSessionMeta 能力）
 // 原样透传（含 -proxy 记录类后缀），重导入幂等 merge；导出件带 ExportMeta
@@ -23,14 +23,14 @@ import path from 'node:path';
 import os from 'node:os';
 import { exportSession } from '../../src/lib/ingest/export-service.ts';
 import { importSession, deltaRefreshSession } from '../../src/lib/ingest/data-service.ts';
-import { listSessions, detectContent } from '../../src/lib/ingest/adapters/cannbot-insight.ts';
+import { listSessions, detectContent } from '../../src/lib/ingest/adapters/context-insight.ts';
 
 const prisma = new PrismaClient();
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-identity-'));
 
 const SEED_TURNS = [
-  { turnIndex: 0, role: 'user', content: 'how to fuse matmul on npu' },
-  { turnIndex: 1, role: 'assistant', content: 'use torch_npu.matmul then check the fuse pass report' },
+  { turnIndex: 0, role: 'user', content: 'how to fuse matmul on xpu' },
+  { turnIndex: 1, role: 'assistant', content: 'use torch_accel.matmul then check the fuse pass report' },
 ];
 
 async function seedSession(taskId: string, framework: string, version: string | null) {
@@ -52,7 +52,7 @@ async function seedSession(taskId: string, framework: string, version: string | 
 }
 
 function artifactPath(taskId: string): string {
-  return path.join(tmpDir, `cannbot_session_${taskId}.db`);
+  return path.join(tmpDir, `context_session_${taskId}.db`);
 }
 
 const TASK_IDS = ['it-expid-proxy', 'it-expid-native', 'it-expid-merge', 'it-expid-refresh'];
@@ -74,7 +74,7 @@ describe('E2E: DB 导出→再导入的会话身份保持', () => {
 
     // 删原行 = 模拟「导入到另一实例」的新库路径
     await prisma.session.deleteMany({ where: { taskId } });
-    const res = await importSession(artifact, taskId, prisma, artifact, 'cannbot-insight');
+    const res = await importSession(artifact, taskId, prisma, artifact, 'context-insight');
     expect(res.imported).toBe(true);
 
     const row = await prisma.session.findFirst({ where: { taskId } });
@@ -89,7 +89,7 @@ describe('E2E: DB 导出→再导入的会话身份保持', () => {
     await exportSession(taskId, artifact, prisma);
 
     await prisma.session.deleteMany({ where: { taskId } });
-    await importSession(artifact, taskId, prisma, artifact, 'cannbot-insight');
+    await importSession(artifact, taskId, prisma, artifact, 'context-insight');
 
     const row = await prisma.session.findFirst({ where: { taskId } });
     expect(row?.framework).toBe('codex');
@@ -104,7 +104,7 @@ describe('E2E: DB 导出→再导入的会话身份保持', () => {
     const artifact = artifactPath(taskId);
     await exportSession(taskId, artifact, prisma);
 
-    const res = await importSession(artifact, taskId, prisma, artifact, 'cannbot-insight');
+    const res = await importSession(artifact, taskId, prisma, artifact, 'context-insight');
     expect(res.imported).toBe(false);
 
     const rows = await prisma.session.findMany({ where: { taskId } });
@@ -146,7 +146,7 @@ describe('E2E: DB 导出→再导入的会话身份保持', () => {
     const artifact = artifactPath(taskId);
     await exportSession(taskId, artifact, prisma);
     await prisma.session.deleteMany({ where: { taskId } });
-    await importSession(artifact, taskId, prisma, artifact, 'cannbot-insight');
+    await importSession(artifact, taskId, prisma, artifact, 'context-insight');
 
     // 该行 framework='claude-code-proxy' 而 sourcePath 是 insight 导出 db：
     // 按 framework 反查会路由到 claude-jsonl 去解析 sqlite（读到 0 条 →

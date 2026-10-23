@@ -29,7 +29,7 @@ function writeCapture(file: string, systemPrompt: string): void {
     JSON.stringify({
       type: 'assistant',
       message: { role: 'assistant', content: 'ok' },
-      x_cannbay: { schema: 'cc-wire-round', version: 1, data: { system: systemPrompt, tools: [{ name: 'Read', description: 'read' }] } },
+      x_lake: { schema: 'cc-wire-round', version: 1, data: { system: systemPrompt, tools: [{ name: 'Read', description: 'read' }] } },
     }),
   ];
   fs.writeFileSync(file, lines.join('\n') + '\n');
@@ -59,7 +59,7 @@ describe('readFullContext 读侧缓存', () => {
   it('② 压缩形态（盘上常态）同款失效语义', () => {
     const gz = path.join(tmpRoot, 'cap.jsonl.gz');
     const mk = (p: string) => zlib.gzipSync(
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'ok' }, x_cannbay: { schema: 'cc-wire-round', version: 1, data: { system: p, tools: [{ name: 'Read', description: 'read' }] } } }) + '\n');
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'ok' }, x_lake: { schema: 'cc-wire-round', version: 1, data: { system: p, tools: [{ name: 'Read', description: 'read' }] } } }) + '\n');
     fs.writeFileSync(gz, mk('GZ-V1'));
     const t1 = new Date(); fs.utimesSync(gz, t1, t1);
     expect(readFullContext(gz)?.systemPrompt).toBe('GZ-V1');

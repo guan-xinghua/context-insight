@@ -15,5 +15,5 @@ export const BUNDLE_ROOT_DIR = 'opsbot-bundle';
 /** bundle 锚定文件：专区下一级目录含它即 bundle（列表只认锚定目录）。 */
 export const BUNDLE_MANIFEST_FILE = 'workflow.json';
 
-/** lake 侧归属快照（cc-bundle-meta，x_cannbay 信封；上传时合成）。 */
+/** lake 侧归属快照（cc-bundle-meta，x_lake 信封；上传时合成）。 */
 export const BUNDLE_META_FILE = 'bundle.meta.json';

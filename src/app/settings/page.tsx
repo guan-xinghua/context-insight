@@ -535,7 +535,7 @@ export default function SettingsPage() {
               </Button>
               {savedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
             </div>
-              <p className="text-xs text-muted-foreground">凭据保存在本机服务端（~/.cannbot-insight/lake-auth.json，权限 0600），cpx 与 insight 上传/下载共用同一份；地址/分支/目录偏好同时存浏览器本地与服务端（~/.cannbot-insight/lake-config.json）——viewer 与跨浏览器共享同一配置。数据仓默认需凭据推送（需仓主将你的账号加为协作者）。</p>
+              <p className="text-xs text-muted-foreground">凭据保存在本机服务端（~/.context-insight/lake-auth.json，权限 0600），cpx 与 insight 上传/下载共用同一份；地址/分支/目录偏好同时存浏览器本地与服务端（~/.context-insight/lake-config.json）——viewer 与跨浏览器共享同一配置。数据仓默认需凭据推送（需仓主将你的账号加为协作者）。</p>
           </CardContent>
         </Card>
 
@@ -544,7 +544,7 @@ export default function SettingsPage() {
         <div className="space-y-2">
           <h2 className="text-sm font-semibold">运行日志</h2>
           <p className="text-xs text-muted-foreground">
-            服务端运行过程日志（导入管线 / 数据之湖同步 / API 错误），按天滚动落盘于 ~/.cannbot-insight/logs/ 并同时输出到启动终端。保存后即时生效，无需重启；环境变量（CANNBOT_LOG*）优先于此处设置。
+            服务端运行过程日志（导入管线 / 数据之湖同步 / API 错误），按天滚动落盘于 ~/.context-insight/logs/ 并同时输出到启动终端。保存后即时生效，无需重启；环境变量（CONTEXT_LOG*）优先于此处设置。
           </p>
         </div>
         <Card>
@@ -590,7 +590,7 @@ export default function SettingsPage() {
               {logEnvOverrides.length > 0 && (
                 <p className="text-xs text-red-600 pl-[72px]">环境变量 {logEnvOverrides.join("、")} 正在覆盖此处设置（改动部署环境变量后本页设置才会生效）。</p>
               )}
-              <p className="text-xs text-muted-foreground pl-[72px]">也可用环境变量配置（优先于此页）：<code>CANNBOT_LOG</code> 总开关（0/off 关）、<code>CANNBOT_LOG_LEVEL</code> 级别、<code>CANNBOT_LOG_FILE</code> 写文件、<code>CANNBOT_LOG_STDOUT</code> 输出到屏幕、<code>CANNBOT_LOG_DIR</code> 日志目录——置 0/off 即关对应通道。</p>
+              <p className="text-xs text-muted-foreground pl-[72px]">也可用环境变量配置（优先于此页）：<code>CONTEXT_LOG</code> 总开关（0/off 关）、<code>CONTEXT_LOG_LEVEL</code> 级别、<code>CONTEXT_LOG_FILE</code> 写文件、<code>CONTEXT_LOG_STDOUT</code> 输出到屏幕、<code>CONTEXT_LOG_DIR</code> 日志目录——置 0/off 即关对应通道。</p>
             </div>
             <div className="flex items-center gap-2">
               <Button size="sm" className="text-xs" onClick={handleLogSave} disabled={!logHydrated}>
@@ -602,7 +602,7 @@ export default function SettingsPage() {
               {logSavedFlag && <span className="text-xs text-green-600">✓ 已保存</span>}
               {logHint && <span className="text-xs text-red-600 break-all">{logHint}</span>}
             </div>
-            <p className="text-xs text-muted-foreground">配置存于本机服务端（~/.cannbot-insight/logger-config.json）；默认开（Info 级、文件与终端双输出）。</p>
+            <p className="text-xs text-muted-foreground">配置存于本机服务端（~/.context-insight/logger-config.json）；默认开（Info 级、文件与终端双输出）。</p>
           </CardContent>
         </Card>
       </main>

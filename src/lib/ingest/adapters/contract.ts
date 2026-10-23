@@ -22,10 +22,10 @@ import type { SessionListItem, RawInteraction } from '../../shared/types';
 //   detectContent/detectSourceByContent 按文件名/内容判定
 // - 身份轴（属于会话）：framework/version = "谁生产了这个会话"。源分两类：
 //   「格式即生产者」的单框架源（claude-jsonl 文件本身就是 claude-code 的
-//   存储）声明源级 framework 缺省；「格式即搬运」的容器源（cannbot-insight
+//   存储）声明源级 framework 缺省；「格式即搬运」的容器源（context-insight
 //   导出件 = insight 序列化既有会话，不是会话的生产者）不声明源级框架——
 //   会话身份是会话级数据，必须经 readSessionMeta 从件内声明读取。容器源
-//   若让格式身份冒充会话身份（framework='cannbot-insight'），记录类匹配、
+//   若让格式身份冒充会话身份（framework=容器源名），记录类匹配、
 //   deltaRefresh 反查路由、上传元数据三条链全部被污染（误标史）
 //
 // 框架级归一化原则（所有适配器必须遵守，serving 层依赖这些全局一致语义）：
@@ -107,7 +107,7 @@ export interface SourceDescriptor {
   /** agent 归属（DB Session.framework 原生落库值，身份轴）：'opencode' |
    *  'claude-code' | 'codex' | …。仅「格式即生产者」的单框架源声明（注意与
    *  sourceType 不同名是常态：opencode-db → opencode、claude-jsonl →
-   *  claude-code）；容器型源（cannbot-insight 导出件，格式即搬运非生产者）
+   *  claude-code）；容器型源（context-insight 导出件，格式即搬运非生产者）
    *  不声明——身份必须来自 readSessionMeta 的会话级声明。-proxy 后缀装饰
    *  （捕获记录类）由 data-service 施加，不在此声明 */
   framework?: string;
@@ -130,13 +130,13 @@ export interface SourceDescriptor {
    * 用 sessionId 解析到具体文件（无 sessionId 则按文件直读）。 */
   extractVersion?(dbPath: string, sessionId?: string): string | null;
   /** 会话级身份/元数据声明（身份轴，见 SessionSourceMeta）：从源文件读出
-   *  "这个会话是谁"。容器源（cannbot-insight 导出件）必须实现——否则身份
+   *  "这个会话是谁"。容器源（context-insight 导出件）必须实现——否则身份
    *  退回源级缺省（容器身份冒充 agent 身份的误标史）；单框架源实现了则以
    *  声明覆盖缺省（opencode-db 的 session 表标题/目录/版本）。返回 null =
    *  该会话无声明（落库链走 extractVersion/源级缺省兜底）。 */
   readSessionMeta?(dbPath: string, sessionId: string): SessionSourceMeta | null;
   /** 文件级识别（browse-directory 的 importableType 判定）。注册表声明序
-   * 即优先级——前缀精确嗅探（rollout-/cannbot_session_）必须排在扩展名
+   * 即优先级——前缀精确嗅探（rollout-/context_session_）必须排在扩展名
    * 兜底（claude-jsonl）之前。 */
   sniffFile?(fileName: string): boolean;
   /** 内容级识别（registry.resolveSource 的探测依据）：读文件头判定本源
