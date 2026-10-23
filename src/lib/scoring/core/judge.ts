@@ -343,14 +343,31 @@ export class CoverageJudgeScorer extends Scorer {
     if (!first) return notApplicable(ctx.def, '缺少首轮用户消息，无法评判');
     if (!ctx.llm) return notApplicable(ctx.def, NO_LLM_NOTE, { naKind: 'gap' });
 
+    // 工作流范围声明（全源 DB 恢复）：会话实质工作开始前载入的工作流 skill
+    // 规程里声明了交付物范围时，验收口径以声明为准——首条消息的超范围条目
+    // 不是 agent 的失职（如设计阶段工作流只交付 DESIGN.md，首条消息"开发
+    // 完整版本"的超范围部分不得作为扣分依据），除非后续真人消息明确要求
+    const scope = ctx.input.workflowScope;
+    const scopeSection = scope
+      ? `
+
+工作流范围声明（本会话载入的工作流规程，${scope.skillName ? `skill：${scope.skillName}，` : ''}来源：${scope.source}）：
+${scope.regulation}
+
+范围裁定规则（优先于下面步骤 3 的常规判定）：
+- 声明了交付物范围时，验收口径以声明范围为准；首轮消息里超出声明范围的条目标 out-of-scope（范围外），不计入 missing、不作为扣分依据
+- 仅当后续真人消息明确要求范围外交付而轨迹未响应时，才可按该条目扣分（子代理派发/回传不算真人消息）
+`
+      : '';
+
     const ask = `## 本次评审任务：目标覆盖对账
 
 从首轮用户消息抽取关键目标点，再逐项判断轨迹完成情况。
-
+${scopeSection}
 步骤（严格按顺序）：
 1. 从下面的首轮消息里抽出 3~8 个可验证的关键目标点（隐含的常规要求如"代码要能跑"不算，抽任务特有的）
 2. 逐项在轨迹材料里找完成证据（§N 轮次引用）
-3. 每项判 covered（完成）/ partial（部分）/ missing（未做）
+3. 每项判 covered（完成）/ partial（部分）/ missing（未做）${scope ? '/ out-of-scope（范围外——仅当上方给出了范围裁定规则、且该条目超出声明交付物范围时才可用）' : ''}
 4. 找不到证据时不要猜成 covered
 
 首轮用户消息：
@@ -358,7 +375,7 @@ export class CoverageJudgeScorer extends Scorer {
 
 严格输出 JSON：
 {"goals":[{"goal":"…","evidence":["§12"],"status":"covered"}]}
-goal 用一句话；status 只能取 covered/partial/missing。`;
+goal 用一句话；status 只能取 covered/partial/missing${scope ? '/out-of-scope' : ''}。`;
 
     try {
       const { parsed, retried } = await completeParsedJson(ctx.llm, GENERIC_JUDGE_SYSTEM, judgeMessage(ctx.input.trajectoryDigest, ask), judgeMeta(ctx));
@@ -370,23 +387,37 @@ goal 用一句话；status 只能取 covered/partial/missing。`;
       let covered = 0;
       let partial = 0;
       let missing = 0;
+      let outOfScope = 0;
       for (const r of arr) {
         if (!r || typeof r !== 'object') continue;
         const rr = r as { goal?: unknown; status?: unknown };
         const goal = typeof rr.goal === 'string' ? rr.goal : '（未命名目标）';
-        const status = rr.status === 'covered' ? 'covered' : rr.status === 'partial' ? 'partial' : rr.status === 'missing' ? 'missing' : null;
+        // out-of-scope 仅在有工作流范围声明时成立；无声明会话 LLM 违规输出该
+        // 状态时按未做（missing）计——分母不被静默剔出（review 意见）
+        const status = rr.status === 'covered' ? 'covered' : rr.status === 'partial' ? 'partial' : rr.status === 'missing' ? 'missing'
+          : rr.status === 'out-of-scope' && scope ? 'out-of-scope' : null;
         if (status === 'covered') covered++;
         else if (status === 'partial') partial++;
+        else if (status === 'out-of-scope') outOfScope++;
         else missing++;
         const evTurns = validEvidenceTurns((r as { evidence?: unknown }).evidence, validTurnIndexes(ctx.input));
         evidence.push({ turnIndex: evTurns[0] ?? null, label: `${goal} → ${status ? verdictText(status) : '无法识别'}` });
       }
+      // 范围外不计入覆盖分母（工作流声明的交付物范围优先；见 prompt 范围裁定规则）
+      const denom = covered + partial + missing;
+      if (denom === 0) {
+        // 全部目标点范围外：会话无可评判的范围内目标——na 而非 0 分
+        // （verdict 落 partial + score 0 会拉低完成度均值，review 意见）
+        return notApplicable(ctx.def,
+          `目标点 ${arr.length} 个全部为范围外（工作流声明的交付物范围不含首条消息任何条目），无范围内目标可评`,
+          { evidence });
+      }
       const verdict = missing > 0 ? 'missing' : covered > 0 ? 'covered' : 'partial';
       return okResult(ctx.def, {
         verdict,
-        value: `${covered}✓/${covered + partial + missing}`,
-        ...(this.cfg.completionScore ? { score: round2((covered + partial * 0.5) / Math.max(1, covered + partial + missing)) } : {}),
-        formula: `目标点 ${arr.length} 个：已覆盖 ${covered} / 部分覆盖 ${partial} / 未覆盖 ${missing}`,
+        value: `${covered}✓/${denom}`,
+        ...(this.cfg.completionScore ? { score: round2((covered + partial * 0.5) / Math.max(1, denom)) } : {}),
+        formula: `目标点 ${arr.length} 个：已覆盖 ${covered} / 部分覆盖 ${partial} / 未覆盖 ${missing}${outOfScope > 0 ? ` / 范围外 ${outOfScope}（工作流声明范围，不计入）` : ''}`,
         evidence,
       });
     } catch (err) {

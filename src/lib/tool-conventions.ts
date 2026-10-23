@@ -99,6 +99,28 @@ export function isSkillInjectionText(text: string): boolean {
     text.startsWith('Launching skill ');
 }
 
+/** opencode 子代理回传 / claude 后台任务完成通知指纹（读侧单源）：异步派发
+ *  完成时两家都以 user 行推回主会话——opencode 是 `<subagent sessionID="…"
+ *  state="…">` 壳；claude code 是 `<task-notification>` 壳（Agent 工具的
+ *  tool_result 只是"Async agent launched"启动回执，完成通知走 user 行）。
+ *  wire 角色是 user，说话的是子代理/运行时。Turns 时间线（不显示 user 徽标）
+ *  与评分链路（不当真人输入：userMessages 剔除、轨迹摘要打标）共用。 */
+export function isSubagentReturnText(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const t = text.trimStart();
+  return t.startsWith('<subagent sessionID=') || t.startsWith('<task-notification>');
+}
+
+/** claude 形态重分类后的摘要指纹：claude-jsonl 注入分类器把 `<task-notification>`
+ *  user 行重分类为 system 轮，内容换写为 parseTaskNotificationSummary 的产出
+ *  （`✅ Task: 名字` / `✅ Task 完成`）。该摘要轮同样显示「子代理回传」、
+ *  轨迹摘要打标——指纹与 parseTaskNotificationSummary（injections/claude-code.ts）
+ *  成对，格式改动必须双侧同步。 */
+export function isTaskNotificationSummaryText(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return text.trimStart().startsWith('✅ Task');
+}
+
 /**
  * 提取技能名：依次查参数键候选；无 args / 无命中时回落工具名去
  * skill/ 前缀（如 skill/ops-spec-gen → ops-spec-gen）。

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { isCommandTurn, isCommandCaveat, isCommandStdout, parseCommandTurns, formatCommandDisplay, isContinuationTurn, parseContinuationTurn } from "@/lib/shared/command-parser"
 import { buildSubagentNumbers } from "@/lib/subagent-numbering"
+import { isSubagentReturnText, isTaskNotificationSummaryText } from "@/lib/tool-conventions"
 
 interface TurnRowItem {
   turnId: string
@@ -71,6 +72,7 @@ const ROLE_COLORS: Record<string, string> = {
   command: "border-l-gray-500 bg-gray-50/50 dark:bg-gray-500/5",
   continuation: "border-l-purple-500 bg-purple-50/50 dark:bg-purple-500/5",
   compaction: "border-l-amber-500 bg-amber-50/50 dark:bg-amber-500/5",
+  "subagent-return": "border-l-slate-400 bg-slate-50/50 dark:bg-slate-500/5",
 }
 
 const ROLE_ICONS: Record<string, string> = {
@@ -81,14 +83,16 @@ const ROLE_ICONS: Record<string, string> = {
   command: "⚡",
   continuation: "⏸",
   compaction: "⚡",
+  "subagent-return": "⤴",
 }
 
 // displayRole → 用户可见标签（continuation 在 UI 显示为 /compact，更直观）
 const ROLE_LABELS: Record<string, string> = {
   continuation: "/compact",
+  "subagent-return": "后台完成",
 }
 
-const ROLE_BADGE_VARIANTS: Record<string, "blue" | "green" | "gray" | "purple" | "orange" | "yellow"> = {
+const ROLE_BADGE_VARIANTS: Record<string, "blue" | "green" | "gray" | "purple" | "orange" | "yellow" | "slate"> = {
   user: "blue",
   assistant: "green",
   system: "gray",
@@ -96,6 +100,7 @@ const ROLE_BADGE_VARIANTS: Record<string, "blue" | "green" | "gray" | "purple" |
   command: "gray",
   continuation: "purple",
   compaction: "yellow",
+  "subagent-return": "slate",
 }
 
 function formatLatency(ms: number): string {
@@ -403,6 +408,20 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
             displayRole: "command" as string,
             displayContent: cmdInfo?.display ?? "/unknown",
             commandOutput: cmdInfo?.output ?? null,
+            continuationSummary: null as string | null,
+          }
+        }
+        // opencode 异步 Task 完成回传：wire 是 user 行但说话的是子代理——
+        // 不显示 user 徽标（悬停可见原文与来源子代理）。claude 形态在导入层
+        // 已重分类为 system 摘要轮（✅ Task …），同款徽标——文案与泳道
+        // 「后台异步派发/background」同一套话术（派发 → 完成闭环）
+        if ((t.role === 'user' && isSubagentReturnText(text)) ||
+            (t.role === 'system' && isTaskNotificationSummaryText(text))) {
+          return {
+            ...t,
+            displayRole: "subagent-return" as string,
+            displayContent: text,
+            commandOutput: null as string | null,
             continuationSummary: null as string | null,
           }
         }

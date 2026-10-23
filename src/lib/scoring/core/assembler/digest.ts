@@ -11,6 +11,7 @@
 
 import { extractFilePath, parseWriteLines } from '@/lib/file-restore';
 import { isCompactionMarkerTurn } from '../compaction';
+import { isSubagentReturnText, isTaskNotificationSummaryText } from '@/lib/tool-conventions';
 import type { BridgeRow } from './collect';
 import type { ScoreToolCall, ScoreTurn } from './types';
 
@@ -31,7 +32,10 @@ function turnLines(turns: ScoreTurn[]): string[] {
     const lat = t.latencyMs > 100 ? `lat:${(t.latencyMs / 1000).toFixed(1)}s` : '';
     // 压缩标记轮标注：让 LLM 评审知道这是压缩摘要/边界，不是 agent 正常发言
     const compact = isCompactionMarkerTurn(t) ? '[compact] ' : '';
-    return `#${t.turnIndex} ${ROLE_TAG[t.role] ?? t.role} +${relMin} ${tok} ${lat} ${compact}"${content}"`;
+    // opencode 子代理回传：wire 是 user 行但说话的是子代理——打标防评审当真人消息
+    const subReturn = (t.role === 'user' && isSubagentReturnText(t.content)) ||
+      (t.role === 'system' && isTaskNotificationSummaryText(t.content)) ? '[子代理回传] ' : '';
+    return `#${t.turnIndex} ${ROLE_TAG[t.role] ?? t.role} +${relMin} ${tok} ${lat} ${compact}${subReturn}"${content}"`;
   });
 }
 
@@ -114,7 +118,7 @@ export function buildDigest(turns: ScoreTurn[], toolCalls: ScoreToolCall[], brid
   if (cl.length > 0) sections.push(`## 产出文件（最终内容节选）\n${cl.join('\n---\n')}`);
 
   const userMessages = turns
-    .filter(t => t.role === 'user' && !t.isSubagent)
+    .filter(t => t.role === 'user' && !t.isSubagent && !isSubagentReturnText(t.content))
     .map(t => ({ turnIndex: t.turnIndex, text: (t.content ?? t.contentSummary ?? '').slice(0, 2000), at: t.createdAtTsISO ?? t.createdAtISO }));
 
   return { trajectoryDigest: sections.join('\n\n'), userMessages };

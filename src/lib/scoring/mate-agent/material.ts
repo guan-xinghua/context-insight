@@ -224,6 +224,16 @@ async function writeMaterial(
     const sysMd = buildSystemContext(data.session.sourcePath, data.session.taskId, data.fullContext);
     if (sysMd) await fs.writeFile(path.join(dir, 'system-context.md'), sysMd, 'utf-8');
   }
+  // 工作流范围声明（全源 DB 恢复，native opencode 无 system-context/项目说明时的
+  // 关键补充）：D1 验收口径以 skill 声明的交付物范围为准（见 GUIDE）
+  if (data.workflowScope) {
+    const { skillName, source, regulation } = data.workflowScope;
+    await fs.writeFile(
+      path.join(dir, 'workflow-declaration.md'),
+      `# 工作流范围声明${skillName ? `（skill：${skillName}）` : ''}\n\n来源：${source}\n\n---\n\n${regulation}\n`,
+      'utf-8',
+    );
+  }
 
   return { dir };
 }

@@ -17,6 +17,7 @@ import { deriveToolTiming } from '@/lib/tool-timing';
 import { readFullContext, readAvailableSkills, type FullContext } from '@/lib/ingest/adapters/claude-jsonl-full-context';
 import { readEnvelope } from '@/lib/shared/envelope';
 import { extractFilePath } from '@/lib/file-restore';
+import { recoverWorkflowDeclaration, resolveWorkflowSkillName } from '@/lib/sift-audit';
 import type { RedactionEvent, ScoreExecution, ScoreToolCall, ScoreTurn, WireSummary } from './types';
 
 export interface BridgeRow {
@@ -47,6 +48,8 @@ export interface CollectedData {
   toolCalls: ScoreToolCall[];
   /** 技能事件（斜杠命令 invoke 等无工具调用通道；D5.skills used 集合消费） */
   skillEvents: Array<{ skillName: string; eventType: string }>;
+  /** 工作流范围声明（全源 DB 恢复；D1.goalCoverage 验收口径消费），无可恢复声明为 null */
+  workflowScope: { skillName: string | null; source: string; regulation: string } | null;
   executions: ScoreExecution[];
   bridges: BridgeRow[];
   wire: WireSummary | null;
@@ -430,6 +433,21 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
     select: { skillName: true, eventType: true },
   });
 
+  // 工作流范围声明（全源 DB 恢复，复用 sift-audit 的现成链）——D1.goalCoverage
+  // 验收口径消费：skill 声明的交付物范围优先于首条用户消息（如设计工作流只到
+  // 设计文档，首条消息里"开发完整版本"的超范围条目不得作为扣分依据）。
+  // 仅在识别到主链 skill invoke（S2 形态）时构造：recoverWorkflowDeclaration
+  // 的 turn0 兜底（S1 注入形态）无 skill 门槛，无 workflow 会话的长首条真人
+  // 消息 / 长系统注入（≥500 字）会被误判成声明喂进评分——S1 待注入指纹
+  // 判别后另行放开（review 意见）
+  const [wfDecl, wfSkillName] = await Promise.all([
+    recoverWorkflowDeclaration(session.id, prisma),
+    resolveWorkflowSkillName(session.id, prisma),
+  ]);
+  const workflowScope = wfDecl && wfSkillName
+    ? { skillName: wfSkillName, source: wfDecl.source, regulation: wfDecl.content.slice(0, 8000) }
+    : null;
+
   const executionRows = await prisma.execution.findMany({
     where: { sessionId: session.id },
     select: { agentName: true, isSubagent: true, tokens: true, cost: true, latencyMs: true, toolCallCount: true, toolCallErrorCount: true },
@@ -485,6 +503,7 @@ export async function collectForScoring(taskId: string, prisma: PrismaClient, fr
     turns,
     toolCalls,
     skillEvents: skillEventRows,
+    workflowScope,
     executions: executionRows.map(e => ({
       agentName: e.agentName ?? '',
       isSubagent: e.isSubagent,

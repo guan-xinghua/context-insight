@@ -31,7 +31,7 @@
 
 ### D1 完成度（只评这 2 个子项）
 
-- `D1.goalCoverage`（verdict + score）目标覆盖：从首轮用户消息抽任务目标点，逐项判断轨迹里完成没。verdict ∈ `covered`(全完成) / `partial`(部分) / `missing`(有缺失)；score = (covered + 0.5×partial) / 总数。⚠️ **延续/继续型会话（首条消息是 skill 说明、文档、"继续"等而非具体任务）抽不出目标点就判 `na`，绝不要硬抽一个目标判 `missing`**。
+- `D1.goalCoverage`（verdict + score）目标覆盖：从首轮用户消息抽任务目标点，逐项判断轨迹里完成没。verdict ∈ `covered`(全完成) / `partial`(部分) / `missing`(有缺失)；score = (covered + 0.5×partial) / 总数。⚠️ **延续/继续型会话（首条消息是 skill 说明、文档、"继续"等而非具体任务）抽不出目标点就判 `na`，绝不要硬抽一个目标判 `missing`**。⚠️ **工作流范围声明优先**：材料里有 `workflow-declaration.md`（或轨迹注入/工具结果里的 skill 规程）声明了交付物范围时，验收口径以声明为准——首轮消息里超出声明范围的条目（如设计阶段工作流只交付设计文档，首轮却写"开发完整版本"）**不算 agent 失职**，在 evidence 里标「范围外」并**不计入 score 分母**；仅当后续真人消息明确要求范围外交付而轨迹未响应时才可按该条扣分（子代理派发/回传不算真人消息）。
 - `D1.acceptance`（verdict）验收清单对账：材料里若有验收清单，逐条核对。清单可能在首条用户消息、项目说明（project-instructions.md）、**system-context.md**（skills 指令/子会话提示词里的验收与校验规则）**或 skill 规则**。⚠️ **skill 的验收/校验/门控指令是权威声明**，但**只认注入与工具结果两个信道**：harness 注入的 skill 定义（slash 命令展开的流水线定义）、用户消息里的门控参数、**工具结果里回读的规则原文**（Read/Grep 出来的 SKILL.md 等磁盘内容）都算声明本体；**assistant 模型输出的转述不算**（模型可能改写或编造——可作线索去翻原文，对账以注入/工具结果为准）。native 会话无 project-instructions/system-context 是常态，声明长在轨迹的注入与工具结果里。四处都找过仍无清单才给 `na`。verdict ∈ `met`(全达标) / `unmet`(有未达标/未执行) / `na`(无清单)。
 
 ### D2 行为可信（只评这 2 个子项）

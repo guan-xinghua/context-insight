@@ -109,6 +109,10 @@ export interface AssembledInput {
   /** 技能事件（invoke/load/use/dispatch，含斜杠命令通道——无工具调用，只落
    *  事件表）；D5.skills 的 used 集合消费。可选：无评分需要时构造方可不填 */
   skillEvents?: Array<{ skillName: string; eventType: string }>;
+  /** 工作流范围声明（全源 DB 恢复：主 agent 首 invoke 的 skill 规程 / turn0
+   *  注入）；D1.goalCoverage 验收口径消费——skill 声明的交付物范围优先于
+   *  首条用户消息。无可恢复声明为 null/缺省 */
+  workflowScope?: { skillName: string | null; source: string; regulation: string } | null;
   turns: ScoreTurn[];
   measures: Measures;
   taskType: 'operator' | 'general' | 'unknown';

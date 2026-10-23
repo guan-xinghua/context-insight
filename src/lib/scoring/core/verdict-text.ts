@@ -11,7 +11,7 @@
 // 显示层可在其上叠加语境化覆盖（如 D2 徽标「违规（否决）」），共享枚举本身只在这里改。
 
 export const VERDICT_TEXT: Record<string, string> = {
-  covered: '已覆盖', partial: '部分覆盖', missing: '未覆盖',
+  covered: '已覆盖', partial: '部分覆盖', missing: '未覆盖', 'out-of-scope': '范围外',
   met: '达标', unmet: '未达标', 'not-run': '未执行', unidentifiable: '无法识别',
   clean: '无发现', violation: '违规', suspected: '疑似',
   authorized: '已授权', unauthorized: '未授权',

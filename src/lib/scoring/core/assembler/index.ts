@@ -46,6 +46,7 @@ export async function assembleInput(taskId: string, prisma: PrismaClient, framew
       userMessages,
       toolCalls: raw.toolCalls,
       skillEvents: raw.skillEvents,
+      workflowScope: raw.workflowScope,
       turns: raw.turns,
       measures: {
         totalTokens: raw.session.totalTokens,
