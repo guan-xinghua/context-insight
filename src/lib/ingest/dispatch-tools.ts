@@ -1,9 +1,9 @@
 // Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
 // This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
-// Please refer to the License for details. Do not use this file except in compliance with the License.
+// Please refer to the License for details. You may not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // ── 派发工具注册表（dispatch tool registry）────────────────────────────
@@ -110,6 +110,11 @@ export const DISPATCH_TOOLS: readonly DispatchToolSpec[] = [
 /** 工具名 → spec（精确名优先于包含式；全小写比较）。非派发工具返回 null。 */
 export function dispatchSpecOf(toolName: string): DispatchToolSpec | null {
   const lower = toolName.toLowerCase();
+  // 包含式族的反例：claude 后台子代理的结果回传工具 SubagentHandback 名字
+  // 含 "subagent" 但方向相反（子→父的交付，非父→子的派发）；误入派发表会
+  // 经时间邻近回退锚到子代理自身会话，产出「派发端=子代理 turn」的自锚桥
+  // （时间线不渲染且抑制无桥兜底）。回传/交付语义命名一律排除
+  if (lower.includes('handback')) return null;
   for (const spec of DISPATCH_TOOLS) {
     if (spec.names.includes(lower)) return spec;
   }

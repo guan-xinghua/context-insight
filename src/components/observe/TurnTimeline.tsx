@@ -32,6 +32,7 @@ interface TurnRowItem {
   latencyMs: number
   createdAt: string | null
   completedAt: string | null
+  finishReason?: string | null
   model: string | null
   toolCalls: Array<{ toolCallId: string; toolName: string; state: string; durationMs: number }>
   skillEvents: Array<{ skillName: string; eventType: string; success: boolean }>
@@ -128,6 +129,9 @@ interface SubagentLane {
   totalTokens: number
   latencyMs: number
   turnCount: number
+  /** 无桥兜底 lane：派发未被建桥（上游 meta 登记空 / 异步派发无子会话 id），
+   *  按时间就近挂到主链轮下——可见性优先，区别于桥驱动的精确 lane */
+  unlinked?: boolean
 }
 
 interface LaneCtx {
@@ -146,7 +150,19 @@ interface LaneCtx {
 // min-w-0（grid/flex 子项默认 min-width:auto 会被内容撑破轨道），内部行必须
 // flex-wrap + 固定元素 shrink-0 + 摘要可截断——否则 #635 / "1 tools" / token 数
 // 等最小内容宽度超出容器后横向溢出到框外，覆盖相邻内容。
-export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneCtx }) {
+export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx: LaneCtx; path?: ReadonlySet<string> }) {
+  // 渲染路径防环：建 lane 处已剔自引用桥，但存量库互引等其他形态的畸形桥
+  // 仍可能构成 lane 环（A 的派发端在 B、B 的派发端在 A）——按 bridgeId
+  // 路径截断，同一条展开链上不重复渲染同一 lane（环处显示截断提示）
+  if (path?.has(lane.bridgeId)) {
+    return (
+      <div className="ml-3 pl-3 border-l border-dashed border-orange-200 dark:border-orange-500/30 px-1 py-0.5 text-[11px] text-muted-foreground">
+        ⥁ {lane.name} 已在此展开链上（环引用截断）
+      </div>
+    )
+  }
+  const childPath = new Set(path ?? [])
+  childPath.add(lane.bridgeId)
   const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
   const isError = lane.status === "error"
   return (
@@ -156,6 +172,7 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
     )}>
       <div className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left">
         <Badge variant="orange" className="text-xs max-w-[60%] truncate">{lane.name}</Badge>
+        {lane.unlinked && <Badge variant="slate" className="text-xs shrink-0" title="派发桥缺失（上游 meta 登记为空 / 异步派发无子会话 id），按时间就近挂载；点击可展开其轮次">未关联</Badge>}
         {lane.background && <Badge variant="yellow" className="text-xs shrink-0" title="后台异步派发：立即返回，完成后再通知父会话">background</Badge>}
         {lane.summary && <span className="text-xs text-foreground/80 truncate">{lane.summary}</span>}
         {isError && <Badge variant="red" className="text-xs shrink-0">error</Badge>}
@@ -209,8 +226,8 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
                 return (
                   <div className="ml-3 pl-3 border-l border-orange-200 dark:border-orange-500/30 min-w-0">
                     {lns.length === 1
-                      ? <SubagentLaneView lane={lns[0]} ctx={ctx} />
-                      : <ParallelSubagentGroup lanes={lns} ctx={ctx} />}
+                      ? <SubagentLaneView lane={lns[0]} ctx={ctx} path={childPath} />
+                      : <ParallelSubagentGroup lanes={lns} ctx={ctx} path={childPath} />}
                   </div>
                 )
               })()}
@@ -231,7 +248,7 @@ export function SubagentLaneView({ lane, ctx }: { lane: SubagentLane; ctx: LaneC
 //     点第一个 chip 时详情不会跑到最后一个 chip 下面；可多个同时展开（保持
 //     跨 tab 导航祖先链的多桥展开语义）；
 //   - 组头 ⇄ 标识 + 汇总统计，并行关系与规模一目了然。
-export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; ctx: LaneCtx }) {
+export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLane[]; ctx: LaneCtx; path?: ReadonlySet<string> }) {
   const totalTurns = lanes.reduce((s, l) => s + l.turnCount, 0)
   const totalTokens = lanes.reduce((s, l) => s + l.totalTokens, 0)
   return (
@@ -266,7 +283,7 @@ export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; c
                 <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
                 {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
               </button>
-              {isExpanded && <SubagentLaneView lane={lane} ctx={ctx} />}
+              {isExpanded && <SubagentLaneView lane={lane} ctx={ctx} path={path} />}
             </div>
           )
         })}
@@ -277,6 +294,7 @@ export function ParallelSubagentGroup({ lanes, ctx }: { lanes: SubagentLane[]; c
 
 export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, highlightSubagentTurnId, scrollToTurnId, onJumpToTurnIndex }: TurnTimelineProps) {
   const [expandedSubagents, setExpandedSubagents] = useState<Set<string>>(new Set())
+  const turnById = new Map(turns.map(t => [t.turnId, t] as const))
   const [filterRole, setFilterRole] = useState<string | null>(null)
   const [jumpInput, setJumpInput] = useState("")
   const [jumpNotFound, setJumpNotFound] = useState(false)
@@ -300,11 +318,22 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
     let curSid: string | null = subTurn.subagentSessionId
     while (curSid && !seen.has(curSid)) {
       seen.add(curSid)
-      const bridge = bridges.find(b => b.subagentSessionId === curSid)
-      if (!bridge) break
+      const bridge = bridges.find(b => {
+        if (b.subagentSessionId !== curSid) return false
+        // 自引用桥的 lane 已在建 lane 处剔除（其 sid 走孤儿兜底），不能作为
+        // 展开/上走目标
+        const dt = b.dispatchTurnId ? turnById.get(b.dispatchTurnId) : undefined
+        return !(dt?.isSubagent && dt.subagentSessionId === curSid)
+      })
+      if (!bridge) {
+        // 无桥（或仅剩自引用这类无效桥）：目标 turn 由孤儿兜底 lane 承载，
+        // 其锚点在主链根轮、无需再向上展开祖先链——展开孤儿 lane 即可见
+        if (turns.some(t => t.isSubagent && t.subagentSessionId === curSid)) toExpand.add(`orphan-${curSid}`)
+        break
+      }
       toExpand.add(bridge.bridgeId)
       if (!bridge.dispatchTurnId) break
-      const dispTurn = turns.find(t => t.turnId === bridge.dispatchTurnId)
+      const dispTurn = turnById.get(bridge.dispatchTurnId)
       curSid = dispTurn?.isSubagent ? (dispTurn.subagentSessionId ?? null) : null
     }
     if (toExpand.size) {
@@ -320,7 +349,14 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
     if (!selectedTurnId) return null
     const selTurn = turns.find(t => t.turnId === selectedTurnId)
     if (selTurn?.isSubagent && selTurn?.subagentSessionId) {
-      const bridge = bridges.find(b => b.subagentSessionId === selTurn.subagentSessionId)
+      const sid = selTurn.subagentSessionId
+      // 自引用桥的 dispatchTurnId 指向子代理 turn（非根轮，点不亮根环）——
+      // 跳过，孤儿路径由展开的兜底 lane 呈现选中态
+      const bridge = bridges.find(b => {
+        if (b.subagentSessionId !== sid) return false
+        const dt = b.dispatchTurnId ? turnById.get(b.dispatchTurnId) : undefined
+        return !(dt?.isSubagent && dt.subagentSessionId === sid)
+      })
       return bridge?.dispatchTurnId ?? null
     }
     return null
@@ -479,11 +515,15 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
 
   const bridgesByTurnId = new Map<string, BridgeItem[]>()
   for (const b of bridges) {
-    if (b.dispatchTurnId) {
-      const arr = bridgesByTurnId.get(b.dispatchTurnId) ?? []
-      arr.push(b)
-      bridgesByTurnId.set(b.dispatchTurnId, arr)
-    }
+    if (!b.dispatchTurnId) continue
+    // 自引用桥（派发端 turn 属于桥指向的子会话自身）永不锚定主链，且其 lane
+    // 会嵌进该子会话展开区形成递归（PR #151 review：存量畸形桥双展开后单
+    // turn 渲染 78 次）——建 lane 前剔除，该子会话由孤儿兜底接管（未关联）
+    const dispTurn = turnById.get(b.dispatchTurnId)
+    if (dispTurn?.isSubagent && dispTurn.subagentSessionId === b.subagentSessionId) continue
+    const arr = bridgesByTurnId.get(b.dispatchTurnId) ?? []
+    arr.push(b)
+    bridgesByTurnId.set(b.dispatchTurnId, arr)
   }
 
   const subagentBlocksByTurnId = new Map<string, SubagentLane[]>()
@@ -537,6 +577,89 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
   })
 
   const rootRoles = [...new Set(displayRootTurns.map(t => t.displayRole))]
+
+  // 兜底 lane（无桥子代理可见性）：桥驱动 lane 覆盖不到的子代理 turns（上游
+  // meta 登记为空 / 异步派发回执无子会话 id → 建桥三路全断）此前在时间线上
+  // 整组不可见（能搜到、看不到）。按 turnIndex 就近挂到主链最近轮下，slate
+  // 「未关联」徽标区分于桥驱动的精确 lane（现场：2.1.308 异步 Agent 会话
+  // 196/223/366 起三个子代理整组消失）
+  //
+  // 「有桥」≠「有泳道」：只有锚到主链根 turn 的桥才真正渲染；自锚桥（派发端
+  // 落在子代理自身 turn——回传工具被误识为派发后时间邻近自匹配）锚不到任何
+  // 渲染位，若仍按「存在桥」抑制兜底，比无桥更糟（兜底失效 + 泳道不渲染，
+  // 子代理 turns 整组不可见）。锚定判定按可传递闭包：根桥锚定的 sid 已安置，
+  // 派发 turn 落在已安置 sid 的 turns 里（嵌套派发）的桥同样安置。
+  // 锚定用【未过滤】的 displayRootTurns：角色过滤器只该隐藏挂载位，不该把
+  // 已建桥的子代理误判成孤儿（「未关联」必须意味着真无桥）
+  const walkedRootIds = new Set(displayRootTurns.map(t => t.turnId))
+  const bridgedSids = new Set<string>()
+  let anchorChanged = true
+  while (anchorChanged) {
+    anchorChanged = false
+    for (const b of bridges) {
+      if (!b.subagentSessionId || !b.dispatchTurnId || bridgedSids.has(b.subagentSessionId)) continue
+      const dispTurn = turnById.get(b.dispatchTurnId)
+      const anchored = walkedRootIds.has(b.dispatchTurnId)
+        || (!!dispTurn?.subagentSessionId && bridgedSids.has(dispTurn.subagentSessionId))
+      if (anchored) {
+        bridgedSids.add(b.subagentSessionId)
+        anchorChanged = true
+      }
+    }
+  }
+  const orphanBySid = new Map<string, TurnRowItem[]>()
+  for (const t of turns) {
+    if (!t.isSubagent || !t.subagentSessionId || bridgedSids.has(t.subagentSessionId)) continue
+    const list = orphanBySid.get(t.subagentSessionId) ?? []
+    list.push(t)
+    orphanBySid.set(t.subagentSessionId, list)
+  }
+  if (orphanBySid.size > 0) {
+    const rootTurns = filteredRootTurns
+    for (const [sid, sturns] of orphanBySid) {
+      const sorted = [...sturns].sort((a, b) => a.turnIndex - b.turnIndex)
+      const first = sorted[0]
+      // 锚定优先按时间：异步子代理的 turns 在文件序上整体后置（主链 92 轮后
+      // 全是子代理），turnIndex 就近会把所有孤儿挂到主链末轮堆成一坨；按
+      // createdAt 找「启动时刻主链走到哪」才是它真实的运行位置。无时间退化
+      // 回 turnIndex 就近
+      const t0 = first.createdAt ? new Date(first.createdAt).getTime() : NaN
+      let anchor: TurnRowItem | undefined
+      if (Number.isFinite(t0)) {
+        for (const rt of rootTurns) {
+          const rtMs = rt.createdAt ? new Date(rt.createdAt).getTime() : NaN
+          if (Number.isFinite(rtMs) && rtMs <= t0) anchor = rt
+        }
+      }
+      if (!anchor) anchor = [...rootTurns].filter(rt => rt.turnIndex < first.turnIndex).pop() ?? rootTurns[0]
+      if (!anchor) continue
+      const laneNum = subagentNumbers.get(sid)
+      // 失败态/耗时与桥驱动 lane 同口径从 turns 推导（不再恒 completed/0）：
+      // finishReason error/failed → error 态（红框）；首末 createdAt 差 → 时延
+      const hasError = sorted.some(t => t.finishReason === "error" || t.finishReason === "failed")
+      const times = sorted
+        .map(t => (t.createdAt ? new Date(t.createdAt).getTime() : NaN))
+        .filter(Number.isFinite)
+      const laneLatencyMs = times.length >= 2 ? Math.max(...times) - Math.min(...times) : 0
+      const lane: SubagentLane = {
+        bridgeId: `orphan-${sid}`,
+        sessionId: sid,
+        name: (first.subagentName ?? "未关联子代理") + (laneNum !== undefined ? ` #${laneNum}` : ""),
+        type: null,
+        background: false,
+        summary: null,
+        turns: sorted,
+        status: hasError ? "error" : "completed",
+        totalTokens: sorted.reduce((s, t) => s + t.totalTokens, 0),
+        latencyMs: laneLatencyMs,
+        turnCount: sorted.length,
+        unlinked: true,
+      }
+      const arr = subagentBlocksByTurnId.get(anchor.turnId) ?? []
+      arr.push(lane)
+      subagentBlocksByTurnId.set(anchor.turnId, arr)
+    }
+  }
 
   const laneCtx: LaneCtx = {
     subagentBlocksByTurnId,

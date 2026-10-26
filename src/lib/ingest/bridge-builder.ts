@@ -95,6 +95,14 @@ export function buildBridges(
     }
   }
 
+  // 派发 tool call 所在 turn 的子会话归属（自匹配防护用）：子代理在自己的
+  // turn 里发起的调用，时间邻近回退绝不能匹配回它自己的会话——那会产出
+  // 「派发端=子代理自身 turn」的自锚桥（真实派发其实另有其桥或缺失）
+  const turnSidById = new Map<string, string | null>();
+  for (const turn of turns) {
+    turnSidById.set(turn.id ?? '', turn.subagentSessionId ?? null);
+  }
+
   const usedSessionIds = new Set<string>();
 
   // 复用会话的派发时刻表：同 sid 相邻两次派发（dispatch_i → dispatch_{i+1}）
@@ -149,10 +157,13 @@ export function buildBridges(
         continue;
       }
       const dispatchTime = dispatchTc.startedAt ? new Date(dispatchTc.startedAt).getTime() : 0;
+      const callerSid = turnSidById.get(dispatchTc.turnId ?? '') ?? null;
       let closestSessionId: string | null = null;
       let closestDiff = Infinity;
       for (const [sid, subInteractions] of subagentInteractionMap) {
         if (usedSessionIds.has(sid)) continue;
+        // 自匹配防护：跳过调用者自己的会话（嵌套派发目标永远是别的 sid）
+        if (sid === callerSid) continue;
         const firstTime = subInteractions[0]?.timeInfo?.created ?? 0;
         const diff = Math.abs(firstTime - dispatchTime);
         if (diff < closestDiff) {

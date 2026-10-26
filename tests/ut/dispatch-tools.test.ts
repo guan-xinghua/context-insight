@@ -1,9 +1,9 @@
 // Copyright (c) 2025-2026 Huawei Technologies Co., Ltd.
 // This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 // CANN Open Software License Agreement Version 2.0 (the "License").
-// Please refer to the License for details. Do not use this file except in compliance with the License.
+// Please refer to the License for details. You may not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
 // 派发工具注册表（dispatch-tools）单测：spec 匹配矩阵、参数键解析（含大小写
@@ -310,5 +310,22 @@ describe('backfillTurnNamesFromDispatches：Turn 名字回填', () => {
     expect(turns[0]!.agentName).toBe('reviewer');
     expect(turns[1]!.subagentName).toBe('P1 需求分析');
     expect(turns[1]!.agentName).toBe('architect');
+  });
+});
+
+// ── 回传方向反例（claude 后台子代理）──
+// 真机（2.1.309 后台 Agent）：子代理终局以 SubagentHandback 交付报告，工具名
+// 含 "subagent" 命中包含式族——但它是子→父的交付，不是派发；误入派发表后
+// 结果为空走时间邻近回退，锚到子代理自身会话产出「派发端=子代理 turn」的
+// 自锚桥（时间线不渲染且抑制无桥兜底，整组 turns 不可见）
+describe('dispatch-tools：回传工具不算派发（包含式族反例）', () => {
+  it('SubagentHandback → null（大小写两种形态）', () => {
+    expect(dispatchSpecOf('SubagentHandback')).toBeNull();
+    expect(dispatchSpecOf('subagenthandback')).toBeNull();
+  });
+
+  it('派发族本身不受排除影响：subagent / run_subagent 仍可识别', () => {
+    expect(dispatchSpecOf('subagent')?.names).toContain('subagent');
+    expect(dispatchSpecOf('run_subagent')).not.toBeNull();
   });
 });
