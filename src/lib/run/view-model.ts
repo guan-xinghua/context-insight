@@ -53,12 +53,12 @@ export interface NodeInstance {
   nodeId: string;
   generation: number;
   label: string;               // = nodeId（跨代稳定的逻辑名）
-  taskType: 'agent' | 'bash' | 'generator';
+  taskType: 'agent' | 'bash' | 'generator' | 'workflow';
   status: NodeStatus;
   executionState: 'executed' | 'not_run' | 'carried';
   carriedFromGeneration: number | null;
   attempts: AttemptRecord[];
-  /** attempt=0 且无 executionState 的空占位成员（「本代尚未运行」） */
+  /** attempt=0 且 executionState=pending 的空占位成员 */
   pendingMembers: SessionMemberRef[];
   retryPolicy: RunGraphAnnotation['retryPolicy'] | null;
   runOnFailure: boolean | null;
@@ -175,10 +175,10 @@ interface Group {
 export function buildViewModel(index: RunIndex): RunViewModel {
   const warnings = [...index.warnings];
 
-  // 导出侧未启用 graph 插件（成员全无 annotation.graph）：图/代际/重试视图
+  // 导出侧未提供 graph 定位字段：图/代际/重试视图
   // 整体不可用——显式告知而非留一张空画布；导入不拒绝，会话级观测照常
   if (index.graphMembers.length === 0) {
-    warnings.push('导出包未包含 graph 注解数据（annotation.graph），依赖图与代际/重试视图不可用；成员会话信息仍可查看');
+    warnings.push('导出包未包含 graph 节点定位字段，依赖图与代际/重试视图不可用；成员会话信息仍可查看');
   }
 
   // 1. 分组：graphMembers 按 (nodeId, generation) 聚簇（原型 collect）
@@ -204,15 +204,17 @@ export function buildViewModel(index: RunIndex): RunViewModel {
   const generatorNodeIds = new Set<string>();
   const subgraphParentByGeneration = new Map<string, string>();
   const subgraphGeneratorsOf = new Map<string, string[]>();
+  for (const m of index.graphMembers) {
+    if (m.member.kind === 'workflow') {
+      subgraphParentByGeneration.set(`${m.member.id}|${m.graph!.generation}`, memberGroup.get(m.member.id)!);
+    }
+  }
   // 先独立预遍历建全「子图容器 → 生成器实例」反转表：manifest 里 data.relations 的
   // 声明顺序不保证 gen-sub-graph 先于其 depends_on——若建表与依赖计数同轮进行，
   // depends_on 声明在前时会因 subgraphGeneratorsOf 尚无该容器条目而误判「源不可
   // 归约」，把本可归约的边失真计入 droppedDeps（第 3 步随后仍能正确归约出边）。
   for (const rel of index.relations) {
-    const ann = rel.raw.annotation ?? {};
-    // gen-sub-graph 双形态：手册定义 kind=，真实导出件（d01dfbaa）用 type=——读侧兼容
-    const isGenSubGraph = ann.kind === 'gen-sub-graph' || ann.type === 'gen-sub-graph';
-    if (!isGenSubGraph) continue;
+    if (rel.raw.type !== 'gen-sub-graph') continue;
     const sourceGraph = rel.from.graph;
     if (!sourceGraph) continue;
     generatorNodeIds.add(sourceGraph.nodeId);
@@ -227,7 +229,7 @@ export function buildViewModel(index: RunIndex): RunViewModel {
   // 图成员或子图容器」；其余（端点无 graph 注解）计数告警。
   let droppedDeps = 0;
   for (const rel of index.relations) {
-    if ((rel.raw.annotation ?? {}).type !== 'depends_on') continue;
+    if (rel.raw.type !== 'depends_on') continue;
     const fromResolved = memberGroup.has(rel.from.member.id) || subgraphGeneratorsOf.has(rel.from.member.id);
     if (!rel.to.graph || !memberGroup.has(rel.to.member.id) || !fromResolved) {
       droppedDeps++;
@@ -242,7 +244,7 @@ export function buildViewModel(index: RunIndex): RunViewModel {
   //    渲染层按同代过滤、rank 按逻辑 nodeId 归约，语义等价于「依赖该生成器」）
   const dependencySources = new Map<string, Set<string>>();
   for (const rel of index.relations) {
-    if ((rel.raw.annotation ?? {}).type !== 'depends_on') continue;
+    if (rel.raw.type !== 'depends_on') continue;
     const toGk = memberGroup.get(rel.to.member.id);
     if (!toGk) continue;
     const fromGks = memberGroup.has(rel.from.member.id)
@@ -295,13 +297,14 @@ export function buildViewModel(index: RunIndex): RunViewModel {
       label: group.nodeId,
       taskType: generatorNodeIds.has(group.nodeId)
         ? 'generator'
-        : kindSource.member.kind === 'session' ? 'agent' : 'bash',
+        : kindSource.member.kind === 'workflow' ? 'workflow'
+          : kindSource.member.kind === 'session' ? 'agent' : 'bash',
       status: carried ? 'carried' : attempts.length > 0 ? attempts[attempts.length - 1].status : 'pending',
       executionState: carried ? 'carried' : attempts.length > 0 ? 'executed' : 'not_run',
       carriedFromGeneration: carried?.graph?.resultFromGeneration ?? null,
       attempts,
       pendingMembers: executions
-        .filter(m => m.graph!.attempt === 0 && !m.graph!.executionState)
+        .filter(m => m.graph!.attempt === 0 && m.graph!.executionState !== 'carried')
         .map(m => memberRef(m, m.graph!.role)),
       retryPolicy: executions.find(m => m.graph!.retryPolicy)?.graph!.retryPolicy ?? null,
       runOnFailure: executions.find(m => m.graph!.runOnFailure !== undefined)?.graph!.runOnFailure ?? null,
@@ -318,7 +321,7 @@ export function buildViewModel(index: RunIndex): RunViewModel {
   const rollbacks: RollbackRecord[] = [];
   let rollbackOrdinal = 0;
   for (const rel of index.relations) {
-    if ((rel.raw.annotation ?? {}).type !== 'rollback') continue;
+    if (rel.raw.type !== 'rollback') continue;
     const sourceGk = memberGroup.get(rel.from.member.id);
     const targetGk = memberGroup.get(rel.to.member.id);
     const sourceGroup = sourceGk ? groups.get(sourceGk) : undefined;
@@ -340,9 +343,7 @@ export function buildViewModel(index: RunIndex): RunViewModel {
       to: {
         nodeId: targetGroup.nodeId,
         generation: targetGroup.generation,
-        attempt:
-          (rel.raw.annotation?.graph?.targetAttempt as number | undefined)
-          ?? targetMember.graph!.attempt,
+        attempt: targetMember.graph!.attempt,
       },
       triggerKey: sourceGroup.key,
       targetKey: targetGroup.key,

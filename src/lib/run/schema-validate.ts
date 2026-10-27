@@ -6,12 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 用包内 workflow.schema.json（draft-07）校验 workflow.json 结构。
-// 结构/枚举/条件必填交给 ajv——单一权威随包分发，insight 不再手写结构
-// 与 opsbot 比对着漂移；reader 只保留 JSON Schema 表达不了的跨节点检查
-// （成员 id 全树唯一、关系端点解析）与 version 闸。包内缺 schema 文件
-// 直接失败（不回落手写）——旧导出件不支持。
-
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
@@ -22,10 +17,12 @@ export interface BundleSchemaResult {
   errors: string[];
 }
 
-// draft-07（ajv 6 默认 meta-schema）；allErrors 展开 oneOf 分支错误，下钻叶子定位真因
-const AJV = new Ajv({ allErrors: true });
+const TRUSTED_SCHEMA_SHA256 = '96e1849c164abed1163a08fef866c8c204caa70'
+  + 'a2812ed91c13ac38d8c9c8d07';
 
-/** 用包内 schema 校验；缺 schema 文件或结构不符都返回 ok:false。 */
+const validators = new Map<string, Ajv.ValidateFunction>();
+
+/** 只使用哈希已登记的包内 schema 校验 manifest。 */
 export function validateWithBundleSchema(
   dirPath: string,
   manifest: unknown,
@@ -38,9 +35,11 @@ export function validateWithBundleSchema(
     };
   }
 
+  let schemaText: string;
   let schemaJson: unknown;
   try {
-    schemaJson = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+    schemaText = fs.readFileSync(schemaPath, 'utf-8');
+    schemaJson = JSON.parse(schemaText);
   } catch (e) {
     return {
       ok: false,
@@ -48,14 +47,22 @@ export function validateWithBundleSchema(
     };
   }
 
-  let validate: Ajv.ValidateFunction;
-  try {
-    validate = AJV.compile(schemaJson as object);
-  } catch (e) {
-    return {
-      ok: false,
-      errors: [`workflow.schema.json 编译失败: ${e instanceof Error ? e.message : String(e)}`],
-    };
+  const digest = createHash('sha256').update(schemaText, 'utf-8').digest('hex');
+  if (digest !== TRUSTED_SCHEMA_SHA256) {
+    return { ok: false, errors: ['workflow.schema.json 与 Insight 信任的 schema 哈希不一致'] };
+  }
+
+  let validate = validators.get(digest);
+  if (!validate) {
+    try {
+      validate = new Ajv({ allErrors: true }).compile(schemaJson as object);
+      validators.set(digest, validate);
+    } catch (e) {
+      return {
+        ok: false,
+        errors: [`workflow.schema.json 编译失败: ${e instanceof Error ? e.message : String(e)}`],
+      };
+    }
   }
 
   if (validate(manifest)) return { ok: true, errors: [] };

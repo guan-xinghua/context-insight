@@ -70,7 +70,7 @@ describe('run-store：目录管理', () => {
     const onDisk = JSON.parse(
       fs.readFileSync(path.join(runDir(tmpRoot, miniManifest.id), 'manifest.json'), 'utf-8'),
     ) as Record<string, unknown>;
-    expect(onDisk.schema).toBe('context.workflow-bundle');
+    expect(onDisk.schema).toBe('workflow-bundle');
   });
 
   it('重复导入同 runId：覆盖幂等（最新 meta 生效）', () => {

@@ -14,7 +14,6 @@
 
 import {
   BUNDLE_SCHEMA,
-  BUNDLE_VERSION,
   type MemberRole,
   type RunGraphAnnotation,
   type RunManifest,
@@ -27,7 +26,6 @@ import {
 
 export type ManifestRejectReason =
   | 'not-an-object'
-  | 'unsupported-version'
   | 'dup-member-id'
   | 'dangling-relation';
 
@@ -59,10 +57,10 @@ export interface ResolvedRelation {
 export interface RunIndex {
   runId: string;
   manifest: RunManifest;
-  /** 全树扁平（含 workflow 容器成员，其 graph 为 null） */
+  /** 全树扁平（含 workflow 成员） */
   members: IndexedMember[];
   membersById: Map<string, IndexedMember>;
-  /** 带 graph 注解的执行/验收成员 */
+  /** 带 graph 定位字段的成员 */
   graphMembers: IndexedMember[];
   relations: ResolvedRelation[];
   warnings: string[];
@@ -78,24 +76,17 @@ function nullableString(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
 }
 
-/** 解析 + 类型归一。结构/枚举/条件必填已由包内 schema 承担（validateBundleDir
- * 先行），此处不再手写结构校验，只保留 schema 表达不了的 version 前向兼容闸
- * （schema 的 const 给不出「请升级 insight」的可行动提示）。 */
+/** 解析 + 类型归一。结构/枚举/条件必填已由受信任 schema 校验（validateBundleDir
+ * 先行），此处不再手写结构校验。 */
 export function parseManifest(json: unknown): RunManifest {
   if (!isObj(json)) {
     throw new ManifestParseError('not-an-object', 'workflow.json 根必须是 JSON 对象');
-  }
-  if (typeof json.version === 'number' && json.version > BUNDLE_VERSION) {
-    throw new ManifestParseError(
-      'unsupported-version',
-      `清单格式 version ${json.version} 超出当前支持（${BUNDLE_VERSION}）；请升级 insight 后重试`,
-    );
   }
   const rawData = (json.data ?? {}) as Record<string, unknown>;
 
   return {
     ...json,
-    schema: BUNDLE_SCHEMA,
+    schema: json.schema as typeof BUNDLE_SCHEMA,
     version: json.version as number,
     id: json.id as string,
     kind: 'workflow',
@@ -113,7 +104,11 @@ export function parseManifest(json: unknown): RunManifest {
 }
 
 function parseWorkflowData(raw: Record<string, unknown>): RunWorkflowData {
-  return raw as unknown as RunWorkflowData;
+  return {
+    ...raw,
+    members: Array.isArray(raw.members) ? raw.members as RunMember[] : [],
+    relations: Array.isArray(raw.relations) ? raw.relations as RunRelation[] : [],
+  } as RunWorkflowData;
 }
 
 interface WalkResult {
@@ -131,16 +126,20 @@ function walkTree(data: RunWorkflowData, ownerWorkflowId: string | null, out: Wa
     }
     const kind = raw.kind;
 
-    // graph 注解：五键字段齐且合法才收；坏注解降级为普通成员（容忍 + 警告）
+    // 图定位字段位于 member 顶层，role 位于自由 annotation。
     let graph: RunGraphAnnotation | null = null;
     const ann = isObj(raw.annotation) ? raw.annotation : undefined;
-    const rawGraph = ann && isObj(ann.graph) ? ann.graph : undefined;
-    if (rawGraph !== undefined) {
-      const g = normalizeGraphAnnotation(rawGraph);
+    if (raw.nodeId !== undefined || raw.generation !== undefined || raw.attempt !== undefined) {
+      const g = normalizeGraphAnnotation({
+        nodeId: raw.nodeId, generation: raw.generation, attempt: raw.attempt,
+        role: ann?.role, attemptResult: raw.attemptResult, verification: raw.verification,
+        retryPolicy: raw.retryPolicy, runOnFailure: raw.runOnFailure,
+        executionState: raw.executionState, resultFromGeneration: raw.resultFromGeneration,
+      });
       if (g) {
         graph = g;
       } else {
-        out.warnings.push(`成员 ${raw.id} 的 annotation.graph 五键字段不合法，按无注解成员对待`);
+        out.warnings.push(`成员 ${raw.id} 的图定位字段或 annotation.role 不合法，按无图定位成员对待`);
       }
     }
 
@@ -171,7 +170,7 @@ function walkTree(data: RunWorkflowData, ownerWorkflowId: string | null, out: Wa
 
     // 子图递归：嵌套 workflow 的成员 ownerWorkflowId 指向该 workflow 成员
     if (kind === 'workflow') {
-      walkTree(raw.data as RunWorkflowData, raw.id, out);
+      walkTree(parseWorkflowData(raw.data as Record<string, unknown>), raw.id, out);
     }
   }
   for (const raw of data.relations) {

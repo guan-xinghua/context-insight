@@ -396,7 +396,7 @@ export function RunNodeDetail({
           <h2 className="truncate text-[15px] font-semibold text-[#1f2328]">{node.label}</h2>
           <p className="mt-0.5 text-[11px] leading-4 text-[#8c959f]">
             {bandLabel(node.generation)} · {EXECUTION_STATE_TEXT[node.executionState]}
-            {node.taskType === "generator" ? " · 子图生成器" : node.taskType === "bash" ? " · 无 Agent 会话" : " · Agent 节点"}
+            {node.taskType === "generator" ? " · 子图生成器" : node.taskType === "workflow" ? " · 子图节点" : node.taskType === "bash" ? " · 无 Agent 会话" : " · Agent 节点"}
           </p>
         </div>
         <button

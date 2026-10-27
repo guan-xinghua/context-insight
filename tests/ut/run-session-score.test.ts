@@ -21,7 +21,7 @@ import { attachSessionScores } from '@/lib/run/session-score';
 const prisma = new PrismaClient();
 
 const manifest = {
-  schema: 'context.workflow-bundle',
+  schema: 'workflow-bundle',
   version: 1,
   id: 'scoredemo01',
   kind: 'workflow',
@@ -36,30 +36,24 @@ const manifest = {
         kind: 'session',
         name: 'build：第 0 代第 1 次执行',
         sessionId: 'ses_score_a',
-        annotation: {
-          note: '执行',
-          graph: { role: 'execute', nodeId: 'build', generation: 0, attempt: 1, attemptResult: 'succeeded' },
-        },
+        nodeId: 'build', generation: 0, attempt: 1, attemptResult: 'succeeded',
+        annotation: { note: '执行', role: 'execute' },
       },
       {
         id: 'M_C_E',
         kind: 'session',
         name: 'polish：第 0 代第 1 次执行',
         sessionId: 'ses_score_c',
-        annotation: {
-          note: '执行',
-          graph: { role: 'execute', nodeId: 'polish', generation: 0, attempt: 1, attemptResult: 'succeeded' },
-        },
+        nodeId: 'polish', generation: 0, attempt: 1, attemptResult: 'succeeded',
+        annotation: { note: '执行', role: 'execute' },
       },
       {
         id: 'M_D_E',
         kind: 'session',
         name: 'init：第 0 代第 1 次执行',
         sessionId: 'ses_score_d',
-        annotation: {
-          note: '执行',
-          graph: { role: 'execute', nodeId: 'init', generation: 0, attempt: 1, attemptResult: 'succeeded' },
-        },
+        nodeId: 'init', generation: 0, attempt: 1, attemptResult: 'succeeded',
+        annotation: { note: '执行', role: 'execute' },
       },
     ],
     relations: [],

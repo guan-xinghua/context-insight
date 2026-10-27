@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:workflow-bundle:v1",
-  "title": "context.workflow-bundle v1",
-  "description": "Opsbot/Insight 工作流关系清单（workflow.json）结构契约；随导出包分发，与数据同版本。根 = workflow + schema/version 信封；data.members 每项按 kind 是 process/session/workflow 之一。",
+  "title": "Workflow Bundle v1",
+  "description": "工作流关系清单（workflow.json）的结构契约，随导出包分发。使用本文件 SHA-256 哈希校验格式的消费者，应在本文件更新时同步更新可信哈希。",
   "allOf": [
     { "$ref": "#/definitions/workflow" },
     {
       "required": ["schema", "version"],
       "properties": {
-        "schema": { "const": "context.workflow-bundle" },
+        "schema": { "const": "workflow-bundle" },
         "version": { "const": 1 }
       }
     }
@@ -19,45 +19,33 @@
 
     "process": {
       "type": "object",
-      "required": ["id", "kind", "name", "startedAt", "finishedAt"],
+      "allOf": [{ "$ref": "#/definitions/memberFields" }],
+      "required": ["kind"],
       "properties": {
-        "id": { "$ref": "#/definitions/nonEmptyString" },
         "kind": { "const": "process" },
-        "name": { "type": ["string", "null"] },
-        "startedAt": { "$ref": "#/definitions/instant" },
-        "finishedAt": { "$ref": "#/definitions/instant" },
-        "output": { "$ref": "#/definitions/output" },
-        "annotation": { "$ref": "#/definitions/memberAnnotation" }
+        "output": { "$ref": "#/definitions/output" }
       },
       "additionalProperties": true
     },
 
     "session": {
       "type": "object",
-      "required": ["id", "kind", "name", "sessionId", "location", "startedAt", "finishedAt"],
+      "allOf": [{ "$ref": "#/definitions/memberFields" }],
+      "required": ["kind", "sessionId", "location"],
       "properties": {
-        "id": { "$ref": "#/definitions/nonEmptyString" },
         "kind": { "const": "session" },
-        "name": { "type": ["string", "null"] },
-        "startedAt": { "$ref": "#/definitions/instant" },
-        "finishedAt": { "$ref": "#/definitions/instant" },
         "sessionId": { "type": ["string", "null"] },
-        "location": { "type": ["string", "null"] },
-        "annotation": { "$ref": "#/definitions/memberAnnotation" }
+        "location": { "type": ["string", "null"] }
       },
       "additionalProperties": true
     },
 
     "workflow": {
       "type": "object",
-      "required": ["id", "kind", "name", "startedAt", "finishedAt", "data"],
+      "allOf": [{ "$ref": "#/definitions/memberFields" }],
+      "required": ["kind", "data"],
       "properties": {
-        "id": { "$ref": "#/definitions/nonEmptyString" },
         "kind": { "const": "workflow" },
-        "name": { "$ref": "#/definitions/nonEmptyString" },
-        "startedAt": { "$ref": "#/definitions/instant" },
-        "finishedAt": { "$ref": "#/definitions/instant" },
-        "annotation": { "$ref": "#/definitions/annotation" },
         "data": { "$ref": "#/definitions/workflowData" }
       },
       "additionalProperties": true
@@ -73,7 +61,6 @@
 
     "workflowData": {
       "type": "object",
-      "required": ["members", "relations"],
       "properties": {
         "exportDataComplete": { "type": "boolean" },
         "members": { "type": "array", "items": { "$ref": "#/definitions/member" } },
@@ -88,43 +75,40 @@
       "additionalProperties": false
     },
 
-    "memberAnnotation": {
+    "memberFields": {
       "type": "object",
+      "required": ["id", "startedAt", "finishedAt"],
       "properties": {
-        "note": { "type": "string" },
-        "graph": { "$ref": "#/definitions/graphAnnotation" }
-      },
-      "additionalProperties": true
-    },
-
-    "annotation": {
-      "type": "object",
-      "properties": { "note": { "type": "string" } },
-      "additionalProperties": true
-    },
-
-    "graphAnnotation": {
-      "type": "object",
-      "required": ["nodeId", "generation", "attempt", "role"],
-      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "name": { "type": ["string", "null"] },
+        "startedAt": { "$ref": "#/definitions/instant" },
+        "finishedAt": { "$ref": "#/definitions/instant" },
+        "annotation": { "$ref": "#/definitions/annotation" },
         "nodeId": { "$ref": "#/definitions/nonEmptyString" },
         "generation": { "type": "integer", "minimum": 0 },
         "attempt": { "type": "integer", "minimum": 0 },
-        "role": { "enum": ["execute", "verify"] },
         "attemptResult": { "enum": ["succeeded", "failed"] },
         "verification": { "$ref": "#/definitions/verification" },
         "retryPolicy": { "$ref": "#/definitions/retryPolicy" },
         "runOnFailure": { "type": "boolean" },
-        "executionState": { "enum": ["carried"] },
-        "resultFromGeneration": { "type": "integer", "minimum": 0 }
+        "executionState": {
+          "enum": ["pending", "in_progress", "finished", "carried"],
+          "description": "成员自身的执行阶段；in_progress 包括执行中和暂停后待恢复，finished 表示已返回（成功或失败）。"
+        },
+        "resultFromGeneration": {
+          "type": "integer", "minimum": 0,
+          "description": "仅当 executionState 为 carried 时出现，指向最近一次实际运行的来源代。"
+        }
       },
       "additionalProperties": true
     },
 
+    "annotation": { "type": "object", "additionalProperties": true },
+
     "verification": {
       "type": "object",
       "properties": {
-        "type": { "type": "string" },
+        "type": { "enum": ["agent", "script"] },
         "status": { "enum": ["passed", "failed", "running"] },
         "reason": { "type": "string" }
       },
@@ -136,10 +120,9 @@
       "properties": {
         "maxRetries": { "type": "integer", "minimum": 0 },
         "onExhaust": {
-          "enum": ["continue", "rollback", "stop", "exit", "fail"],
-          "description": "exit/fail 是历史值，与 stop 语义等价，导出侧已在归一阶段映射为 stop；此处收录仅用于兼容旧包（缺 schema 走内置权威回退时）校验，新导出不会再产出。"
+          "enum": ["continue", "rollback", "stop", "exit", "fail"]
         },
-        "rollbackToNodeId": { "type": ["string", "null"] }
+        "rollbackToNodeId": { "$ref": "#/definitions/nonEmptyString" }
       },
       "additionalProperties": true
     },
@@ -150,16 +133,8 @@
       "properties": {
         "from": { "$ref": "#/definitions/nonEmptyString" },
         "to": { "$ref": "#/definitions/nonEmptyString" },
-        "annotation": { "$ref": "#/definitions/relationAnnotation" }
-      },
-      "additionalProperties": true
-    },
-
-    "relationAnnotation": {
-      "type": "object",
-      "properties": {
         "type": { "enum": ["depends_on", "rollback", "gen-sub-graph", "handoff"] },
-        "note": { "type": "string" }
+        "annotation": { "$ref": "#/definitions/annotation" }
       },
       "additionalProperties": true
     }

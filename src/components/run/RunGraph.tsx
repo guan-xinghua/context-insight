@@ -82,6 +82,7 @@ const TASK_TYPE_LABEL: Record<NodeInstance["taskType"], string> = {
   agent: "agent",
   bash: "bash",
   generator: "生成器",
+  workflow: "子图",
 };
 
 function truncate(text: string, max: number): string {

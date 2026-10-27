@@ -31,7 +31,7 @@ describe('reader：结构样例全量断言', () => {
   const index = parseAndIndex(raw);
 
   it('根信封：schema/version/id/kind + exportDataComplete', () => {
-    expect(index.manifest.schema).toBe('context.workflow-bundle');
+    expect(index.manifest.schema).toBe('workflow-bundle');
     expect(index.manifest.version).toBe(1);
     expect(index.manifest.id).toBe('WC7D09351F7D2B9E0');
     expect(index.manifest.kind).toBe('workflow');
@@ -47,11 +47,10 @@ describe('reader：结构样例全量断言', () => {
   });
 
   it('关系分类：78 依赖 + 2 回滚 + 3 子图生成（端点全部解析）', () => {
-    const count = (pred: (a: Record<string, unknown> | undefined) => boolean) =>
-      index.relations.filter(r => pred(r.raw.annotation)).length;
-    expect(count(a => a?.type === 'depends_on')).toBe(78);
-    expect(count(a => a?.type === 'rollback')).toBe(2);
-    expect(count(a => a?.kind === 'gen-sub-graph')).toBe(3);
+    const count = (type: string) => index.relations.filter(r => r.raw.type === type).length;
+    expect(count('depends_on')).toBe(78);
+    expect(count('rollback')).toBe(2);
+    expect(count('gen-sub-graph')).toBe(3);
   });
 
   it('五键定位：gen-sub:sub-flaky 第 0 代第 1 次执行 = process 成员', () => {
@@ -83,7 +82,6 @@ describe('reader：结构样例全量断言', () => {
 
 describe('reader：校验矩阵（错误 = 拒绝导入）', () => {
   it.each([
-    ['unsupported-version', (m: Record<string, unknown>) => { m.version = 99; }],
     ['dup-member-id', (m: Record<string, unknown>) => {
       const members = (m.data as { members: unknown[] }).members;
       (members[1] as Record<string, unknown>).id = (members[0] as Record<string, unknown>).id;
@@ -121,7 +119,7 @@ describe('reader：警告矩阵（容忍态，不阻断）', () => {
   it('session 成员携带 output → 警告且不丢成员', () => {
     const m = baseManifest() as { data: { members: Array<Record<string, unknown>> } };
     const build = m.data.members.find(
-      x => (x as { annotation?: { graph?: { nodeId?: string } } }).annotation?.graph?.nodeId === 'step-a',
+      x => x.nodeId === 'step-a',
     ) as Record<string, unknown>;
     build.output = { text: '不该有' };
     const index = parseAndIndex(m);
@@ -139,15 +137,15 @@ describe('reader：警告矩阵（容忍态，不阻断）', () => {
     expect(index.warnings.some(w => w.includes('sessionId/location'))).toBe(true);
   });
 
-  it('坏 graph 注解（role 越界）→ 降级为无注解成员 + 警告', () => {
+  it('坏 graph role → 降级为无图定位成员 + 警告', () => {
     const m = baseManifest() as { data: { members: Array<Record<string, unknown>> } };
     const init = m.data.members.find(
-      x => (x as { annotation?: { graph?: { nodeId?: string } } }).annotation?.graph?.nodeId === 'init',
-    ) as { annotation: { graph: Record<string, unknown> } };
-    init.annotation.graph.role = 'plan';
+      x => x.nodeId === 'init',
+    ) as { annotation: { role: string } };
+    init.annotation.role = 'plan';
     const index = parseAndIndex(m);
     expect(index.graphMembers).toHaveLength(74); // 75 - 1 个降级
-    expect(index.warnings.some(w => w.includes('五键字段不合法'))).toBe(true);
+    expect(index.warnings.some(w => w.includes('annotation.role 不合法'))).toBe(true);
   });
 
   it('根缺 exportDataComplete → 警告并按 false 对待', () => {

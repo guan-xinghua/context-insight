@@ -110,16 +110,12 @@ describe('view-model：视图（主图 + 子图）', () => {
     expect(subInit.parentKey).toBe(nodeKeyOf('gen-sub', 0));
   });
 
-  it('gen-sub-graph 双形态兼容：annotation.type= 与 kind= 等价（真实导出件用 type）', () => {
+  it('relation.type 是关系类型，annotation 可以自由添加其他字段', () => {
     const mutated = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8')) as {
-      data: { relations: Array<{ annotation?: { kind?: string; type?: string } }> };
+      data: { relations: Array<{ type?: string; annotation?: Record<string, unknown> }> };
     };
-    // 把 fixture 的 kind= 形态全部改写成真实导出件的 type= 形态
     for (const r of mutated.data.relations) {
-      if (r.annotation?.kind === 'gen-sub-graph') {
-        r.annotation.type = 'gen-sub-graph';
-        delete r.annotation.kind;
-      }
+      if (r.type === 'gen-sub-graph') r.annotation = { label: '生成子图' };
     }
     const vm2 = buildViewModel(parseAndIndex(mutated));
     expect(vm2.views.map(v => v.id)).toEqual(vm.views.map(v => v.id));
@@ -184,13 +180,13 @@ describe('view-model：视图（主图 + 子图）', () => {
     // 依赖边」可能声明在其 gen-sub-graph 之前——若 droppedDeps 计数与 subgraphGeneratorsOf
     // 建表同轮进行，先到 depends_on 时反转表尚未建全，会把本可归约的边误计入告警。
     const mutated = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8')) as {
-      data: { relations: Array<{ from: string; to: string; annotation?: { kind?: string; type?: string } }> };
+      data: { relations: Array<{ from: string; to: string; type?: string }> };
     };
     const rels = mutated.data.relations;
-    const depIdx = rels.findIndex(r => r.from === 'MAC41B7669DBB2BD6' && r.annotation?.type === 'depends_on');
+    const depIdx = rels.findIndex(r => r.from === 'MAC41B7669DBB2BD6' && r.type === 'depends_on');
     expect(depIdx).toBeGreaterThanOrEqual(0);
     const [dep] = rels.splice(depIdx, 1);
-    const firstGenIdx = rels.findIndex(r => r.annotation?.kind === 'gen-sub-graph' || r.annotation?.type === 'gen-sub-graph');
+    const firstGenIdx = rels.findIndex(r => r.type === 'gen-sub-graph');
     rels.splice(firstGenIdx, 0, dep);
 
     const vm2 = buildViewModel(parseAndIndex(mutated));
@@ -473,21 +469,23 @@ describe('view-model：留白压缩（P2 真实节点稠密列）', () => {
 });
 
 describe('view-model：无 graph 注解容错（导出侧未启用 graph 插件）', () => {
-  /** 递归剥掉全树成员的 annotation（模拟不带 graph 插件的导出包），关系保留 */
+  /** 递归剥掉全树成员的图定位字段，关系保留 */
   function stripAnnotations(node: { members?: Array<Record<string, unknown>> }): void {
     for (const m of node.members ?? []) {
-      delete m.annotation;
+      delete m.nodeId;
+      delete m.generation;
+      delete m.attempt;
       if (m.data) stripAnnotations(m.data as { members?: Array<Record<string, unknown>> });
     }
   }
 
-  it('成员全无 annotation.graph → 主图空视图 + 白话警告（不静默）', () => {
+  it('成员全无 graph 定位字段 → 主图空视图 + 白话警告', () => {
     const manifest = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8')) as Record<string, unknown>;
     stripAnnotations(manifest.data as { members?: Array<Record<string, unknown>> });
     const vm2 = buildViewModel(parseAndIndex(manifest));
     expect(vm2.nodes).toHaveLength(0);
     expect(vm2.views[0].nodeKeys).toHaveLength(0);
-    expect(vm2.warnings.some(w => w.includes('未包含 graph 注解数据'))).toBe(true);
+    expect(vm2.warnings.some(w => w.includes('未包含 graph 节点定位字段'))).toBe(true);
     expect(vm2.warnings.some(w => w.includes('成员会话信息仍可查看'))).toBe(true);
   });
 });

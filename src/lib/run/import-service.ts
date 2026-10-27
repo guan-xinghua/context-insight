@@ -90,7 +90,7 @@ export function validateBundleDir(dirPath: string): BundleValidation {
     };
   }
   try {
-    // parseManifest（version 前向兼容闸 + 类型归一）+ buildIndex（关系端点解析）
+    // parseManifest（类型归一）+ buildIndex（关系端点解析）
     const manifest = parseManifest(raw);
     // id 即 run 目录名（runs/<id>）：入口同步拒绝非法目录名，避免 job 中途在 saveRun 炸
     if (!isSafeRunId(manifest.id)) {

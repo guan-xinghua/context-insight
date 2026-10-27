@@ -52,7 +52,7 @@ process.env.CONTEXT_INSIGHT_HOME = HOME;
 // fixture bundle（与 e2e/lake-bundle.test.ts 同构的最小包）
 fs.mkdirSync(path.join(FIXTURE, 'sessions', SID), { recursive: true });
 fs.writeFileSync(path.join(FIXTURE, 'workflow.json'), JSON.stringify({
-  schema: 'context.workflow-bundle', version: 1, id: RUN_ID, kind: 'workflow',
+  schema: 'workflow-bundle', version: 1, id: RUN_ID, kind: 'workflow',
   name: 'viewer bundle IT', startedAt: null, finishedAt: null,
   data: {
     exportDataComplete: true,

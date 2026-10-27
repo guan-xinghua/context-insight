@@ -20,7 +20,7 @@ import { joinSessionRefs } from '@/lib/run/session-link';
 const prisma = new PrismaClient();
 
 const manifest = {
-  schema: 'context.workflow-bundle',
+  schema: 'workflow-bundle',
   version: 1,
   id: 'waterdemo01',
   kind: 'workflow',
@@ -35,26 +35,17 @@ const manifest = {
         kind: 'session',
         name: 'build：第 0 代第 1 次执行',
         sessionId: 'ses_water_a',
-        annotation: {
-          note: '执行',
-          graph: { role: 'execute', nodeId: 'build', generation: 0, attempt: 1, attemptResult: 'succeeded' },
-        },
+        nodeId: 'build', generation: 0, attempt: 1, attemptResult: 'succeeded',
+        annotation: { note: '执行', role: 'execute' },
       },
       {
         id: 'M_B_E',
         kind: 'session',
         name: 'build：第 0 代第 1 次验收',
         sessionId: 'ses_water_b',
-        annotation: {
-          note: '验收',
-          graph: {
-            role: 'verify',
-            nodeId: 'build',
-            generation: 0,
-            attempt: 1,
-            verification: { type: 'script', status: 'passed', reason: 'exit 0' },
-          },
-        },
+        nodeId: 'build', generation: 0, attempt: 1,
+        verification: { type: 'script', status: 'passed', reason: 'exit 0' },
+        annotation: { note: '验收', role: 'verify' },
       },
     ],
     relations: [],

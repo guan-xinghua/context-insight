@@ -426,7 +426,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
                   <div className="max-w-md rounded-2xl border border-dashed border-black/15 bg-black/[0.015] px-8 py-7 text-center">
                     <p className="text-sm font-semibold text-[#1f2328]">该 Run 没有图数据</p>
                     <p className="mt-2 text-xs leading-5 text-[#57606a]">
-                      导出包未包含 graph 注解数据（annotation.graph），结构图、时间轴与重试账本不可用。
+                      导出包未包含 graph 节点定位字段，结构图、时间轴与重试账本不可用。
                       Run 概览与成员会话信息仍可在右侧查看。
                     </p>
                   </div>

@@ -74,7 +74,7 @@ interface MemberSeed { id: string; kind: 'session' | 'process'; name: string; se
 
 function manifestJson(runId: string, members: MemberSeed[], relations: Array<{ from: string; to: string }>, name = 'lake bundle IT'): string {
   return JSON.stringify({
-    schema: 'context.workflow-bundle',
+    schema: 'workflow-bundle',
     version: 1,
     id: runId,
     kind: 'workflow',

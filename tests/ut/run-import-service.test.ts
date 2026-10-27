@@ -95,7 +95,7 @@ describe('validateBundleDir：入口校验', () => {
       fs.writeFileSync(
         path.join(dir, 'workflow.json'),
         JSON.stringify({
-          schema: 'context.workflow-bundle', version: 1, id: 'badbundle', kind: 'workflow', name: 'bad',
+          schema: 'workflow-bundle', version: 1, id: 'badbundle', kind: 'workflow', name: 'bad',
           startedAt: null, finishedAt: null,
           data: {
             exportDataComplete: true,
@@ -119,7 +119,7 @@ describe('validateBundleDir：入口校验', () => {
         fs.writeFileSync(
           path.join(dir, 'workflow.json'),
           JSON.stringify({
-            schema: 'context.workflow-bundle', version: 1, id: badId, kind: 'workflow', name: 'bad-id',
+            schema: 'workflow-bundle', version: 1, id: badId, kind: 'workflow', name: 'bad-id',
             startedAt: null, finishedAt: null,
             data: { exportDataComplete: true, members: [], relations: [] },
           }),
@@ -139,7 +139,7 @@ describe('validateBundleDir：入口校验', () => {
       fs.writeFileSync(
         path.join(dir, 'manifest.json'),
         JSON.stringify({
-          schema: 'context.workflow-bundle', version: 1, id: 'alias01', kind: 'workflow', name: 'alias',
+          schema: 'workflow-bundle', version: 1, id: 'alias01', kind: 'workflow', name: 'alias',
           startedAt: null, finishedAt: null,
           data: { exportDataComplete: true, members: [], relations: [] },
         }),
@@ -237,7 +237,7 @@ describe('runImportJob：全量导入端到端（test.db）', () => {
       fs.writeFileSync(
         path.join(dir, 'workflow.json'),
         JSON.stringify({
-          schema: 'context.workflow-bundle', version: 1, id: 'missingfile01', kind: 'workflow', name: 'missing-file',
+          schema: 'workflow-bundle', version: 1, id: 'missingfile01', kind: 'workflow', name: 'missing-file',
           data: {
             exportDataComplete: false,
             members: [
@@ -289,7 +289,7 @@ describe('owned 收编路径边界（sessions/ 前缀隔离，防误收编数据
     fs.writeFileSync(
       path.join(bundle, 'workflow.json'),
       JSON.stringify({
-        schema: 'context.workflow-bundle', version: 1, id: 'boundary01', kind: 'workflow', name: 'boundary',
+        schema: 'workflow-bundle', version: 1, id: 'boundary01', kind: 'workflow', name: 'boundary',
         data: {
           exportDataComplete: false,
           members: [

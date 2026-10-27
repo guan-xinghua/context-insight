@@ -1,0 +1,73 @@
+{
+  "schema": "workflow-bundle",
+  "version": 1,
+  "id": "wdemo",
+  "kind": "workflow",
+  "name": "校验器结构样例",
+  "startedAt": "2026-10-01T10:00:00",
+  "finishedAt": null,
+  "data": {
+    "exportDataComplete": true,
+    "members": [
+      {
+        "id": "s_exec",
+        "kind": "session",
+        "name": "build：第 0 代第 1 次执行",
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": "ses_exec",
+        "location": "sessions/ses_exec.native",
+        "nodeId": "build", "generation": 0, "attempt": 1,
+        "executionState": "finished", "annotation": { "role": "execute" }
+      },
+      {
+        "id": "s_verify",
+        "kind": "session",
+        "name": "build：第 0 代第 1 次验收",
+        "startedAt": null,
+        "finishedAt": null,
+        "sessionId": "ses_verify",
+        "location": "sessions/ses_verify.native",
+        "nodeId": "build", "generation": 0, "attempt": 1,
+        "executionState": "finished", "annotation": { "role": "verify" }
+      },
+      {
+        "id": "m_carried",
+        "kind": "process",
+        "name": "publish：第 1 代未执行（沿用第 0 代结果）",
+        "startedAt": null,
+        "finishedAt": null,
+        "nodeId": "publish", "generation": 1, "attempt": 0,
+        "executionState": "carried", "resultFromGeneration": 0,
+        "annotation": { "role": "execute" }
+      },
+      {
+        "id": "m_gen_exec",
+        "kind": "workflow",
+        "name": "gen：第 0 代第 1 次执行",
+        "startedAt": null,
+        "finishedAt": null,
+        "nodeId": "gen", "generation": 0, "attempt": 1,
+        "executionState": "finished", "annotation": { "role": "execute" },
+        "data": {
+          "members": [
+            {
+              "id": "m_sub",
+              "kind": "process",
+              "name": "gen:sub：第 0 代第 1 次执行",
+              "startedAt": null,
+              "finishedAt": null
+            }
+          ],
+          "relations": []
+        }
+      }
+    ],
+    "relations": [
+      { "from": "s_exec", "to": "s_verify", "type": "depends_on" },
+      { "from": "s_verify", "to": "m_carried", "type": "rollback" },
+      { "from": "s_exec", "to": "m_gen_exec", "type": "depends_on" },
+      { "from": "m_sub", "to": "m_carried", "type": "depends_on" }
+    ]
+  }
+}

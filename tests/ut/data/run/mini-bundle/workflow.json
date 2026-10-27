@@ -1,5 +1,5 @@
 {
-  "schema": "context.workflow-bundle",
+  "schema": "workflow-bundle",
   "version": 1,
   "id": "minidemo01",
   "kind": "workflow",
@@ -15,8 +15,18 @@
         "name": "init：第 0 代第 1 次执行",
         "startedAt": "2026-10-13T02:00:06Z",
         "finishedAt": "2026-10-13T02:00:11Z",
-        "output": { "text": "ready" },
-        "annotation": { "note": "Bash 执行", "graph": { "role": "execute", "nodeId": "init", "generation": 0, "attempt": 1, "attemptResult": "succeeded" } }
+        "output": {
+          "text": "ready"
+        },
+        "annotation": {
+          "note": "Bash 执行",
+          "role": "execute"
+        },
+        "nodeId": "init",
+        "generation": 0,
+        "attempt": 1,
+        "attemptResult": "succeeded",
+        "executionState": "finished"
       },
       {
         "id": "M_INIT_V",
@@ -24,7 +34,18 @@
         "name": "init：第 0 代第 1 次验收",
         "startedAt": null,
         "finishedAt": null,
-        "annotation": { "graph": { "role": "verify", "nodeId": "init", "generation": 0, "attempt": 1, "verification": { "type": "script", "status": "passed", "reason": "exit 0" } } }
+        "annotation": {
+          "role": "verify"
+        },
+        "nodeId": "init",
+        "generation": 0,
+        "attempt": 1,
+        "verification": {
+          "type": "script",
+          "status": "passed",
+          "reason": "exit 0"
+        },
+        "executionState": "finished"
       },
       {
         "id": "S_BUILD_E0",
@@ -34,7 +55,20 @@
         "finishedAt": "2026-10-13T02:00:17Z",
         "sessionId": "ses_mini_a",
         "location": "sessions/ses_mini_a.native",
-        "annotation": { "note": "执行", "graph": { "role": "execute", "nodeId": "build", "generation": 0, "attempt": 1, "attemptResult": "failed", "retryPolicy": { "maxRetries": 1, "onExhaust": "rollback", "rollbackToNodeId": "build" } } }
+        "annotation": {
+          "note": "执行",
+          "role": "execute"
+        },
+        "nodeId": "build",
+        "generation": 0,
+        "attempt": 1,
+        "attemptResult": "failed",
+        "retryPolicy": {
+          "maxRetries": 1,
+          "onExhaust": "rollback",
+          "rollbackToNodeId": "build"
+        },
+        "executionState": "finished"
       },
       {
         "id": "S_BUILD_V0",
@@ -44,7 +78,19 @@
         "finishedAt": null,
         "sessionId": "ses_mini_b",
         "location": "sessions/ses_mini_b.native",
-        "annotation": { "note": "边界用例失败", "graph": { "role": "verify", "nodeId": "build", "generation": 0, "attempt": 1, "verification": { "type": "agent", "status": "failed", "reason": "缺少边界用例" } } }
+        "annotation": {
+          "note": "边界用例失败",
+          "role": "verify"
+        },
+        "nodeId": "build",
+        "generation": 0,
+        "attempt": 1,
+        "verification": {
+          "type": "agent",
+          "status": "failed",
+          "reason": "缺少边界用例"
+        },
+        "executionState": "finished"
       },
       {
         "id": "S_BUILD_E1",
@@ -54,7 +100,14 @@
         "finishedAt": "2026-10-13T02:02:05Z",
         "sessionId": "ses_mini_c",
         "location": "sessions/ses_mini_c.native",
-        "annotation": { "graph": { "role": "execute", "nodeId": "build", "generation": 1, "attempt": 1, "attemptResult": "succeeded" } }
+        "annotation": {
+          "role": "execute"
+        },
+        "nodeId": "build",
+        "generation": 1,
+        "attempt": 1,
+        "attemptResult": "succeeded",
+        "executionState": "finished"
       },
       {
         "id": "M_BUILD_V1",
@@ -62,7 +115,18 @@
         "name": "build：第 1 代第 1 次验收",
         "startedAt": null,
         "finishedAt": null,
-        "annotation": { "graph": { "role": "verify", "nodeId": "build", "generation": 1, "attempt": 1, "verification": { "type": "script", "status": "passed", "reason": "exit 0" } } }
+        "annotation": {
+          "role": "verify"
+        },
+        "nodeId": "build",
+        "generation": 1,
+        "attempt": 1,
+        "verification": {
+          "type": "script",
+          "status": "passed",
+          "reason": "exit 0"
+        },
+        "executionState": "finished"
       },
       {
         "id": "S_PUBLISH_E0",
@@ -72,7 +136,13 @@
         "finishedAt": null,
         "sessionId": null,
         "location": null,
-        "annotation": { "graph": { "role": "execute", "nodeId": "publish", "generation": 0, "attempt": 0 } }
+        "annotation": {
+          "role": "execute"
+        },
+        "nodeId": "publish",
+        "generation": 0,
+        "attempt": 0,
+        "executionState": "pending"
       },
       {
         "id": "M_GENSUB_E0",
@@ -80,8 +150,17 @@
         "name": "gen-sub：第 0 代第 1 次执行",
         "startedAt": "2026-10-13T02:01:00Z",
         "finishedAt": "2026-10-13T02:01:05Z",
-        "output": { "text": "已生成子图" },
-        "annotation": { "graph": { "role": "execute", "nodeId": "gen-sub", "generation": 0, "attempt": 1, "attemptResult": "succeeded" } }
+        "output": {
+          "text": "已生成子图"
+        },
+        "annotation": {
+          "role": "execute"
+        },
+        "nodeId": "gen-sub",
+        "generation": 0,
+        "attempt": 1,
+        "attemptResult": "succeeded",
+        "executionState": "finished"
       },
       {
         "id": "M_GENSUB_G1",
@@ -91,7 +170,15 @@
         "finishedAt": null,
         "sessionId": null,
         "location": null,
-        "annotation": { "note": "沿用先前代的子图结果", "graph": { "nodeId": "gen-sub", "generation": 1, "attempt": 0, "role": "execute", "executionState": "carried", "resultFromGeneration": 0 } }
+        "annotation": {
+          "note": "沿用先前代的子图结果",
+          "role": "execute"
+        },
+        "nodeId": "gen-sub",
+        "generation": 1,
+        "attempt": 0,
+        "executionState": "carried",
+        "resultFromGeneration": 0
       },
       {
         "id": "W_SUB",
@@ -99,7 +186,6 @@
         "name": "gen-sub 生成的子图",
         "startedAt": null,
         "finishedAt": null,
-        "annotation": {},
         "data": {
           "members": [
             {
@@ -108,8 +194,17 @@
               "name": "gen-sub:sub-init：第 0 代第 1 次执行",
               "startedAt": null,
               "finishedAt": null,
-              "output": { "text": "sub ready" },
-              "annotation": { "graph": { "role": "execute", "nodeId": "gen-sub:sub-init", "generation": 0, "attempt": 1, "attemptResult": "succeeded" } }
+              "output": {
+                "text": "sub ready"
+              },
+              "annotation": {
+                "role": "execute"
+              },
+              "nodeId": "gen-sub:sub-init",
+              "generation": 0,
+              "attempt": 1,
+              "attemptResult": "succeeded",
+              "executionState": "finished"
             }
           ],
           "relations": []
@@ -117,13 +212,44 @@
       }
     ],
     "relations": [
-      { "from": "M_INIT_E", "to": "M_INIT_V", "annotation": { "type": "depends_on" } },
-      { "from": "S_BUILD_E0", "to": "S_BUILD_V0", "annotation": { "type": "depends_on" } },
-      { "from": "M_INIT_E", "to": "S_BUILD_E0", "annotation": { "type": "depends_on" } },
-      { "from": "S_BUILD_E1", "to": "M_BUILD_V1", "annotation": { "type": "depends_on" } },
-      { "from": "M_GENSUB_E0", "to": "W_SUB", "annotation": { "kind": "gen-sub-graph" } },
-      { "from": "M_GENSUB_G1", "to": "W_SUB", "annotation": { "kind": "gen-sub-graph" } },
-      { "from": "S_BUILD_V0", "to": "S_BUILD_E1", "annotation": { "type": "rollback", "note": "回滚后重新执行", "graph": { "targetAttempt": 1 } } }
+      {
+        "from": "M_INIT_E",
+        "to": "M_INIT_V",
+        "type": "depends_on"
+      },
+      {
+        "from": "S_BUILD_E0",
+        "to": "S_BUILD_V0",
+        "type": "depends_on"
+      },
+      {
+        "from": "M_INIT_E",
+        "to": "S_BUILD_E0",
+        "type": "depends_on"
+      },
+      {
+        "from": "S_BUILD_E1",
+        "to": "M_BUILD_V1",
+        "type": "depends_on"
+      },
+      {
+        "from": "M_GENSUB_E0",
+        "to": "W_SUB",
+        "type": "gen-sub-graph"
+      },
+      {
+        "from": "M_GENSUB_G1",
+        "to": "W_SUB",
+        "type": "gen-sub-graph"
+      },
+      {
+        "from": "S_BUILD_V0",
+        "to": "S_BUILD_E1",
+        "annotation": {
+          "note": "回滚后重新执行"
+        },
+        "type": "rollback"
+      }
     ]
   }
 }

@@ -1189,17 +1189,19 @@ describe('失败归因 post-mortem：环境指纹 / 同因连败 / 验收项清�
   });
 });
 
-describe('无 graph 注解空态（导出侧未启用 graph 插件）', () => {
-  /** 递归剥掉全树成员的 annotation，模拟不带 graph 插件的导出包 */
+describe('无 graph 定位字段空态（导出侧未启用 graph 插件）', () => {
+  /** 递归剥掉全树成员的图定位字段，模拟不带 graph 插件的导出包 */
   function stripAnnotations(node: { members?: Array<Record<string, unknown>> }): void {
     for (const m of node.members ?? []) {
-      delete m.annotation;
+      delete m.nodeId;
+      delete m.generation;
+      delete m.attempt;
       if (m.data) stripAnnotations(m.data as { members?: Array<Record<string, unknown>> });
     }
   }
 
   async function renderNoGraphPage() {
-    // 在原始 manifest JSON 上剥 annotation（模拟不带 graph 插件的导出包），
+    // 在原始 manifest JSON 上剥图定位字段（模拟不带 graph 插件的导出包），
     // 再走完整解析 → 视图模型管线
     const raw = structuredClone(fixture) as { data: { members: Array<Record<string, unknown>> } };
     stripAnnotations(raw.data);
@@ -1242,7 +1244,7 @@ describe('无 graph 注解空态（导出侧未启用 graph 插件）', () => {
     // 空态卡就地说明（白话），不再是一张静默空画布
     const text = document.body.textContent ?? '';
     expect(text).toContain('该 Run 没有图数据');
-    expect(text).toContain('未包含 graph 注解数据');
+    expect(text).toContain('未包含 graph 节点定位字段');
     expect(text).toContain('Run 概览与成员会话信息仍可在右侧查看');
     // 画布与模式切换不渲染（三模式均依赖图数据）
     expect(document.querySelector('.run-canvas')).toBeNull();
