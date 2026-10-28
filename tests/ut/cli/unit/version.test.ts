@@ -8,7 +8,7 @@
 
 // CLI 版本旗标（npm 全局安装后的用户直觉输入）：
 //   -v / --version 输出 `Context-Insight v<x.y.z>`（与 cpx 的 `cpx v0.1.x (路径)`
-//   风格对齐）；版本串单一真身在 version.ts，这里锁绑定与组装不漂移。
+//   风格对齐）；版本串唯一定义在 version.ts，这里锁绑定与组装不漂移。
 //   bin/context-insight.mjs 的透传名单须放行 -v——否则 `ctxi -v` 掉进
 //   "无参数 → 启动 Web UI" 分支（名单断言防回归）。
 import { describe, it, expect } from 'vitest';

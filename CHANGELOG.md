@@ -2,6 +2,18 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [Unreleased] → 0.2.42
+
+### Added
+- 【上传同步原生会话】数据仓上传捕获会话时可勾选「同步上传本机原生会话」：自动定位同一场对话的原生记录（已导入行直取；本机磁盘按框架发现，Codex 按捕获时间窗 + 首问锚点匹配），未导入的先自动导入，与捕获一并落 `<sid>.native/` 同 sid 双记录；Web 弹窗勾选即预检显示找没找到，CLI 加 `--with-native`
+
+### Changed
+- 【git-lfs 零手工安装】LFS 模式不再要求用户手工装 git-lfs：任一数据仓动作即后台预热自举（并发去重防重复下载），下载源自动回退 GitHub 直连 → 公共镜像（sha256 pin 校验，镜像只是运输通道）；品牌更名前旧数据目录里的同版本私有件直接拷贝复用，免重复下载；数据仓导入路径同样自愈（此前仅上传路径自举），失败指引保留三条出路（自备镜像 / 系统安装 / LAKE_LFS=0）
+- 【LFS 未启用错误分诊】托管平台项目级 LFS 未启用（如 GitCode "Access forbidden. project lfs not enabled."）此前被误分诊为「令牌无推送权限」把用户引向换令牌（真机事故：令牌确有权限）；现六分类新增 lfs-not-enabled，弹窗不再误弹凭据引导，白话文案直说凭据无问题 + 首选出路 LAKE_LFS=0（实测 GitCode 普通代码仓不提供 LFS 服务，项目设置开关无效——连其官方含 LFS 指针的仓同样报错）
+
+### Fixed
+- 【LFS 指针报错白话化】LFS 模式关着导入 LFS 数据仓时，materialize 出的 `.jsonl.7z`/`.jsonl.gz` 是未还原的 LFS 指针文本，直接喂 7za/gunzip 会报出用户无法理解的「Is not archive」/zlib 错误（真机事故：旧 LFS 数据仓导入拿到 7za exit 2 原文）——压缩统一入口探测指针签名（`version https://git-lfs…` 首行），命中改抛通俗指引（设置页开启「LFS 模式」/ `git lfs pull` 还原），lake 导入与本地导入共用此防线
+- 【设置页保存洗掉 LFS 模式】设置页「保存配置」的 PUT 只写地址/分支/目录，lake-config.json 里的 `lfs:false`（平台不开放 LFS 的仓关闭 LFS 模式后的落盘形态）每次保存都被静默复位为缺省 true——用户关了开关、保存一次设置、首次上传必再撞「project lfs not enabled」（真机事故：切新仓后仍报 LFS 未启用即此因）；现设置页新增「LFS 模式」开关（回显服务端现值、保存透传），PUT 请求体缺省 lfs 时保留现有值不洗掉，报错文案同步指向设置页开关
 ## [0.2.41] - 2026-10-23
 
 > 更名说明：主体品牌自本版起为 Context-Insight（npm 包 `context-insight`，命令 `context-insight` / `ctxi`，数据目录 `~/.context-insight/`——首启自动迁移 `~/.cannbot-insight/` 存量数据）；`cannbot-insight` 转为同内容变体包，老用户的部署脚本与目录习惯在变体包内不变。数据格式契约不随品牌变，两包数据完全互通。
@@ -266,7 +278,7 @@
   - `agent-content` 路由：两级恢复——**system 注入（主路径）> 磁盘扫描（兜底：会话内无声明数据的形态）**；`source=system|disk` 显式指定。移除 Read 恢复依赖（`agent-md-recover.ts` 保留未删，调用点已撤）
   - `audit-agentsift` 路由：声明同链路（审的 = 看的）；system 源物化临时 .md 注入 frontmatter `name: <agentName>`
   - `agent-role-name-map.ts`（client-safe）+ `buildStructuredRecords`：子代理 turn 的 `rec.agent` 改用**角色名**（bridge.subagentType 优先，general 时 join dispatchTurnId→SkillEvent）——修 agent 对账切片匹配断点：`Turn.agentName` 是任务标题（"Task29 修复Kernel崩溃"），sift `--kind agent` 按声明 name 匹配 records.agent 永远对不上
-- 测试：fixture = 真实会话 19 agentType 子代理样本 + 恢复 6 用例（全恢复 / 真身长度断言 / 扩展字段优先 / 通用 prompt 排除 / 标题守卫 / 缺目录容错）+ 角色名映射 5 用例 + agent-content IT 5 用例 + audit IT +1 + 构建记录 +2；客户端可达性静态锁覆盖角色名映射
+- 测试：fixture = 真实会话 19 agentType 子代理样本 + 恢复 6 用例（全恢复 / 实际长度断言 / 扩展字段优先 / 通用 prompt 排除 / 标题守卫 / 缺目录容错）+ 角色名映射 5 用例 + agent-content IT 5 用例 + audit IT +1 + 构建记录 +2；客户端可达性静态锁覆盖角色名映射
 
 ## [v2.03] - 2026-08-29
 
@@ -317,7 +329,7 @@
 ## [v1.80] - 2026-08-18
 
 ### Added
-- 【proxy】密钥不落盘（`redactor` 模块）— 捕获文件永不落任何 API key：结构层按键名全等打码（`api_key`/`authorization`/`x-api-key`/…），字符串层按厂家键形打码（`sk-ant-`/`sk-proj-`/`gsk_`/`AIza`/`xai-`/`GL-`/`LTAI`/泛 `sk-`、`Bearer` 凭据、`XX_API_KEY=` 回显、URL query 键）；接入 `dispatchEmit` 唯一落盘咽喉，cpx 启动行同源打码；掩码 `前4…后4`，`max_tokens`/`input_tokens`/裸 `key` 零误伤。真机 `cpx claude`（bigmodel）/`cpx opencode`（dashscope）双链路验证 0 泄漏。设计见 `proxy/DESIGN.md` §7
+- 【proxy】密钥不落盘（`redactor` 模块）— 捕获文件永不落任何 API key：结构层按键名全等打码（`api_key`/`authorization`/`x-api-key`/…），字符串层按厂家键形打码（`sk-ant-`/`sk-proj-`/`gsk_`/`AIza`/`xai-`/`GL-`/`LTAI`/泛 `sk-`、`Bearer` 凭据、`XX_API_KEY=` 回显、URL query 键）；接入 `dispatchEmit` 唯一落盘入口，cpx 启动行同源打码；掩码 `前4…后4`，`max_tokens`/`input_tokens`/裸 `key` 零误伤。真机 `cpx claude`（bigmodel）/`cpx opencode`（dashscope）双链路验证 0 泄漏。设计见 `proxy/DESIGN.md` §7
 
 ## [v1.79] - 2026-08-18
 

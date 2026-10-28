@@ -17,4 +17,5 @@ export {
   readSession,
   readSubagentInteractions,
   extractVersion,
+  resolveSessionFile,
 } from './source';

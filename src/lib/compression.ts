@@ -6,7 +6,7 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 压缩唯一咽喉：7z at rest。
+// 压缩统一入口：7z at rest。
 // 写侧只出 .jsonl.7z（LZMA2，确定性开关保证同内容同字节→重传幂等）；
 // 读侧三形态永续可读：.jsonl / .jsonl.gz（存量）/ .jsonl.7z。
 // 与 cpx src/compression.ts 同构（受控双实现，命令常量保持一致——parity IT 锁定）。
@@ -31,6 +31,36 @@ function sevenza(): string {
 
 export function is7z(p: string): boolean { return p.endsWith('.7z'); }
 export function isGz(p: string): boolean { return p.endsWith('.gz'); }
+
+// 未还原 LFS 指针的首行签名（指针是三行 ASCII 文本：version/oid/size）
+const LFS_POINTER_HEAD = 'version https://git-lfs.github.com/spec/v1';
+
+/** 未还原 LFS 指针探测：数据仓 LFS 模式关着时，materialize 出的 .7z/.gz 不是
+ *  压缩档而是指针文本——直接喂 7za/gunzip 只会报出用户无法理解的 "Is not archive"/zlib 错误
+ *  （真机事故：旧 LFS 数据仓导入，用户拿到 7za exit 2 原文）。命中即替换为通俗指引：
+ *  指路设置页开关（数据仓导入场景）或 git lfs pull（本地文件场景）。 */
+function assertNotLfsPointer(filePath: string): void {
+  let head: string | null = null;
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.allocUnsafe(LFS_POINTER_HEAD.length);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      head = n === LFS_POINTER_HEAD.length ? buf.toString('utf8') : null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    // 读不了（不存在/权限等）不在此报——交给后续 7za/gunzip 报各自的错
+    return;
+  }
+  if (head === LFS_POINTER_HEAD) {
+    throw new Error(
+      `未还原的 Git LFS 指针文件（不是压缩档）：${filePath}——数据仓以 LFS 存储大文件，而当前读取链路未做 LFS 还原。`
+      + '若从数据仓导入，请在设置页开启「LFS 模式」后重试；若导入本地文件，请先用 git lfs pull 还原内容。',
+    );
+  }
+}
 
 function run7za(args: string[], maxBuffer = 1 << 28): Buffer {
   const r = spawnSync(sevenza(), args, { maxBuffer, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -65,6 +95,7 @@ export function compressCaptureFile(plainPath: string): string {
  *  对存量/无 governed 标记 .7z 的解压走这里。与 cpx 同构——parity 锁定。 */
 export function decompressToPlain(archivePath: string): string {
   if (!is7z(archivePath) && !isGz(archivePath)) return archivePath;
+  assertNotLfsPointer(archivePath);
   const plain = archivePath.replace(/\.(7z|gz)$/, '');
   if (is7z(archivePath)) {
     const buf = run7za(['e', '-so', archivePath], 1 << 30);
@@ -79,6 +110,7 @@ export function decompressToPlain(archivePath: string): string {
 
 /** 读捕获字节（三形态透明解压：.7z / .gz / 明文直读）——Buffer 直出，不过 V8 单字符串上限。 */
 export function readCaptureBuffer(filePath: string): Buffer {
+  if (is7z(filePath) || isGz(filePath)) assertNotLfsPointer(filePath);
   if (is7z(filePath)) return run7za(['e', '-so', filePath], 1 << 30);
   const buf = fs.readFileSync(filePath);
   return isGz(filePath) ? zlib.gunzipSync(buf) : buf;

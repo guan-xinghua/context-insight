@@ -65,4 +65,15 @@ describe('handleSave 接线（源级锁）', () => {
     const beforeClearBranch = handleSaveBody.slice(0, handleSaveBody.indexOf('action === "clear"'));
     expect(beforeClearBranch).not.toContain('"DELETE"');
   });
+
+  it('LFS 开关接线：GET 回显进状态、PUT body 带上 lfs（回归锁：修复前保存会把 lake-config.json 的 lfs 字段洗掉，用户关闭的 LFS 模式被静默复位为 true）', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '../../src/app/settings/page.tsx'), 'utf8');
+    // GET 回显：服务端 lfs 字段进 React 状态（缺省 true）
+    expect(src).toContain('setLfs(data.lfs ?? true)');
+    // PUT 透传：保存 body 必须带 lfs（handleSave 函数体内）
+    const handleSaveBody = src.slice(src.indexOf('async function handleSave'), src.indexOf('async function handleClear'));
+    expect(handleSaveBody).toContain('lfs');
+    // 开关控件：状态翻转要触发 dirty（保存按钮可用性）
+    expect(src).toContain('onCheckedChange={(v) => { setLfs(v === true); dirty() }}');
+  });
 });

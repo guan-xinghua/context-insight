@@ -12,7 +12,7 @@
 //      不回传令牌明文；lake-auth.json 0600
 //   ② 上传前置检查：https 远端无凭据 → 路由 400 + code=no-credentials
 //      （结构化错误码，前端据此给「前往设置页」引导）；本地 bare 不受影响
-//   ③ 错误分类 classifyLakeError 五分类（与 cpx 同链）
+//   ③ 错误分类 classifyLakeError 六分类（与 cpx 同链）
 //   ④ PUT 探测零 shell（spawnSync 数组参）+ 元字符前置校验（CWE-78：请求体
 //      URL 绝不进 shell——旧 execSync 模板串拼接会被 $()/; 注入）
 // 隔离：CONTEXT_PROXY_DIR 重定向到临时目录；本地 bare 仓做探测目标（零网络）。
@@ -126,8 +126,8 @@ describe('② 上传前置检查（路由级结构化错误码）', () => {
   });
 });
 
-describe('③ classifyLakeError 五分类（与 cpx 同链）', () => {
-  it('无凭据 > 配额 > 无权限 > 鉴权失败 > 未知', () => {
+describe('③ classifyLakeError 六分类（与 cpx 同链）', () => {
+  it('无凭据 > LFS 未启用 > 配额 > 无权限 > 鉴权失败 > 未知', () => {
     expect(classifyLakeError(new MissingPushCredentialsError('https://x'))).toBe('no-credentials');
     expect(classifyLakeError(new Error('batch response: 413 Request Entity Too Large'))).toBe('quota');
     expect(classifyLakeError(new Error('remote: CH.00905403 not allowed to push'))).toBe('forbidden');
@@ -137,6 +137,21 @@ describe('③ classifyLakeError 五分类（与 cpx 同链）', () => {
   it('平台码分诊（真机实测文本）：00905401=凭据无效→auth-failed；00905403=无写权限→forbidden', () => {
     expect(classifyLakeError(Object.assign(new Error('git push'), { stderr: Buffer.from('remote: <CH.00905401> HTTP Basic: Access denied.\nfatal: Authentication failed for \'https://example.com/lake.git/\'') }))).toBe('auth-failed');
     expect(classifyLakeError(Object.assign(new Error('git push'), { stderr: Buffer.from('remote: <CH.00905403> not allowed to push code to this project') }))).toBe('forbidden');
+  });
+  it('LFS 未启用分诊在 forbidden 之前（真机事故回归锁：GitCode batch 拒绝文本含 "forbidden" 字样，令牌确有权限却被误报「令牌无推送权限」）', () => {
+    // 用户真机报错原文（gitcode.com TTELab/Bundle-lake）：git-lfs batch API 的
+    // 项目级 LFS 未启用拒绝——与令牌无关，换凭据解决不了
+    const stderr = Buffer.from(
+      'Locking support detected on remote "origin". Consider enabling it with: $ git config lfs.https://gitcode.com/TTELab/Bundle-lake.git/info/lfs.locksverify true\n' +
+      'batch response: {"message": "Access forbidden. project lfs not enabled.", "documentation_url": ""}\n' +
+      'error: failed to push some refs to \'https://gitcode.com/TTELab/Bundle-lake.git\'',
+    );
+    expect(classifyLakeError(Object.assign(new Error('Command failed: git push'), { stderr }))).toBe('lfs-not-enabled');
+    // 平台变体与白话文案锚点
+    expect(classifyLakeError(new Error('LFS is not enabled for this project'))).toBe('lfs-not-enabled');
+    expect(classifyLakeError(new Error('batch response: LFS is disabled'))).toBe('lfs-not-enabled');
+    // 反例：自举钩子的本机安装提示不是平台设置问题（不落 lfs-not-enabled）
+    expect(classifyLakeError(new Error('git-lfs not installed'))).toBe('unknown');
   });
 });
 

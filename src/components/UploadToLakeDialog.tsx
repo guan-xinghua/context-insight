@@ -92,6 +92,10 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
   // Web UI 必选（成功/失败，未选禁用上传）；'' 仅作初始未选态。数据层仍允许
   // 缺省（CLI 上传/历史数据 → 列表显示 —）
   const [uploadOpGen, setUploadOpGen] = useState<'' | 'success' | 'failure'>('')
+  // 同步上传原生会话（仅捕获行显示）：勾选即预检（native-preview 只读探测），
+  // 上传时随捕获行一起落 <sid>.native/（codex 原生 sid 不同，以响应为准）
+  const [withNative, setWithNative] = useState(false)
+  const [nativePreview, setNativePreview] = useState<{ loading: boolean; found?: boolean; origin?: 'db' | 'disk'; reason?: string } | null>(null)
   const [paradigmDirs, setParadigmDirs] = useState<string[]>([])
   const [paradigmLoading, setParadigmLoading] = useState(false)
   const [paradigmError, setParadigmError] = useState<string | null>(null)
@@ -114,6 +118,8 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
       setUploadCategory('')
       setUploadBaseline(false)
       setUploadOpGen('')
+      setWithNative(false)
+      setNativePreview(null)
       setParadigmDirs([])
       setParadigmError(null)
       setParadigmLoading(true)
@@ -167,6 +173,30 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
     return () => { active = false }
   }, [open])
 
+  // 勾选「同步上传原生会话」→ 只读预检（DB 直查 + 本机磁盘发现），结果即时
+  // 呈现：找到（已导入/本机文件）或未找到（白话原因），用户上传前心里有数
+  function handleToggleNative(checked: boolean) {
+    setWithNative(checked)
+    setNativePreview(null)
+    if (!checked || !target) return
+    setNativePreview({ loading: true })
+    fetch('/api/ingest/lake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'native-preview', taskId: target.taskId, framework: target.framework ?? undefined }),
+    })
+      .then(res => res.json().then(data => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        const r = data?.resolution as { status?: string; origin?: 'db' | 'disk'; reason?: string } | undefined
+        if (!ok || !r || r.status !== 'found') {
+          setNativePreview({ loading: false, found: false, reason: r?.reason ?? (ok ? '未找到原生会话' : String(data.error ?? '预检失败')) })
+          return
+        }
+        setNativePreview({ loading: false, found: true, origin: r.origin })
+      })
+      .catch(() => setNativePreview({ loading: false, found: false, reason: '预检失败：网络错误' }))
+  }
+
   async function handleUpload() {
     if (!target) return
     // 未配置预检（与 LocalFileImport 同款）：服务端 lake-config.json 未配 →
@@ -191,6 +221,7 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
           description: buildUploadDescription(target, uploadSubmitter, uploadContentDesc),
           ...(uploadCategory ? { category: uploadCategory, ...(uploadBaseline ? { baseline: true } : {}) } : {}),
           ...(uploadOpGen ? { opGen: uploadOpGen } : {}),
+          ...(withNative ? { withNative: true } : {}),
         }),
       })
       const data = await res.json()
@@ -202,6 +233,13 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
         setTokenReason(data.code)
         setTokenDialogOpen(true)
       }
+      // 原生会话同步结果独立呈现（捕获行已上传成功，原生结果不影响 ok）
+      if (res.ok && withNative) {
+        const native = data?.native as { status?: string; reason?: string } | undefined
+        if (native?.status === 'uploaded') message = '原生会话已同步上传'
+        else if (native?.status === 'not-found') message = `捕获已上传；原生会话未找到：${native.reason ?? '未知原因'}`
+        else if (native?.status === 'failed') message = `捕获已上传；原生会话上传失败：${native.reason ?? '未知原因'}`
+      }
       onResult?.({ ok: res.ok, message })
       if (res.ok) onOpenChange(false)
     } catch {
@@ -210,6 +248,8 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
       setUploading(false)
     }
   }
+
+  const isProxyTarget = (target?.framework ?? '').endsWith('-proxy')
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v || !uploading) onOpenChange(v) }}>
@@ -305,6 +345,30 @@ export function UploadToLakeDialog({ open, onOpenChange, target, onUploadStart, 
             })}
           </div>
         </div>
+        {isProxyTarget && (
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={withNative}
+                onCheckedChange={(v) => handleToggleNative(v === true)}
+                disabled={uploading}
+                className="cursor-pointer"
+              />
+              <span className="text-xs text-muted-foreground">
+                同步上传本机原生会话（同一场对话的原生记录，一并入仓便于对照）
+              </span>
+            </label>
+            {nativePreview && (
+              <p className={'text-xs ' + (nativePreview.loading ? 'text-muted-foreground' : nativePreview.found ? 'text-emerald-600' : 'text-amber-600')}>
+                {nativePreview.loading
+                  ? '正在查找本机原生会话…'
+                  : nativePreview.found
+                    ? `已找到原生会话${nativePreview.origin === 'disk' ? '（本机文件，上传时自动导入）' : '（已导入）'}`
+                    : `未找到原生会话：${nativePreview.reason ?? '本机没有对应记录'}`}
+              </p>
+            )}
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={uploading}>取消</Button>
           <Button

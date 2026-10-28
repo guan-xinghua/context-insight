@@ -220,21 +220,41 @@ export class MissingPushCredentialsError extends Error {
   }
 }
 
-export type LakeErrorCode = 'no-credentials' | 'auth-failed' | 'forbidden' | 'quota' | 'unknown';
+export type LakeErrorCode = 'no-credentials' | 'auth-failed' | 'forbidden' | 'quota' | 'lfs-not-enabled' | 'unknown';
 
-/** 上传错误分类（路由结构化 code / cpx CLI 引导文案共用）：无凭据 > 配额 >
- * 无推送权限 > 鉴权失败 > 未知。stderr 一并参与匹配——git 的致命信息走
- * stderr（execSync 异常携带），message 只有命令行。
+/** 上传错误分类（路由结构化 code / cpx CLI 引导文案共用）：无凭据 > LFS 未
+ * 启用 > 配额 > 无推送权限 > 鉴权失败 > 未知。stderr 一并参与匹配——git 的
+ * 致命信息走 stderr（execSync 异常携带），message 只有命令行。
  * 托管平台错误码区分：CH.00905401 = 凭据无效/密码式认证被拒（auth-failed），
  * CH.00905403 = 凭据有效但对仓无写权限（forbidden）——真机实测文本两者
- * 都含 "Authentication failed"/"Access denied" 字样，必须按码精确分诊。 */
+ * 都含 "Authentication failed"/"Access denied" 字样，必须按码精确分诊。
+ * lfs-not-enabled 分诊在 forbidden 之前：git-lfs batch API 的拒绝文本含
+ * "forbidden" 字样（如 GitCode "Access forbidden. project lfs not
+ * enabled."）但与令牌无关——换凭据解决不了，误分到 forbidden 会把用户
+ * 引向错误方向（真机事故：令牌确有权限，弹窗却报「令牌无推送权限」）。 */
 export function classifyLakeError(err: unknown): LakeErrorCode {
   if (err instanceof MissingPushCredentialsError) return 'no-credentials';
   const msg = err instanceof Error
     ? `${err.message}\n${String((err as { stderr?: Buffer }).stderr ?? '')}`
     : String(err);
+  // LFS 未启用（托管平台项目级设置；不匹配自举钩子的 "git-lfs not installed"——
+  // 那是本机安装问题，落在 unknown/自举指引）
+  if (/lfs[^\n]{0,60}not enabled|not enabled[^\n]{0,60}lfs|lfs[^\n]{0,60}disabled/i.test(msg)) return 'lfs-not-enabled';
   if (/quota|exceeds?\s+(the\s+)?(maximum|limit|size)|batch response:.*413|\b413\b/i.test(msg)) return 'quota';
   if (new RegExp(`not allowed to push|forbidden|${PLATFORM_FORBIDDEN_CODES.source}|\\b403\\b`, 'i').test(msg)) return 'forbidden';
   if (new RegExp(`authentication failed|access denied|could not read username|terminal prompts disabled|invalid (username|token|password)|${PLATFORM_AUTH_FAILED_CODES.source}|\\b401\\b`, 'i').test(msg)) return 'auth-failed';
   return 'unknown';
+}
+
+/** lfs-not-enabled 的白话文案（路由替换 git 原文用——原文混着 "Locking
+ *  support detected" 噪声与 batch API JSON，用户无法行动；凭据没问题的
+ * 结论必须显式说出，否则用户第一反应就是换令牌）。平台事实（2026-10 实测）：
+ * GitCode 对普通代码仓不提供 LFS 服务（连其官方含 LFS 指针的仓也报同错，
+ * 项目设置里的 LFS 开关控制不了 batch API；模型仓 hf_mirrors/* 才有 LFS），
+ * 务必把 LAKE_LFS=0 作为首选出路，避免用户在平台开关上空耗。 */
+export function lakeLfsNotEnabledMessage(): string {
+  return '数据仓平台未对该项目开放 LFS（推送凭据本身没有问题，无需更换）。'
+    + '部分平台（如 GitCode）不向普通代码仓提供 LFS 服务，项目设置里的 LFS 开关无法开启它。'
+    + '推荐：在设置页关闭「LFS 模式」开关（或设置 env LAKE_LFS=0）改走普通 git 存储后重试上传'
+    + '（会话文件压缩后仅数十 KB 级，普通 git 完全够用）；或向平台确认该项目类型的 LFS 开放方式。';
 }

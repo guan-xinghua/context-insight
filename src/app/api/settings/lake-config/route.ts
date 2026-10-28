@@ -23,14 +23,16 @@ export async function GET() {
     address: cfg?.address ?? '',
     branch: cfg?.branch ?? '',
     directory: cfg?.directory ?? '',
+    // 生效模式（缺省 true）：设置页 LFS 开关的回显
+    lfs: cfg?.lfs ?? true,
   });
 }
 
 export async function PUT(request: NextRequest) {
-  let payload: { address: string; branch?: string; directory?: string };
+  let payload: { address: string; branch?: string; directory?: string; lfs?: boolean };
   try {
     const body = await request.json();
-    const { address, branch, directory } = body as { address?: string; branch?: string; directory?: string };
+    const { address, branch, directory, lfs } = body as { address?: string; branch?: string; directory?: string; lfs?: unknown };
     const addr = address?.trim();
     if (!addr) return NextResponse.json({ error: '缺少远端地址' }, { status: 400 });
     if (FORBIDDEN_ADDRESS_CHARS.test(addr)) return NextResponse.json({ error: '数据湖地址含非法字符' }, { status: 400 });
@@ -40,6 +42,14 @@ export async function PUT(request: NextRequest) {
     const branchValue = branch?.trim() ? validateBranch(branch) : undefined;
     const directoryValue = directory?.trim() ? normalizeDirectory(directory) : undefined;
     payload = { address: addr, branch: branchValue, directory: directoryValue };
+    // lfs 透传：请求体带布尔 → 写入；缺省 → 保留现有文件值（旧版前端/旧
+    // 构建的 PUT 不带 lfs，若直接丢弃会把用户关掉的 LFS 模式悄悄复位为
+    // true——平台不开放 LFS 的仓每次保存设置后首次上传必再撞墙）
+    if (typeof lfs === 'boolean') payload.lfs = lfs;
+    else {
+      const prev = readServerLakeConfig();
+      if (typeof prev?.lfs === 'boolean') payload.lfs = prev.lfs;
+    }
   } catch (e) {
     logWarn('route:settings/lake-config', '无效请求体', { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });

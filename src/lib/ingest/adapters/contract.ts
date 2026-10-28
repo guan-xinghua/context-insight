@@ -71,8 +71,8 @@ export type UserInjectionClassifier = (
 // 布局 + meta.json，codex 走 spawn 输出 + parent_thread_id 交叉验证）
 export interface SubagentRef {
   /** 规范子会话 id（= RawInteraction.subagent_session_id，与 Bridge/
-   * Execution 的锚定键一致）。claude：文件名即真身会话 id；codex-proxy：
-   * cpx 铸的文件名 id 早于 spawn 输出到达，真身 agentId 由 meta backfill，
+   * Execution 的锚定键一致）。claude：文件名即真实会话 id；codex-proxy：
+   * cpx 铸的文件名 id 早于 spawn 输出到达，真实 agentId 由 meta backfill，
    * 以 agentId 为规范 id（文件名 id 仅存于 filePath） */
   id: string;
   /** 子会话文件路径 */

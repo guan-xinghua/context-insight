@@ -199,7 +199,7 @@ describe("audit-agentsift route", () => {
     const res = await POST(makeRequest({ taskId: "ses_norm_fixture", agentName: "designer" }))
     await readNdjson(res)
     expect(res.status).toBe(200)
-    // 声明 = 物化临时文件（注入 frontmatter + 运行时真身正文；非磁盘扫描根的 developer.md）
+    // 声明 = 物化临时文件（注入 frontmatter + 运行时实际正文；非磁盘扫描根的 developer.md）
     expect(declContent).toContain("name: designer")
     expect(declContent).toContain("# designer")
     expect(declContent).toContain("## 你的角色")

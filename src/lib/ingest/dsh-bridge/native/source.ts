@@ -127,7 +127,10 @@ function decodeRef(ref: SessionFileRef): DecodedSession | null {
   }
 }
 
-function resolveSessionFile(dbPath: string, sessionId: string): string | null {
+// 按会话 id 定位日志文件（listSessions 单会话版）：目录走快路径 + 递归
+// 兜底，文件形态只认 DSH 固定代际名。原生会话对位发现（native-counterpart）
+// 与适配器共用同一推导
+export function resolveSessionFile(dbPath: string, sessionId: string): string | null {
   let stat: fs.Stats;
   try {
     stat = fs.statSync(dbPath);

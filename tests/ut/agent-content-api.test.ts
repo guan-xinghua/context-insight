@@ -37,7 +37,7 @@ describe('agent-content route（system 注入优先）', () => {
     fakePrisma.skillEvent.findMany.mockReset().mockResolvedValue([]);
   });
 
-  it('正常会话：designer 缺省 source → via=system，返回运行时真身（8,606 字，剥运行时尾部）', async () => {
+  it('正常会话：designer 缺省 source → via=system，返回运行时实际内容（8,606 字，剥运行时尾部）', async () => {
     fakePrisma.session.findFirst.mockResolvedValue({
       id: 'ses_cuid_1',
       taskId: 'ses_norm_fixture',
@@ -48,7 +48,7 @@ describe('agent-content route（system 注入优先）', () => {
     const d = await res.json();
     expect(d.via).toBe('system');
     expect(d.content.startsWith('# designer')).toBe(true);
-    expect(d.length).toBeGreaterThan(8000); // 真身 8,606 字（磁盘 demo 只有 4,771）
+    expect(d.length).toBeGreaterThan(8000); // 实际 8,606 字（磁盘 demo 只有 4,771）
     expect(d.content).not.toContain('<available_skills>');
     expect(d.source).toMatch(/^subagent:ses_/);
   });

@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, type LakeRemote, type LakeSessionEntry, type LakeOverview, type UploadResult, type RecordingClass } from './mirror';
+import { listSessions, listOverview, materializeSession, uploadFolder, listParadigmDirs, ensureLfsBootstrapForRead, type LakeRemote, type LakeSessionEntry, type LakeOverview, type UploadResult, type RecordingClass } from './mirror';
 import { readCcSessionMeta } from '../ingest/proxy-classify';
 import { isProxyVersion } from '../shared/session-format';
 import { computeSessionActiveSplit } from '../active-time';
@@ -25,6 +25,11 @@ import { BUNDLE_ROOT_DIR } from './bundle-layout';
 import { readEnvelope, envelopeFields } from '../shared/envelope';
 import { readCaptureText, ensure7z, compressCaptureFile, decompressToPlain } from '@/lib/compression';
 import { importSession } from '@/lib/ingest/data-service';
+import {
+  resolveNativeCounterpart,
+  defaultNativeDiscoveryRoots,
+  type NativeDiscoveryRoots,
+} from '@/lib/ingest/native-counterpart';
 import { createLogger } from '@/lib/logger';
 
 const lakeLog = createLogger('lake');
@@ -64,6 +69,10 @@ export async function importLakeSession(sid: string, prisma: PrismaLike, remote?
   const impLog = createLogger('import');
   impLog.info('lake import start', { sid, recording });
   try {
+    // LFS 模式：物化前自举 git-lfs（materializeSession 是同步函数无法内嵌；
+    // 仓内指针 blob 的 --filters smudge 依赖它）——数据仓导入与上传同享
+    // 「零手工安装」
+    if ((remote ?? defaultLakeRemote()).lfs) await ensureLfsBootstrapForRead();
     const mainJsonl = materializeSession(sid, remote, recording);
     const result = await importSession(mainJsonl, sid, prisma, mainJsonl, 'claude-jsonl');
     // x_lake 补列（docs/lake-schema-spec.md）：核心管线无通道、只存在于
@@ -312,7 +321,7 @@ async function stageSessionFiles(session: SessionRow, prisma: PrismaLike): Promi
 // 治理 staging 内 sessions/<sid>/ 全部文件。
 // 快路径（直传）：全部 .jsonl 是 .7z 且伴生 meta 声明 producer=cpx +
 // governed=true（cpx 压缩时打的信任标记，spec §4.4 —— 字节流已经 cpx 落盘
-// 咽喉 redactor 全量清洗，与治理正则 parity 锁定同源）。免解压重洗重压，
+// 入口 redactor 全量清洗，与治理正则 parity 锁定同源）。免解压重洗重压，
 // 仅保留白名单 + 大小限检。
 // 慢路径（兜底永在）：明文源 / 无标记 / 非 cpx producer（insight-export、
 // native claude 等）→ 解压 → 明文治理（清洗可审计）→ 7z 压缩出仓。
@@ -514,5 +523,102 @@ export async function uploadLakeSession(
     return { ...result, sid };
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
+}
+
+// ── 原生会话同步上传（组合层）─────────────────────────────────────────
+// uploadLakeSession 是单会话上传原语；这里在它之上组合「捕获 + 原生」对位
+// 上传：捕获行上传成功后解析原生对位（native-counterpart：DB 直查 → 磁盘
+// 发现），磁盘命中的先导入 insight（幂等 merge，复用全部装配/治理），再以
+// 原生行自己的 taskId/framework 走同一原语——同 sid 框架落 <sid>.native/，
+// codex（原生 sid ≠ 捕获 sid）落 <uuid>.native/。捕获上传不因原生失败回滚，
+// 原生结果独立上报（uploaded / not-found / failed）。
+export interface NativeUploadOutcome {
+  status: 'uploaded' | 'not-found' | 'failed';
+  sid?: string;
+  folder?: string;
+  reason?: string;
+}
+
+export interface UploadSessionPairOptions {
+  description?: string;
+  category?: string;
+  baseline?: boolean;
+  opGen?: 'success' | 'failure';
+  framework?: string | null;
+  withNative?: boolean;
+  // 测试注入：磁盘发现根目录（缺省本机默认根）
+  nativeRoots?: NativeDiscoveryRoots;
+}
+
+export async function uploadLakeSessionWithNative(
+  prisma: PrismaLike,
+  taskId: string,
+  opts: UploadSessionPairOptions = {},
+  remote?: LakeRemote,
+): Promise<UploadResult & { sid: string; native?: NativeUploadOutcome }> {
+  const result = await uploadLakeSession(
+    prisma, taskId, opts.description, remote, opts.category, opts.baseline, opts.opGen, opts.framework,
+  );
+  if (!opts.withNative) return result;
+  const native = await uploadNativeCounterpart(prisma, taskId, opts, remote);
+  return { ...result, native };
+}
+
+async function uploadNativeCounterpart(
+  prisma: PrismaLike,
+  taskId: string,
+  opts: UploadSessionPairOptions,
+  remote?: LakeRemote,
+): Promise<NativeUploadOutcome> {
+  try {
+    const capture = await prisma.session.findFirst({
+      where: opts.framework ? { taskId, framework: opts.framework } : { taskId },
+      select: { taskId: true, framework: true, version: true, startTime: true, endTime: true, query: true },
+    }) as { taskId: string; framework: string; version: string | null; startTime: Date; endTime: Date | null; query: string | null } | null;
+    if (!capture) return { status: 'failed', reason: `Session not found: "${taskId}"` };
+    if (!(isProxyVersion(capture.version) || capture.framework.endsWith('-proxy'))) {
+      return { status: 'not-found', reason: '仅 wire 捕获会话支持同步上传原生会话' };
+    }
+    const resolution = await resolveNativeCounterpart(
+      prisma,
+      {
+        taskId: capture.taskId,
+        framework: capture.framework,
+        startTime: capture.startTime ?? null,
+        endTime: capture.endTime ?? null,
+        query: capture.query ?? null,
+      },
+      opts.nativeRoots ?? defaultNativeDiscoveryRoots(),
+    );
+    if (resolution.status === 'not-found') return { status: 'not-found', reason: resolution.reason };
+
+    let nativeTaskId: string;
+    let nativeFramework: string;
+    if (resolution.origin === 'disk') {
+      // 磁盘命中先导入（幂等 merge）：行身份以导入结果为准（源描述符决定
+      // framework），不假设与捕获行的 agent 框架一致
+      await importSession(resolution.hit.path, resolution.hit.sessionId, prisma, resolution.hit.path, resolution.hit.sourceType);
+      const row = await prisma.session.findFirst({
+        where: { taskId: resolution.hit.sessionId },
+        select: { taskId: true, framework: true },
+      });
+      if (!row) return { status: 'failed', reason: `原生会话导入未建行: ${resolution.hit.sessionId}` };
+      nativeTaskId = row.taskId;
+      nativeFramework = row.framework;
+    } else {
+      nativeTaskId = resolution.taskId;
+      nativeFramework = resolution.framework;
+    }
+    // framework 必传：同 sid 双行下裸 taskId findFirst 会命中捕获行自己
+    const nativeResult = await uploadLakeSession(
+      prisma, nativeTaskId, opts.description, remote, opts.category, opts.baseline, opts.opGen, nativeFramework,
+    );
+    lakeLog.info('native counterpart uploaded', { captureSid: capture.taskId, nativeSid: nativeResult.sid });
+    return { status: 'uploaded', sid: nativeResult.sid, folder: nativeResult.folder };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    lakeLog.warn('native counterpart upload failed', { captureSid: taskId, error: reason });
+    return { status: 'failed', reason };
   }
 }

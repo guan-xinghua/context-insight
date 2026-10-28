@@ -1020,7 +1020,7 @@ export function ensureLfsReady(dir: string): void {
   if (!hasGitLfs()) {
     throw new Error('LFS 模式需要 git-lfs（`git lfs version` 不可用），三条出路任选：'
       + ' ① 系统安装 git-lfs 并确保在 PATH（https://git-lfs.github.com）；'
-      + ' ② 直接重试上传——insight 会自动下载私有件到 ~/.context-insight/bin（与 cpx lfs-setup 产物同位互用，零全局污染；慢网络可设 CONTEXT_CPX_LFS_BASE 镜像）；'
+      + ' ② 直接重试上传/导入——insight 会自动下载私有件到 ~/.context-insight/bin（与 cpx lfs-setup 产物同位互用，零全局污染；GitHub 直连慢时自动回退公共镜像，也可设 CONTEXT_CPX_LFS_BASE 指定自备镜像）；'
       + ' ③ 设置 env LAKE_LFS=0 关闭 LFS 走普通 git 存储');
   }
   runGit('git config filter.lfs.process "git-lfs filter-process"', dir, 10_000, { raw: true });
@@ -1045,6 +1045,17 @@ export async function ensureLfsReadyWithBootstrap(dir: string): Promise<void> {
     ensurePrivateLfsOnPath();
   }
   ensureLfsReady(dir);
+}
+
+/** 导入/物化路径 LFS 就绪（带自举）：materializeSession 是同步函数无法内嵌
+ *  自举，由调用方（importLakeSession）在物化前先行——数据仓导入与上传
+ *  同享「零手工安装」；就绪检查本体仍在 materializeSession 内（fail-fast）。 */
+export async function ensureLfsBootstrapForRead(): Promise<void> {
+  ensurePrivateLfsOnPath();
+  if (!hasGitLfs()) {
+    await ensureLfsBinaryAvailable();
+    ensurePrivateLfsOnPath();
+  }
 }
 
 // LFS 模式下确保 .gitattributes 声明 *.7z / *.gz 走 LFS（缺行补行，与默认模式
@@ -1464,7 +1475,7 @@ function releaseInitLock(lock: string): void {
   } catch { /* best-effort */ }
 }
 
-// ensure 单飞 + fetch TTL：ensureMirrorAsync 在每个 API 路径上（runs/notes/
+// ensure 并发去重（single-flight）+ fetch TTL：ensureMirrorAsync 在每个 API 路径上（runs/notes/
 // health 2s 轮询），不做节流会把每次筛选/轮询变成一次平台往返，并发调用
 // 还会在同一 cacheDir 上踩 ref 锁。TTL 内的镜像视为新鲜，直接复用。
 const FETCH_TTL_MS = 15_000;

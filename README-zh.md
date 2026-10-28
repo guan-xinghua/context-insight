@@ -22,7 +22,8 @@ LLM 编码 Agent 的 Session 级可观测工具：导入 agent 会话日志，�
 - **Session 对比** — 两会话的 token / 费用 / 耗时 / 工具 / 子代理对比
 - **轨迹评分** — 六维评分卡（完成度否决维 / 行为可信 / 质量 / 效率 / 冗余 / 自主性 + 自定义维度），支持基线对比与评分配置 profile
 - **Audit** — Workflow 审计（流程框图 + 节点问题 + 优化优先级）与 Skill 审计（真实执行 vs SKILL.md / agent 定义 / workflow 声明对账）
-- **密钥脱敏**（proxy 捕获）— API key 永不落盘：落盘咽喉统一打码（`前4…后4`）
+- **密钥脱敏**（proxy 捕获）— API key 永不落盘：落盘入口统一打码（`前4…后4`）
+- **数据仓上传** — 主页列表行 / 会话页标题栏把会话上传数据仓：密钥治理后按范式目录归档，支持 baseline 基准位与任务结果标注；proxy 捕获行可勾选「同步上传本机原生会话」——自动定位同一场对话的原生记录（已导入行直取；本机磁盘按框架发现：Claude / opencode / DSH 按会话 id，Codex 按捕获时间窗 + 首问锚点），未导入的先自动导入，与捕获一并落 `<sid>.native/` 同 sid 双记录（Codex 原生会话 id 不同，以自己的 id 落位）；CLI 同款 `--with-native`；git-lfs 缺失时自动安装——任一数据仓动作即在后台预热自举（GitHub 直连慢时自动回退公共镜像，sha256 pin 校验；更名前旧数据目录里的同版本私有件直接复用），LFS 模式上传/导入零手工安装
 
 主页 Sessions 列表支持关键词 / sessionID 搜索；导入对话框提供常用路径一键直达。
 
@@ -99,5 +100,6 @@ npx tsx src/cli/index.ts upload --file ~/.dsh/sessions/ --source dsh-native --li
 | `--file <path>` | 源路径（.db / .jsonl / 目录，类型自动推断） |
 | `--session-id <id>` | 指定 session（跳过交互） |
 | `--description <text>` | 提交描述 |
+| `--with-native` | 捕获行上传后同步上传本机原生会话（`<sid>.native/` 双记录） |
 | `--yes` / `--json` | 跳过确认 / JSON 输出（脚本友好） |
 | `--list` | 仅列出可选 session |

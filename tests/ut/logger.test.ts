@@ -186,7 +186,7 @@ describe('logger 核心机制', () => {
     expect(line).not.toMatch(/\n/);
   });
 
-  it('warning 别名：env CONTEXT_LOG_LEVEL=warning 等价 warn（归一唯一真身）', () => {
+  it('warning 别名：env CONTEXT_LOG_LEVEL=warning 等价 warn（归一唯一实现）', () => {
     logger.logInfo('t', 'before-alias');
     process.env.CONTEXT_LOG_LEVEL = 'warning';
     logger.logInfo('t', 'filtered-by-alias');

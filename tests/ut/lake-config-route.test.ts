@@ -51,11 +51,11 @@ function put(body: unknown): Promise<Response> {
 }
 
 describe('设置页·数据之湖远端偏好 API', () => {
-  it('① GET 未配置 → configured:false、字段空串', async () => {
+  it('① GET 未配置 → configured:false、字段空串、lfs 缺省 true', async () => {
     const res = await route.GET();
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({ configured: false, address: '', branch: '', directory: '' });
+    expect(data).toEqual({ configured: false, address: '', branch: '', directory: '', lfs: true });
   });
 
   it('② PUT 持久化 + 归一化落盘（branch 去空白、directory 去首尾斜杠）→ GET 读回归一形态', async () => {
@@ -96,6 +96,30 @@ describe('设置页·数据之湖远端偏好 API', () => {
     expect(fs.existsSync(serverConfigPath())).toBe(false);
     const res2 = await route.GET();
     expect((await res2.json()).configured).toBe(false);
+  });
+
+  it('⑤ lfs 透传与保留：带布尔写入、缺省不洗掉（回归锁：修复前 PUT 不带 lfs 会把用户关闭的 LFS 模式复位为 true）', async () => {
+    // 带布尔 → 落盘 + GET 回显
+    let res = await put({ address: 'https://example.com/lake.git', lfs: false });
+    expect(res.status).toBe(200);
+    expect(readServerLakeConfig()?.lfs).toBe(false);
+    expect((await (await route.GET()).json()).lfs).toBe(false);
+    // 缺省（旧版前端 PUT 不带 lfs）→ 保留现有 false，而非静默复位
+    res = await put({ address: 'https://example.com/lake2.git' });
+    expect(res.status).toBe(200);
+    const cfg = readServerLakeConfig();
+    expect(cfg?.address).toBe('https://example.com/lake2.git');
+    expect(cfg?.lfs).toBe(false);
+    // 显式 true 也能翻回
+    res = await put({ address: 'https://example.com/lake2.git', lfs: true });
+    expect(res.status).toBe(200);
+    expect(readServerLakeConfig()?.lfs).toBe(true);
+    // 非布尔（脏输入）→ 忽略并沿用现有值
+    res = await put({ address: 'https://example.com/lake2.git', lfs: 'yes' });
+    expect(res.status).toBe(200);
+    expect(readServerLakeConfig()?.lfs).toBe(true);
+    // 收尾清理，不影响其他用例的未配置前提
+    await route.DELETE();
   });
 });
 

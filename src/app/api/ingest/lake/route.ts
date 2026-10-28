@@ -7,10 +7,13 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listLakeOverview, importLakeSession, uploadLakeSession, GovernanceError, listParadigmDirs } from '@/lib/lake';
+import { listLakeOverview, importLakeSession, uploadLakeSessionWithNative, GovernanceError, listParadigmDirs } from '@/lib/lake';
+import { prewarmLfsBinary } from '@/lib/lake/lfs-setup';
+import { resolveNativeCounterpart } from '@/lib/ingest/native-counterpart';
+import { agentFrameworkOf } from '@/lib/shared/session-format';
 import { listLakeBundles, uploadLakeBundle, importLakeBundle } from '@/lib/lake/bundle';
 import { resolveLakeRemote, resolveAdhocRemote, testLakeRemote, listRemoteBranches, redactRemoteSecrets, normalizeDirPrefix } from '@/lib/lake/remote';
-import { classifyLakeError } from '@/lib/lake/auth';
+import { classifyLakeError, lakeLfsNotEnabledMessage } from '@/lib/lake/auth';
 import { listRemoteDirs } from '@/lib/lake/mirror';
 import type { LakeRemoteInput } from '@/lib/lake-config';
 import { prisma } from '@/lib/db';
@@ -26,13 +29,17 @@ export async function POST(request: NextRequest) {
   let remote: ReturnType<typeof resolveLakeRemote> | null = null;
   let secrets: (string | undefined)[] = [];
   // 错误出边界统一走这里：消息脱敏 + classifyLakeError 产出结构化 code
-  // （no-credentials/auth-failed/forbidden/quota/unknown）——前端据 code 给
-  // 「前往设置页配置凭据」等定向引导，而不是让用户看脱敏后的 git 原文
+  // （no-credentials/auth-failed/forbidden/quota/lfs-not-enabled/unknown）——
+  // 前端据 code 给「前往设置页配置凭据」等定向引导，而不是让用户看脱敏后
+  // 的 git 原文；lfs-not-enabled 用白话文案整段替换（凭据无问题的结论 +
+  // 平台侧出路，见 lakeLfsNotEnabledMessage）
   const fail = (err: unknown, status = 500) => {
     const code = classifyLakeError(err);
-    const message = redactRemoteSecrets(
-      err instanceof Error ? err.message : String(err), remote ?? undefined, secrets,
-    );
+    const message = code === 'lfs-not-enabled'
+      ? lakeLfsNotEnabledMessage()
+      : redactRemoteSecrets(
+          err instanceof Error ? err.message : String(err), remote ?? undefined, secrets,
+        );
     logError('route:ingest/lake', 'lake action 失败', { code, error: message });
     return NextResponse.json({ error: message, code }, { status: code === 'no-credentials' ? 400 : status });
   };
@@ -80,6 +87,40 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 原生对位预检（只读）：上传弹窗勾选「同步上传原生会话」时即时探测——
+    // DB 直查 + 本机磁盘发现，不导入不上传，不触碰数据仓（无 lake 配置也可
+    // 用）。found 时 sid = 原生行 taskId（codex 与捕获 sid 不同）
+    if (action === 'native-preview') {
+      const { taskId, framework } = body as { taskId?: string; framework?: string };
+      if (!taskId) {
+        return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+      }
+      try {
+        const session = await prisma.session.findFirst({
+          where: framework ? { taskId, framework } : { taskId },
+          select: { taskId: true, framework: true, startTime: true, endTime: true, query: true },
+        });
+        if (!session) {
+          return NextResponse.json({ error: `Session not found: "${taskId}"` }, { status: 404 });
+        }
+        const resolution = await resolveNativeCounterpart(prisma, {
+          taskId: session.taskId,
+          framework: session.framework,
+          startTime: session.startTime ?? null,
+          endTime: session.endTime ?? null,
+          query: session.query ?? null,
+        });
+        const resolutionView = resolution.status === 'not-found'
+          ? { status: resolution.status, reason: resolution.reason }
+          : resolution.origin === 'db'
+            ? { status: resolution.status, origin: resolution.origin, sid: resolution.taskId, framework: resolution.framework }
+            : { status: resolution.status, origin: resolution.origin, sid: resolution.hit.sessionId, framework: agentFrameworkOf(session.framework) };
+        return NextResponse.json({ resolution: resolutionView });
+      } catch (err) {
+        return fail(err);
+      }
+    }
+
     // 数据动作：单源（服务端 lake-config.json），忽略请求体 config
     try {
       remote = resolveLakeRemote();
@@ -87,6 +128,11 @@ export async function POST(request: NextRequest) {
       const message = err instanceof Error ? err.message : 'Invalid lake config';
       return NextResponse.json({ error: message }, { status: 400 });
     }
+
+    // LFS 预热：首个数据动作即后台自举 git-lfs（fire-and-forget，不阻塞响应；
+    // 上传/导入路径的同步就绪检查兜底）——用户浏览/填表期间把环境备好，
+    // 正式操作时零等待
+    if (remote.lfs) prewarmLfsBinary();
 
     if (action === 'list') {
       // sessions + 顶层目录（dirs）一次返回：导入对话框的范式下拉 + 会话表
@@ -114,7 +160,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'upload') {
-      const { taskId, description, category, baseline, opGen, framework } = body as { taskId: string; description?: string; category?: string; baseline?: boolean; opGen?: string; framework?: string };
+      const { taskId, description, category, baseline, opGen, framework, withNative } = body as { taskId: string; description?: string; category?: string; baseline?: boolean; opGen?: string; framework?: string; withNative?: boolean };
       if (!taskId) {
         return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
       }
@@ -122,7 +168,15 @@ export async function POST(request: NextRequest) {
       const opGenValue = opGen === 'success' || opGen === 'failure' ? opGen : undefined;
       try {
         // framework：同 sid 双行（方案一）消歧——从捕获行页面上传必须带
-        const result = await uploadLakeSession(prisma, taskId, description, remote, typeof category === 'string' ? category : undefined, baseline === true, opGenValue, typeof framework === 'string' ? framework : undefined);
+        // withNative：捕获行上传成功后同步上传本机原生会话（可选）
+        const result = await uploadLakeSessionWithNative(prisma, taskId, {
+          description,
+          category: typeof category === 'string' ? category : undefined,
+          baseline: baseline === true,
+          opGen: opGenValue,
+          framework: typeof framework === 'string' ? framework : undefined,
+          withNative: withNative === true,
+        }, remote);
         return NextResponse.json(result);
       } catch (err) {
         if (err instanceof GovernanceError) {

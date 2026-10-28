@@ -11,6 +11,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeftIcon } from "lucide-react"
 import { BRAND_NAME, BAY_NAME } from "@/lib/branding"
@@ -32,6 +33,9 @@ export default function SettingsPage() {
   const [token, setToken] = useState("")
   const [branch, setBranch] = useState("")
   const [directory, setDirectory] = useState("")
+  // LFS 模式（服务端 lake-config.json 的 lfs 字段回显，缺省 true）：平台不
+  // 向普通代码仓开放 LFS 时（上传报 project lfs not enabled）关掉即走普通 git
+  const [lfs, setLfs] = useState(true)
   const [savedFlag, setSavedFlag] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const [authStatus, setAuthStatus] = useState<{ username: string; tokenMasked: string; verifiedAt?: string } | null>(null)
@@ -69,11 +73,12 @@ export default function SettingsPage() {
       const legacy = loadLakeConfig()
       try {
         const res = await fetch("/api/settings/lake-config")
-        const data = await res.json() as { configured?: boolean; address?: string; branch?: string; directory?: string }
+        const data = await res.json() as { configured?: boolean; address?: string; branch?: string; directory?: string; lfs?: boolean }
         if (data.configured && data.address) {
           setAddress(data.address)
           setBranch(data.branch?.trim() || "main")
           setDirectory(data.directory ?? "")
+          setLfs(data.lfs ?? true)
           setSavedFlag(true)
         } else if (legacy) {
           setAddress(legacy.address)
@@ -162,7 +167,7 @@ export default function SettingsPage() {
       const cfgRes = await fetch("/api/settings/lake-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: remoteUrl, branch: branch.trim() || "main", directory: directory.trim() }),
+        body: JSON.stringify({ address: remoteUrl, branch: branch.trim() || "main", directory: directory.trim(), lfs }),
       })
       if (!cfgRes.ok) throw new Error(String((await cfgRes.json()).error ?? "远端偏好保存失败"))
       clearLakeConfig()
@@ -489,6 +494,14 @@ export default function SettingsPage() {
                 <Input value={directory} onChange={(e) => { setDirectory(e.target.value); dirty() }} className="h-7 text-xs" placeholder="留空 = 根目录" />
                 <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={handleBrowse} disabled={!hydrated}>浏览</Button>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16 shrink-0">LFS</span>
+                <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                  <Checkbox checked={lfs} onCheckedChange={(v) => { setLfs(v === true); dirty() }} />
+                  <span>启用 LFS 存储（<code>*.jsonl.7z</code> / <code>*.jsonl.gz</code> 走 LFS 指针出仓）</span>
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-[72px]">部分平台（如 GitCode / AtomGit）不向普通代码仓提供 LFS——上传报「project lfs not enabled」时关闭本开关，改走普通 git 存储（会话文件压缩后仅数十 KB 级）。</p>
               {browseOpen && (
                 <div className="ml-[72px] rounded-md border p-2 space-y-2">
                   <div className="flex items-center justify-between gap-2">

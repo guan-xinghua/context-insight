@@ -410,6 +410,13 @@ export interface ApiUploadResponse {
   sid: string;
   folder: string;
   unchanged: boolean;
+  // 同步上传原生会话结果（--with-native 时返回；捕获行已上传，原生结果独立）
+  native?: {
+    status: 'uploaded' | 'not-found' | 'failed';
+    sid?: string;
+    folder?: string;
+    reason?: string;
+  };
 }
 
 export interface ApiAIProviderConfig {

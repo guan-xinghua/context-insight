@@ -6,10 +6,10 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// 信封键单一真身 IT：x_lake 单轨读写（旧键 x_cannbay 已退役——携带旧键的
+// 信封键唯一定义 IT：x_lake 单轨读写（旧键 x_cannbay 已退役——携带旧键的
 // 存量数据按无信封处理）、形态校验；+ 源级哨兵——insight/src 内（envelope
 // 模块自身除外）不得再出现 'x_lake'/'x_cannbay' 引号字面量（新内联点 =
-// 漏改 + 哨兵无法借单一真身判定的复燃；旧键字面量复现 = 退役轨回潮）。
+// 漏改 + 哨兵无法借唯一定义判定的复燃；旧键字面量复现 = 退役轨回潮）。
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,7 +42,7 @@ describe('envelopeFields 单轨写', () => {
   });
 });
 
-describe('源级哨兵：信封键字面量单一真身（envelope 模块外零内联）', () => {
+describe('源级哨兵：信封键字面量唯一定义（envelope 模块外零内联）', () => {
   it("insight/src 内无 'x_lake'/'x_cannbay' 引号字面量（防内联复燃 / 旧轨回潮）", () => {
     const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
     const offenders: string[] = [];

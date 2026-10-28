@@ -212,6 +212,7 @@ export function uploadCommand(): Command {
     .option('--description <text>', 'Description text (skip interactive prompt)')
     .option('--paradigm <dir>', `Paradigm directory in ${BAY_NAME} (top-level dir, required for default remote)`)
     .option('--baseline', 'Set this session as the paradigm baseline (<paradigm>/baseline/, replaces the current one)')
+    .option('--with-native', 'Also locate and upload the native session on this machine alongside the capture (<sid>.native/)')
     .option('--interactive', 'Interactive prompt for description fields (default when no --description)')
     .option('--yes', 'Skip confirmation prompt')
     .option('--json', 'Output result as JSON')
@@ -279,10 +280,10 @@ export function uploadCommand(): Command {
           }
 
           const result = paradigm && baseline
-            ? await client.uploadSession(taskId, description, paradigm, true, uploadFramework)
+            ? await client.uploadSession(taskId, description, paradigm, true, uploadFramework, opts.withNative)
             : paradigm
-              ? await client.uploadSession(taskId, description, paradigm, undefined, uploadFramework)
-              : await client.uploadSession(taskId, description, undefined, undefined, uploadFramework);
+              ? await client.uploadSession(taskId, description, paradigm, undefined, uploadFramework, opts.withNative)
+              : await client.uploadSession(taskId, description, undefined, undefined, uploadFramework, opts.withNative);
 
           if (opts.json) {
             console.log(JSON.stringify(result, null, 2));
@@ -291,6 +292,13 @@ export function uploadCommand(): Command {
 
           console.log(formatSuccess(`✓ Uploaded session ${taskId} → ${BAY_NAME}`));
           console.log(theme.muted(`  Folder: ${result.folder}${result.unchanged ? ' (unchanged)' : ''}`));
+          if (result.native) {
+            if (result.native.status === 'uploaded') {
+              console.log(formatSuccess(`✓ Native session synced → ${result.native.folder ?? ''}${result.native.sid && result.native.sid !== taskId ? ` (native sid: ${result.native.sid})` : ''}`));
+            } else {
+              console.log(formatWarning(`  Native session ${result.native.status === 'not-found' ? 'not found' : 'upload failed'}: ${result.native.reason ?? ''}`));
+            }
+          }
           return;
         }
 
@@ -391,10 +399,10 @@ export function uploadCommand(): Command {
           if (!opts.json) console.log(theme.muted(`  Uploading to ${BAY_NAME}...`));
           const uploadFw = importResult.framework ?? undefined;
           const uploadResult = paradigm && baseline
-            ? await client.uploadSession(target.id, description, paradigm, true, uploadFw)
+            ? await client.uploadSession(target.id, description, paradigm, true, uploadFw, opts.withNative)
             : paradigm
-              ? await client.uploadSession(target.id, description, paradigm, undefined, uploadFw)
-              : await client.uploadSession(target.id, description, undefined, undefined, uploadFw);
+              ? await client.uploadSession(target.id, description, paradigm, undefined, uploadFw, opts.withNative)
+              : await client.uploadSession(target.id, description, undefined, undefined, uploadFw, opts.withNative);
 
           if (opts.json) {
             console.log(JSON.stringify({ import: importResult, upload: uploadResult }, null, 2));
@@ -404,6 +412,13 @@ export function uploadCommand(): Command {
           console.log(formatSuccess(`✓ Imported & uploaded session ${target.id} → ${BAY_NAME}`));
           console.log(theme.muted(`  Insight taskId: ${importResult.sessionId}`));
           console.log(theme.muted(`  Folder: ${uploadResult.folder}${uploadResult.unchanged ? ' (unchanged)' : ''}`));
+          if (uploadResult.native) {
+            if (uploadResult.native.status === 'uploaded') {
+              console.log(formatSuccess(`✓ Native session synced → ${uploadResult.native.folder ?? ''}${uploadResult.native.sid && uploadResult.native.sid !== target.id ? ` (native sid: ${uploadResult.native.sid})` : ''}`));
+            } else {
+              console.log(formatWarning(`  Native session ${uploadResult.native.status === 'not-found' ? 'not found' : 'upload failed'}: ${uploadResult.native.reason ?? ''}`));
+            }
+          }
           return;
         }
 

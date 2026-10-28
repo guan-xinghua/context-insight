@@ -162,7 +162,7 @@ opsbot-bundle/<runId>/
   导入行为零影响（加枚举值不升 schema 版本：读方对未知 producer 一律走非权威路径）
 
 `governed`（可选 bool，仅 producer=cpx 携带）：cpx 会话关闭压缩时打的信任
-标记，语义 = "字节流已经 cpx 落盘咽喉 redactor 全量清洗"（与 insight 治理
+标记，语义 = "字节流已经 cpx 落盘入口 redactor 全量清洗"（与 insight 治理
 正则 parity 锁定同源）。lake 上传据此走**直传快路径**（免解压重洗重压，
 保留白名单与大小限检）；无标记 / 明文源 / 其他 producer 一律走治理兜底路径。
 加可选字段不升 schema 版本

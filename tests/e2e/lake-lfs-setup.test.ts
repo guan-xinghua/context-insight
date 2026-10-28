@@ -17,8 +17,8 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  platformKey, lfsAssetName, lfsDownloadUrl, privateLfsBinDir, lfsBinaryPath,
-  privateGitLfsOk, ensureLfsBinaryAvailable, lfsSetupGuidance,
+  platformKey, lfsAssetName, lfsDownloadUrl, lfsDownloadCandidates, privateLfsBinDir, lfsBinaryPath,
+  privateGitLfsOk, ensureLfsBinaryAvailable, lfsSetupGuidance, prewarmLfsBinary,
 } from '../../src/lib/lake/lfs-setup';
 import { ensureLfsReadyWithBootstrap } from '../../src/lib/lake/mirror';
 
@@ -118,6 +118,93 @@ describe('insight git-lfs 自举（与 cpx 受控双实现 parity）', () => {
     fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
     await expect(ensureLfsBinaryAvailable({ fetchImpl: fetchOf({}), log: () => {} }))
       .rejects.toThrow(lfsSetupGuidance('下载 HTTP 404').slice(0, 20));
+  });
+
+  it('下载源回退链（纯函数）：缺省 = GitHub 直连 → 内置镜像；env/注入覆写 = 单源', () => {
+    const c = lfsDownloadCandidates('linux-x64');
+    expect(c).toHaveLength(3);
+    expect(c[0]).toBe('https://github.com/git-lfs/git-lfs/releases/download/v3.8.0/git-lfs-linux-amd64-v3.8.0.tar.gz');
+    expect(c[1]).toContain('gh-proxy.com');
+    expect(c[2]).toContain('ghfast.top');
+    process.env.CONTEXT_CPX_LFS_BASE = 'https://mirror.example.com/git-lfs/';
+    expect(lfsDownloadCandidates('linux-x64')).toHaveLength(1);
+    delete process.env.CONTEXT_CPX_LFS_BASE;
+    expect(lfsDownloadCandidates('linux-x64', 'https://dep.example.com/')).toHaveLength(1);
+  });
+
+  it.skipIf(!KEY || !KEY.startsWith('linux'))('回退链自愈：GitHub 直连 404 → 镜像命中 → 安装成功（顺序断言）', async () => {
+    fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
+    const seen: string[] = [];
+    const fetchSpy = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.startsWith('https://gh-proxy.com/')) {
+        return new Response(fs.readFileSync(path.join(TMP, 'fixture-linux-x64', 'git-lfs-linux-amd64-v3.8.0.tar.gz')), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as unknown as typeof fetch;
+    await ensureLfsBinaryAvailable({ fetchImpl: fetchSpy, sha256: FIXTURE_SHA['linux-x64'], log: () => {} });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain('github.com');
+    expect(seen[1]).toContain('gh-proxy.com');
+    expect(privateGitLfsOk()).toBe(true);
+  });
+
+  it.skipIf(!KEY || !KEY.startsWith('linux'))('全部源失败 → 聚合原因的指引报错（仍含自备镜像出路）', async () => {
+    fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
+    await expect(ensureLfsBinaryAvailable({ fetchImpl: fetchOf({}), log: () => {} }))
+      .rejects.toThrow(/全部下载源失败[\s\S]*CONTEXT_CPX_LFS_BASE/);
+  });
+
+  it.skipIf(!KEY)('旧代私有件复用：pin 同版本的健康件直接拷贝，零下载', async () => {
+    fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
+    const legacyDir = path.join(TMP, 'legacy-bin');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    const legacy = path.join(legacyDir, 'git-lfs');
+    fs.writeFileSync(legacy, '#!/bin/sh\necho "git-lfs/3.8.0 (legacy fixture)"\n', { mode: 0o755 });
+    let fetched = 0;
+    const fetchSpy = (async () => { fetched += 1; return new Response('x', { status: 200 }); }) as unknown as typeof fetch;
+    await ensureLfsBinaryAvailable({ fetchImpl: fetchSpy, legacyBins: [legacy], log: () => {} });
+    expect(fetched).toBe(0);
+    expect(privateGitLfsOk()).toBe(true);
+  });
+
+  it.skipIf(!KEY || !KEY.startsWith('linux'))('旧代版本不匹配（≠ pin）→ 不复用，走下载回退链', async () => {
+    fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
+    const legacyDir = path.join(TMP, 'legacy-bin-old');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    const legacy = path.join(legacyDir, 'git-lfs');
+    fs.writeFileSync(legacy, '#!/bin/sh\necho "git-lfs/3.7.0 (old)"\n', { mode: 0o755 });
+    await ensureLfsBinaryAvailable({
+      fetchImpl: fetchOf({ 'git-lfs-linux-amd64-v3.8.0.tar.gz': path.join(TMP, 'fixture-linux-x64', 'git-lfs-linux-amd64-v3.8.0.tar.gz') }),
+      legacyBins: [legacy],
+      sha256: FIXTURE_SHA['linux-x64'],
+      log: () => {},
+    });
+    expect(privateGitLfsOk()).toBe(true);
+  });
+
+  it.skipIf(!KEY || !KEY.startsWith('linux'))('并发去重：并发触发只下载一次（后到者等待同一承诺）', async () => {
+    fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
+    let fetched = 0;
+    const fetchSpy = (async (input: RequestInfo | URL) => {
+      fetched += 1;
+      await new Promise(r => setTimeout(r, 50));
+      return fetchOf({ 'git-lfs-linux-amd64-v3.8.0.tar.gz': path.join(TMP, 'fixture-linux-x64', 'git-lfs-linux-amd64-v3.8.0.tar.gz') })(input);
+    }) as unknown as typeof fetch;
+    await Promise.all([
+      ensureLfsBinaryAvailable({ fetchImpl: fetchSpy, sha256: FIXTURE_SHA['linux-x64'], log: () => {} }),
+      ensureLfsBinaryAvailable({ fetchImpl: fetchSpy, sha256: FIXTURE_SHA['linux-x64'], log: () => {} }),
+    ]);
+    expect(fetched).toBe(1);
+    expect(privateGitLfsOk()).toBe(true);
+  });
+
+  it('prewarm：测试环境（VITEST 置位）no-op，不触网不落盘', async () => {
+    fs.rmSync(path.join(TMP, 'bin'), { recursive: true, force: true });
+    prewarmLfsBinary();
+    await new Promise(r => setTimeout(r, 30));
+    expect(fs.existsSync(lfsBinaryPath())).toBe(false);
   });
 
   it('ensureLfsReadyWithBootstrap：私有件在位 → 跳过下载直接过检（仓级 filter 配置写入）', async () => {

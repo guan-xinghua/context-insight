@@ -228,7 +228,7 @@ adapters/system-structure/
 | `session_meta` | 1/文件（首行） | id / **parent_thread_id**（子代理才有）/ cwd / cli_version / **thread_source**（user/subagent）/ **agent_nickname** / model_provider |
 | `turn_context` | 每用户轮 1 条 | **model** / turn_id / approval_policy / sandbox |
 | `response_item` | 核心 | OpenAI Responses API 项：`message`（user/developer/assistant，input_text/output_text，assistant 可带 phase）/ `reasoning`（思考文本）/ `function_call`（name/arguments JSON 串/call_id）/ `function_call_output`（call_id/output）/ `web_search_call` |
-| `event_msg` | 多 | UI 线程事件（task_started/task_complete/token_count/item_completed），与 response_item 内容重复——**不作为内容真身** |
+| `event_msg` | 多 | UI 线程事件（task_started/task_complete/token_count/item_completed），与 response_item 内容重复——**不作为内容主体** |
 | `token_usage_record` | 每 API 响应 1 条 | input / cached_input / cache_write / output / reasoning_output / total |
 | `world_state` | 1+ | 上下文快照（agents_md 等），忽略 |
 
@@ -317,7 +317,7 @@ totalTokens = Σ usage（wire 口径，与 claude 侧一致）；version = cli_v
 | D7 | 嗅探优先级：cannbot > sqlite > codex(rollout- 前缀) > claude-jsonl(扩展名兜底) | rollout-*.jsonl 不误判；claude 通用 jsonl 仍可兜底导入 |
 | D8 | normalize 合并同构实现，签名保留 | 两实现逐字段相同；保留 sourceType 校验向后兼容 |
 | D9 | opencode-db 的 sharedDb 特判保留 | 连接池优化与框架注册正交；jsonl 系源全走通用路径 |
-| D10 | event_msg 不作为内容真身 | 与 response_item 重复，双读会双计 token/轮次 |
+| D10 | event_msg 不作为内容主体 | 与 response_item 重复，双读会双计 token/轮次 |
 
 ## 五、执行计划（单 PR，三阶段提交）
 
@@ -341,7 +341,7 @@ totalTokens = Σ usage（wire 口径，与 claude 侧一致）；version = cli_v
 
 ## 七、边界与非目标
 
-- 不读 `state_5.sqlite` / `thread_history_*.sqlite`（codex 内部投影，rollout 是公开真身）
+- 不读 `state_5.sqlite` / `thread_history_*.sqlite`（codex 内部投影，rollout 是公开数据源）
 - 不做成本估算（D6）、不做自动发现/退出自动导入（D4）
 - `phase='final_answer'` 不特殊处理（普通 assistant 消息）
 - cpx 代理捕获通路（codex-proxy，claude 信封）不受影响——与原生通路正交共存

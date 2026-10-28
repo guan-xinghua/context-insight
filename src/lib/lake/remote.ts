@@ -68,7 +68,7 @@ export interface LakeRemote {
   lfs?: boolean;
 }
 
-// 地址元字符黑名单（导出单一真身）：凡要进入 shell/git 命令的地址输入面
+// 地址元字符黑名单（唯一实现统一导出）：凡要进入 shell/git 命令的地址输入面
 // （normalizeGitAddress、凭据 API PUT）共用同一份校验
 export const FORBIDDEN_ADDRESS_CHARS = /["'`$;&|\n\r]/;
 

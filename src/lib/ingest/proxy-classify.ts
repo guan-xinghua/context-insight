@@ -74,7 +74,7 @@ export function proxyRecordingFrameworkFromVersion(version: string | null | unde
 
 /** meta.json cc-session-meta 声明的内容（producer=cpx 时 framework/ccVersion 有效）。
  *  全部 meta.json 消费方（分类器 / 导入 ccVersion / lake 重导入 patch）共用，
- *  不再各自内联 JSON 解析。governed：cpx 压缩时打的"字节流已经落盘咽喉
+ *  不再各自内联 JSON 解析。governed：cpx 压缩时打的"字节流已经落盘入口
  *  redactor 全量清洗"标记（spec §4.4）——lake 上传直传快路径的信任凭证。 */
 export interface CcSessionMeta {
   producer: string | null;

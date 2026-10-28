@@ -23,6 +23,7 @@ Import SQLite (opencode.db) or JSONL (native Claude Code / Codex `rollout-*.json
 - **Trajectory Scoring** — Six-dimension scorecard (completion veto / trust / quality / efficiency / redundancy / autonomy + custom dims), baseline comparison and scoring profiles
 - **Audit** — Workflow audit (flow chart + per-node findings + priorities) and Skill audit (real execution vs SKILL.md / agent definitions / workflow declarations)
 - **Key Redaction** (proxy captures) — API keys never touch disk: masked (`abcd…wxyz`) at the single write chokepoint
+- **Data Lake Upload** — Upload sessions to the data lake from the home list row or the session page header: secrets are scrubbed before archiving into a paradigm directory, with a baseline slot and task-outcome annotation; proxy captures offer "also upload the native session on this machine" — the native record of the same conversation is located automatically (already-imported row, or on-disk discovery per framework: Claude / opencode / DSH by session id, Codex by capture time window + first-prompt anchor), imported first if needed, and pushed alongside the capture as the same-sid dual record under `<sid>.native/` (a Codex native session has its own id and lands under it); the CLI flag is `--with-native`; git-lfs is set up automatically when missing — any lake action prewarms the bootstrap in the background (the download falls back to public mirrors when GitHub is slow, sha256-pinned; a same-version binary left in the pre-rename data directory is reused as-is), so LFS-mode upload and import require no manual installation
 
 The homepage Sessions list supports keyword / session-ID search; the import dialog offers one-click default paths.
 
@@ -99,5 +100,6 @@ npx tsx src/cli/index.ts upload --file ~/.dsh/sessions/ --source dsh-native --li
 | `--file <path>` | Source path (.db / .jsonl / directory; type auto-detected) |
 | `--session-id <id>` | Pick a specific session (skip the interactive picker) |
 | `--description <text>` | Upload description |
+| `--with-native` | Also upload the native session found on this machine alongside the capture (`<sid>.native/` dual record) |
 | `--yes` / `--json` | Skip confirmation / JSON output (script-friendly) |
 | `--list` | List available sessions only |

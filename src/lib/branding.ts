@@ -21,6 +21,10 @@ const BRAND_SOURCE_TYPE = "context-insight"
 // 当前值同义识别，避免品牌更名把存量误标行误判为空显示/非已知源。
 const BRAND_SOURCE_TYPE_LEGACY = "cannbot-insight"
 
+// 品牌更名前的旧数据目录（≤0.2.40）：git-lfs 私有件跨代复用探测清单——
+// 旧目录里 pin 同版本的健康二进制直接拷贝，免去更名后重复下载
+const BRAND_LEGACY_CONFIG_DIRS = [".cannbot-insight"]
+
 /** framework/sourceType 是否品牌容器标识（含存量旧值读侧兼容）。 */
 function isBrandSourceType(value: string | null | undefined): boolean {
   return value === BRAND_SOURCE_TYPE || value === BRAND_SOURCE_TYPE_LEGACY
@@ -32,4 +36,4 @@ const BAY_NAME = "contextBay"
 // viewer 页显示名（首页入口按钮 + viewer 标题）
 const BAY_VIEWER_NAME = "contextBay Viewer"
 
-export { BRAND_NAME, BRAND_SLUG, BRAND_DESCRIPTION, BRAND_CONFIG_DIR_SUFFIX, BRAND_CLI_ALIAS, BRAND_SOURCE_TYPE, BRAND_SOURCE_TYPE_LEGACY, BAY_NAME, BAY_VIEWER_NAME, isBrandSourceType }
+export { BRAND_NAME, BRAND_SLUG, BRAND_DESCRIPTION, BRAND_CONFIG_DIR_SUFFIX, BRAND_CLI_ALIAS, BRAND_SOURCE_TYPE, BRAND_SOURCE_TYPE_LEGACY, BRAND_LEGACY_CONFIG_DIRS, BAY_NAME, BAY_VIEWER_NAME, isBrandSourceType }

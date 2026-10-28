@@ -67,7 +67,7 @@ type MinimalPrisma = {
   interactionBridge: { findMany(args: { where: { sessionId: string } }): Promise<ExportBridge[]> };
 };
 
-// 信封构造（键名与双写经 shared/envelope 单一真身——ENVELOPE_KEY 常量族），
+// 信封构造（键名与双写统一经 shared/envelope——ENVELOPE_KEY 常量族），
 // 双轨期与 legacy 顶层字段（source/duration_ms/stopReason）并存，读方按
 // readEnvelope 双名优先级解析。
 export function xLake(schema: string, data: Record<string, unknown>) {

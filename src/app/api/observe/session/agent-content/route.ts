@@ -22,7 +22,7 @@ import { withRouteLog } from '@/lib/api-route';
  * 1. **会话恢复 · system 注入**（主路径）：proxy 捕获的子代理 jsonl 每条
  *    assistant 行带顶层 system 字段 = 运行时注入的 agent .md 正文（显式 agent
  *    派发形态，正常会话 88/88 覆盖）。这是**运行时真正生效的那份声明**——远端
- *    机器当时的版本（实测 designer 真身 8,606 字 vs 本机磁盘 demo 4,771 /
+ *    机器当时的版本（实测 designer 实际内容 8,606 字 vs 本机磁盘 demo 4,771 /
  *    glacier 6,793，均非同版本），多插件同名天然无歧义（注入的就是当时加载的
  *    那份）。不依赖子代理 Read 过该文件——声明已注入上下文，子代理不会再去
  *    磁盘读一遍（正常会话仅 3 个验收类子代理 Read 过【别人的】md）。

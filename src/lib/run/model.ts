@@ -16,7 +16,7 @@ export const BUNDLE_VERSION = 1 as const;
 
 /** workflow-bundle 清单文件在包目录内的候选名（workflow.json 优先，manifest.json
  * 兼容旧导出件）。browse 高亮（ingest/browse-directory）与 import 接受
- * （run/import-service）共用这一真身，避免两处硬编码静默分叉。 */
+ * （run/import-service）共用这一实现，避免两处硬编码静默分叉。 */
 export const MANIFEST_FILENAMES = ['workflow.json', 'manifest.json'] as const;
 
 /** bundle 随包的权威 JSON Schema（draft-07）文件名，与 workflow.json 并列。

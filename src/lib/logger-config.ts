@@ -31,7 +31,7 @@ export function isLoggerLevel(v: unknown): v is LoggerLevel {
   return typeof v === 'string' && (LEVELS as readonly string[]).includes(v);
 }
 
-/** 级别归一唯一真身（env 解析 / 设置文件 sanitize / PUT 校验 / 启动自报共用）：
+/** 级别归一唯一实现（env 解析 / 设置文件 sanitize / PUT 校验 / 启动自报共用）：
  *  大小写不敏感，'warning' → 'warn' 别名；非法返回 null。此前四处各写一份，
  *  'warning' 出现过 env 接受、设置文件判废整份、自报原样透传三种分歧 */
 export function normalizeLoggerLevel(v: unknown): LoggerLevel | null {

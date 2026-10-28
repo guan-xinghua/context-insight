@@ -85,7 +85,8 @@ export function findStoredAuthEntry(remotes: StoredRemoteInfo[], address: string
 }
 
 /** 凭据类错误码（路由结构化 code）：命中即弹引导配置。quota/unknown 不弹——
- *  那不是换令牌能解决的问题。 */
+ *  那不是换令牌能解决的问题；lfs-not-enabled 同理不弹——那是托管平台项目
+ *  设置问题，弹令牌引导会把用户引向错误方向（route 已给白话出路文案）。 */
 export function isCredentialErrorCode(code: unknown): code is LakeTokenReason {
   return code === 'no-credentials' || code === 'auth-failed' || code === 'forbidden'
 }

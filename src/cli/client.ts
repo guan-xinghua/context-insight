@@ -282,8 +282,9 @@ export class InsightClient {
     return { size: buffer.length };
   }
 
-  async uploadSession(taskId: string, description: string, category?: string, baseline?: boolean, framework?: string): Promise<ApiUploadResponse> {
+  async uploadSession(taskId: string, description: string, category?: string, baseline?: boolean, framework?: string, withNative?: boolean): Promise<ApiUploadResponse> {
     // framework：同 sid 双行（方案一）消歧——不带会裸 taskId 任选一行上传
+    // withNative：捕获行上传后同步上传本机原生会话
     return this.request<ApiUploadResponse>('POST', '/api/ingest/lake', undefined, {
       action: 'upload',
       taskId,
@@ -291,6 +292,7 @@ export class InsightClient {
       ...(category ? { category } : {}),
       ...(baseline ? { baseline: true } : {}),
       ...(framework ? { framework } : {}),
+      ...(withNative ? { withNative: true } : {}),
     }, 300000);
   }
 

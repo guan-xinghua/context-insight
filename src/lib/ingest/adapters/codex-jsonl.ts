@@ -20,7 +20,7 @@ import { isRolloutFileName, rolloutSessionIdOf } from './codex-naming';
 // type ∈ session_meta / turn_context / response_item / event_msg /
 // token_usage_record / world_state。
 //
-// 内容真身是 response_item（OpenAI Responses API 项）；event_msg 是 UI 线程
+// 内容主体是 response_item（OpenAI Responses API 项）；event_msg 是 UI 线程
 // 视图（item_completed/token_count 与 response_item 重复），只取 task_started
 // 做轮次计数，内容不读（双读会双计 token/轮次，D10）。
 //
@@ -327,7 +327,7 @@ function readSessionFromLines(lines: CodexRolloutLine[]): RawInteraction[] {
         break;
       }
       case 'event_msg': {
-        // task_started = 新用户轮（冲刷残留组）；其余 UI 事件不作为内容真身（D10）
+        // task_started = 新用户轮（冲刷残留组）；其余 UI 事件不作为内容主体（D10）
         if (payload.type === 'task_started') flushGroup(null, null);
         break;
       }

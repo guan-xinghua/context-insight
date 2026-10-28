@@ -56,7 +56,7 @@ describe('recoverAgentMdFromSystem（system 注入恢复——正常会话主路
       'designer'
     );
     expect(r).not.toBeNull();
-    expect(r!.content.length).toBeGreaterThan(8000); // 真身 8,606 字
+    expect(r!.content.length).toBeGreaterThan(8000); // 实际 8,606 字
     expect(r!.content).toContain('## 你的角色');
   });
 

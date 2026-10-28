@@ -20,7 +20,7 @@ import { readEnvelope } from '@/lib/shared/envelope';
  * 运行时附加块（`<available_skills>` 技能清单等，实测占 system 的 ~62%）。
  *
  * 这是声明恢复的**主路径**：运行时真正生效的那份（远端机器当时的版本——本机磁盘
- * 扫描对不上：实测 designer 真身 8,606 字 vs 磁盘 demo 4,771 / glacier 6,793 字，
+ * 扫描对不上：实测 designer 实际内容 8,606 字 vs 磁盘 demo 4,771 / glacier 6,793 字，
  * 均非同版本；多插件同名时磁盘只能按覆盖率+字母序猜）。旧 Read 恢复路径
  * （agent-md-recover.ts）在此形态会话上天然无数据——声明已注入上下文，子代理
  * 不会（也不需要）再去磁盘 Read 一遍自己的 md（实测 88 个子代理仅 3 个验收类
