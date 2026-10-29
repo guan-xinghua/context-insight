@@ -26,6 +26,7 @@ import { FindingFilters, verdictCounts } from "./FindingFilters"
 import { FindingCard } from "./FindingCard"
 import { ByInstructionTable } from "./ByInstructionTable"
 import { StageBreakdownTable } from "./StageBreakdownTable"
+import { CoverageView } from "./CoverageView"
 
 /**
  * 对账报告原生视图（替代 iframe 嵌 sift HTML）。数据 = SkillAuditResult
@@ -72,6 +73,11 @@ export function AuditReportView({
 
   return (
     <div className="space-y-3">
+      {/* ⓪ 声明覆盖（顶部）：总比率 + 分节明细，报告打开即见 */}
+      {report.coverage && report.coverage.total > 0 && (
+        <CoverageView coverage={report.coverage} layers={_layers} onJumpToSeq={jumpToSeq} />
+      )}
+
       {/* ① header */}
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">

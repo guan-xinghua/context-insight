@@ -1,0 +1,140 @@
+{
+  "skill_name": "opdef-developer",
+  "transcripts": ["ses_cov_aaa", "ses_cov_bbb"],
+  "transcript_sources": ["cc", "cc"],
+  "summary": { "total": 4, "pass": 2, "fail": 1, "na": 1 },
+  "coverage": {
+    "total": 6,
+    "covered": 3,
+    "uncovered": 2,
+    "unknown": 1,
+    "coverage_rate": 0.5,
+    "sections": [
+      {
+        "section": "验收标准",
+        "total": 3,
+        "covered": 1,
+        "uncovered": 1,
+        "unknown": 1,
+        "coverage_rate": 0.33,
+        "instructions": [
+          {
+            "instruction_text": "每个算子必须提供单测用例",
+            "source": "STEP",
+            "category": "output",
+            "section": "验收标准",
+            "status": "uncovered",
+            "pass_count": 0,
+            "fail_count": 0,
+            "na_count": 2,
+            "total": 2,
+            "seqs": []
+          },
+          {
+            "instruction_text": "提交前跑全量回归门禁",
+            "source": "STEP",
+            "category": "step",
+            "section": "验收标准",
+            "status": "unknown",
+            "pass_count": 0,
+            "fail_count": 0,
+            "na_count": 1,
+            "unresolved_count": 1,
+            "total": 2,
+            "seqs": [3]
+          },
+          {
+            "instruction_text": "产物目录结构遵守仓规范",
+            "source": "CONSTRAINT",
+            "category": "output",
+            "section": "验收标准",
+            "status": "covered",
+            "pass_count": 2,
+            "fail_count": 0,
+            "na_count": 0,
+            "total": 2,
+            "seqs": [1, 4]
+          }
+        ]
+      },
+      {
+        "section": "一、编排规程",
+        "total": 2,
+        "covered": 1,
+        "uncovered": 1,
+        "unknown": 0,
+        "coverage_rate": 0.5,
+        "instructions": [
+          {
+            "instruction_text": "关键节点必须向用户确认",
+            "source": "CONSTRAINT",
+            "category": "prohibition",
+            "section": "一、编排规程",
+            "status": "uncovered",
+            "pass_count": 0,
+            "fail_count": 0,
+            "na_count": 2,
+            "total": 2,
+            "seqs": []
+          },
+          {
+            "instruction_text": "改动前必须先读相关源码",
+            "source": "CONSTRAINT",
+            "category": "prohibition",
+            "section": "一、编排规程",
+            "status": "covered",
+            "pass_count": 1,
+            "fail_count": 1,
+            "total": 2,
+            "seqs": [2, 5]
+          }
+        ]
+      },
+      {
+        "section": "二、任务计划",
+        "total": 1,
+        "covered": 1,
+        "uncovered": 0,
+        "unknown": 0,
+        "coverage_rate": 1.0,
+        "instructions": [
+          {
+            "instruction_text": "完成 AdaptivePoolMax 算子开发",
+            "source": "STEP",
+            "category": "step",
+            "section": "二、任务计划",
+            "status": "covered",
+            "pass_count": 2,
+            "fail_count": 0,
+            "total": 2,
+            "seqs": [6]
+          }
+        ]
+      }
+    ]
+  },
+  "findings": [
+    {
+      "instruction_text": "改动前必须先读相关源码",
+      "headline": "改动前必须先读相关源码",
+      "source": "CONSTRAINT",
+      "verdict": "FAIL",
+      "method": "LLM",
+      "category": "prohibition",
+      "evidence": "turn 3 直接改了 pool.py",
+      "transcript": "ses_cov_aaa",
+      "seq": 2
+    },
+    {
+      "instruction_text": "产物目录结构遵守仓规范",
+      "headline": "产物目录结构遵守仓规范",
+      "source": "CONSTRAINT",
+      "verdict": "PASS",
+      "method": "LLM",
+      "category": "output",
+      "evidence": "目录结构符合",
+      "transcript": "ses_cov_aaa",
+      "seq": 1
+    }
+  ]
+}

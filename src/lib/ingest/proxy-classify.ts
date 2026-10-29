@@ -24,7 +24,7 @@
 //   meta.json cc-session-meta（文件级） > 行级 source 标记 > wire 指纹兜底
 import fs from 'node:fs';
 import { parseJsonlLines, extractSystemText, type ContentBlock } from './adapters/claude-jsonl';
-import { readEnvelope } from '@/lib/shared/envelope';
+import { readEnvelope, readEnvelopeWithLegacy } from '@/lib/shared/envelope';
 
 export type ProxyAgentFramework = 'opencode' | 'claude-code' | 'codex' | 'cannbot' | 'dsh' | null;
 
@@ -89,7 +89,7 @@ export function readCcSessionMeta(jsonlPath: string): CcSessionMeta | null {
   try {
     if (!fs.existsSync(metaPath)) return null;
     const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-    const xb = readEnvelope(raw) as { schema: string; version: number; data?: { producer?: string; framework?: string; ccVersion?: string; governed?: boolean } } | undefined;
+    const xb = readEnvelopeWithLegacy(raw) as { schema: string; version: number; data?: { producer?: string; framework?: string; ccVersion?: string; governed?: boolean } } | undefined;
     if (!xb || xb.schema !== 'cc-session-meta' || xb.version !== 1) return null;
     return {
       producer: xb.data?.producer ?? null,

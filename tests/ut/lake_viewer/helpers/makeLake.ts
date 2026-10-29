@@ -19,6 +19,7 @@ export interface LakeSeedSession {
   paradigm: string;
   baseline?: boolean;
   legacy?: boolean;
+  legacyEnvelope?: boolean;
   /** 双记录布局：native → 目录落 <sid>.native/（目录内文件仍用真实 sid 命名） */
   recording?: 'capture' | 'native';
   framework?: string;
@@ -113,7 +114,7 @@ export function makeBareLake(bareDir: string, commits: LakeSeedCommit[]): void {
       if (s.description) data.description = s.description;
       if (s.remark) data.remark = s.remark;
       fs.writeFileSync(path.join(dir, `${s.sid}.meta.json`), JSON.stringify({
-        x_lake: { schema: 'cc-session-meta', version: 1, data },
+        [s.legacyEnvelope ? 'x_cannbay' : 'x_lake']: { schema: 'cc-session-meta', version: 1, data },
       }, null, 2));
     }
     fs.writeFileSync(path.join(seed, `touch-${Date.now()}-${Math.random().toString(36).slice(2)}.stamp`), commit.time);

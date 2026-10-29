@@ -22,7 +22,7 @@ import { defaultLakeRemote, escapeRegExp, normalizeDirPrefix, redactRemoteSecret
 import type { LakeRemote, PushAuth } from './remote';
 import { BUNDLE_ROOT_DIR, BUNDLE_MANIFEST_FILE, BUNDLE_META_FILE } from './bundle-layout';
 import { privateLfsBinDir, ensureLfsBinaryAvailable } from './lfs-setup';
-import { readEnvelope } from '../shared/envelope';
+import { readEnvelopeWithLegacy } from '../shared/envelope';
 import { isProxyVersion } from '../shared/session-format';
 // 相对导入纪律：mirror.ts 的导入图会被 tmp/ 下的 tsx 子进程脚本直接引
 // （lake-mirror-init IT 等）——子进程入口不在 tsconfig include 内，@/ 别名
@@ -542,7 +542,7 @@ function readSessionMetas(dir: string, remote: LakeRemote): Map<string, { framew
       const body = text(headerEnd + 1, headerEnd + 1 + size);
       offset = headerEnd + 1 + size + 1; // content + 结尾空行
       try {
-        const d = readEnvelope(JSON.parse(body))?.data;
+        const d = readEnvelopeWithLegacy(JSON.parse(body))?.data;
         out.set(w.folder, {
           framework: typeof d?.framework === 'string' ? d.framework : null,
           ccVersion: typeof d?.ccVersion === 'string' ? d.ccVersion : null,
@@ -774,7 +774,7 @@ function bareDirHoldsNativeRecording(dir: string, remote: LakeRemote, loc: Sessi
     const r = spawnGitAuthed(['show', `origin/${remote.branch}:${metaPath}`], dir, remote.pullAuth, 60_000,
       { maxBuffer: 8 * 1024 * 1024 });
     if (r.error || r.status !== 0) return false;
-    const data = readEnvelope(JSON.parse(r.stdout.toString('utf8')))?.data;
+    const data = readEnvelopeWithLegacy(JSON.parse(r.stdout.toString('utf8')))?.data;
     if (data == null || typeof data !== 'object') return false;
     if (data.producer === 'cpx') return false;
     if (typeof data.framework === 'string' && data.framework.endsWith('-proxy')) return false;
@@ -1647,7 +1647,7 @@ function parseSessionMetas(buf: Buffer, wanted: Array<{ folder: string; oid: str
     const body = text(headerEnd + 1, headerEnd + 1 + size);
     offset = headerEnd + 1 + size + 1;
     try {
-      const d = readEnvelope(JSON.parse(body))?.data;
+      const d = readEnvelopeWithLegacy(JSON.parse(body))?.data;
       out.set(w.folder, {
         framework: typeof d?.framework === 'string' ? d.framework : null,
         ccVersion: typeof d?.ccVersion === 'string' ? d.ccVersion : null,
@@ -1909,7 +1909,7 @@ export function listBundles(remote: LakeRemote = defaultLakeRemote()): LakeBundl
     if (!item.anchored) continue;
     const manifest = item.blobOids.has(BUNDLE_MANIFEST_FILE) ? readJson(item.blobOids.get(BUNDLE_MANIFEST_FILE)!) : null;
     const meta = item.blobOids.has(BUNDLE_META_FILE) ? readJson(item.blobOids.get(BUNDLE_META_FILE)!) : null;
-    const metaData = readEnvelope(meta)?.schema === 'cc-bundle-meta' ? (readEnvelope(meta)!.data as Record<string, unknown> | undefined) : undefined;
+    const metaData = readEnvelopeWithLegacy(meta)?.schema === 'cc-bundle-meta' ? (readEnvelopeWithLegacy(meta)!.data as Record<string, unknown> | undefined) : undefined;
     const data = (manifest?.data ?? {}) as { members?: unknown[]; exportDataComplete?: unknown };
     // sessionCount 权威源 = 仓内 sessions/ 一级目录数
     const sessionDirs = new Set(item.files

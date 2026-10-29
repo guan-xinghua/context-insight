@@ -11,7 +11,7 @@ import { truncateUtf16Safe } from '@/lib/shared/text-strip';
 import path from 'node:path';
 import { readCaptureBuffer, readCaptureHead, readCaptureText as readArchivedText } from '@/lib/compression';
 import { createLogger } from '@/lib/logger';
-import { readEnvelope } from '@/lib/shared/envelope';
+import { readEnvelope, readEnvelopeWithLegacy } from '@/lib/shared/envelope';
 import { classifyUserInjection } from './injections/index';
 import { isSkillInjectionText } from './injections/claude-code';
 import { isRolloutFileName } from './codex-naming';
@@ -480,7 +480,7 @@ function readSubagentMeta(filePath: string): {
     const metaPath = filePath.replace(/\.jsonl(\.7z|\.gz)?$/, '.meta.json');
     if (!fs.existsSync(metaPath)) return null;
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
-    const xb = readEnvelope(meta) as XLake | undefined;
+    const xb = readEnvelopeWithLegacy(meta) as XLake | undefined;
     const data = xb && isMetaPayload(xb, 'cc-subagent-meta') ? xb.data : null;
     const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
     return {

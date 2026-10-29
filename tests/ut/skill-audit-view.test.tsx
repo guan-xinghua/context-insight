@@ -18,6 +18,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { createElement } from "react"
 import sample from "./data/audit-report-sample.json"
 import multi from "./data/audit-report-multi.json"
+import covReport from "./data/audit-report-coverage.json"
 import type { AuditFinding, AuditReport, SkillAuditStoredResult } from "@/lib/sift-audit-types"
 import {
   ALL_VERDICTS,
@@ -326,5 +327,68 @@ describe("AuditReportView render smoke (base-ui 组合)", () => {
     expect(html).not.toContain("fail%")
     expect(html).not.toContain("fail/total")
     expect(html).not.toContain("in transcripts")
+  })
+})
+
+describe("声明覆盖视图（CoverageView · 声明 vs 实际触达）", () => {
+  it("渲染总比率 + 三态计数 + 进度条 + 分节明细（未触发/未知行、全覆盖节、其余已覆盖）", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const covSample = covReport as unknown as AuditReport
+    const result = {
+      ...covSample,
+      findings: covSample.findings as AuditFinding[],
+    } as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).toContain("声明覆盖")
+    expect(html.indexOf("声明覆盖")).toBeLessThan(html.indexOf("opdef-developer"))
+    expect(html).toContain("3/6")
+    expect(html).toContain("（50%）")
+    expect(html).toContain("未覆盖")
+    expect(html).toContain("未知")
+    expect(html).toContain("已覆盖")
+    expect(html).toContain("width:50%")
+    expect(html).toContain("验收标准")
+    expect(html).toContain("1/3")
+    expect(html).toContain("每个算子必须提供单测用例")
+    expect(html).toContain("提交前跑全量回归门禁")
+    expect(html).toContain("其余 1 条已覆盖")
+    expect(html).toContain("二、任务计划")
+    expect(html).toContain("全部声明已覆盖")
+    expect(html).toContain("#3")
+  })
+
+  it("组合声明：未触发指令命中规程层 → 打层徽章", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const covSample = covReport as unknown as AuditReport
+    const result = {
+      ...covSample,
+      findings: covSample.findings as AuditFinding[],
+      _layers: [
+        {
+          kind: "regulation",
+          label: "编排规程",
+          source: "turn0 (注入编排规程)",
+          content: "## 编排纪律\n关键节点必须向用户确认后方可继续；改动前必须先读相关源码。",
+        },
+        {
+          kind: "plan",
+          label: "任务计划",
+          source: "STATE.md",
+          content: "- [ ] 完成 AdaptivePoolMax 算子开发",
+        },
+      ],
+    } as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).toContain("关键节点必须向用户确认")
+    expect(html).toContain("编排规程")
+    expect(html).toContain("规程层：编排纪律")
+    expect(html).toContain("（来源：turn0 (注入编排规程)）")
+  })
+
+  it("旧报告（无 coverage 字段）→ 不渲染覆盖视图", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const result = { ...SAMPLE, findings: SAMPLE.findings as AuditFinding[] } as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).not.toContain("声明覆盖")
   })
 })

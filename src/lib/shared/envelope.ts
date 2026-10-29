@@ -12,6 +12,7 @@
 // 都可引，无环。
 
 export const ENVELOPE_KEY = 'x_lake';
+export const LEGACY_ENVELOPE_KEY = 'x_cannbay';
 
 export interface Envelope {
   schema: string;
@@ -33,6 +34,12 @@ export function readEnvelope(holder: unknown): Envelope | undefined {
   if (!holder || typeof holder !== 'object') return undefined;
   const h = holder as Record<string, unknown>;
   return asEnvelope(h[ENVELOPE_KEY]);
+}
+
+export function readEnvelopeWithLegacy(holder: unknown): Envelope | undefined {
+  if (!holder || typeof holder !== 'object') return undefined;
+  const h = holder as Record<string, unknown>;
+  return asEnvelope(h[ENVELOPE_KEY]) ?? asEnvelope(h[LEGACY_ENVELOPE_KEY]);
 }
 
 /** 写：返回挂好口袋键的对象，调用方展开进行对象 */

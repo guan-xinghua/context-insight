@@ -13,7 +13,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { classifyProxyCapture } from '../../src/lib/ingest/proxy-classify';
+import { classifyProxyCapture, readCcSessionMeta } from '../../src/lib/ingest/proxy-classify';
 
 const tmpFiles: string[] = [];
 
@@ -71,6 +71,15 @@ describe('classifyProxyCapture 代际信号', () => {
       { x_lake: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'cannbot', protocol: 'openai', ccVersion: '1.1.2', sid: 'x' } } }
     );
     expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'cannbot-proxy', framework: 'cannbot', via: 'meta' });
+  });
+
+  it('旧键 meta（x_cannbay，改名前存量捕获）：meta 代际信号仍生效', () => {
+    const f = tmpCapture(
+      [{ type: 'user', message: { role: 'user', content: 'go' } }],
+      { x_cannbay: { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx', framework: 'opencode', protocol: 'anthropic', ccVersion: '0.9.0', sid: 'x' } } }
+    );
+    expect(readCcSessionMeta(f)).toEqual({ producer: 'cpx', framework: 'opencode', ccVersion: '0.9.0', governed: false });
+    expect(classifyProxyCapture(f)).toEqual({ isProxy: true, marker: 'opencode-proxy', framework: 'opencode', via: 'meta' });
   });
 
   it('Gen7 dsh（DeepSeek Harness，anthropic 协议）：meta framework=dsh 权威判定，marker 派生 dsh-proxy', () => {

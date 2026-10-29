@@ -26,7 +26,7 @@ import { defaultLakeRemote } from './remote';
 import { redactRemoteSecrets } from './remote';
 import type { LakeRemote } from './remote';
 import { requirePushCredentials } from '@/lib/lake/auth';
-import { readEnvelope, envelopeFields } from '@/lib/shared/envelope';
+import { readEnvelopeWithLegacy, envelopeFields } from '@/lib/shared/envelope';
 import { createLogger } from '@/lib/logger';
 
 const notesLog = createLogger('lake:notes');
@@ -221,7 +221,7 @@ async function readMetaSubmitSnapshot(s: SessionLoc, dir: string, remote: LakeRe
   } catch { return null; }
   if (!text) return null;
   try {
-    const d = readEnvelope(JSON.parse(text))?.data;
+    const d = readEnvelopeWithLegacy(JSON.parse(text))?.data;
     if (!d || typeof d !== 'object') return null;
     const pick = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
     const snap: SessionSubmitInfo = { author: pick(d.submitter), description: pick(d.description), remark: pick(d.remark) };
@@ -412,7 +412,7 @@ export async function setOpGen(s: SessionLoc, value: OpGenValue, remote: LakeRem
     if (!old) return null;
     try {
       const meta = JSON.parse(old);
-      const srcEnv = readEnvelope(meta);
+      const srcEnv = readEnvelopeWithLegacy(meta);
       const data = srcEnv?.data;
       if (!data) return null;
       if (value == null) delete data.opGen;

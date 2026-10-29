@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import { listSubagentSessions, parseJsonlLines } from '@/lib/ingest/adapters/claude-jsonl';
-import { readEnvelope } from '@/lib/shared/envelope';
+import { readEnvelope, readEnvelopeWithLegacy } from '@/lib/shared/envelope';
 
 /**
  * agent .md 的**会话内 system 注入恢复**（proxy 扩展层，server-only）。
@@ -99,7 +99,7 @@ function readMetaAgentType(subFilePath: string): string | null {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as {
       agentType?: unknown;
     };
-    const at = readEnvelope(meta)?.data?.agentType ?? meta.agentType;
+    const at = readEnvelopeWithLegacy(meta)?.data?.agentType ?? meta.agentType;
     return typeof at === 'string' && at ? at : null;
   } catch {
     return null;

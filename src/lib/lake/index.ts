@@ -22,7 +22,7 @@ import { parseSubmitInfo, extractSubmitter, type SessionSubmitInfo } from './not
 import { governText, GovernanceError, MAX_SESSION_BYTES } from './governance';
 import { exportSessionToClaudeJsonl, xLake } from './export';
 import { BUNDLE_ROOT_DIR } from './bundle-layout';
-import { readEnvelope, envelopeFields } from '../shared/envelope';
+import { readEnvelope, readEnvelopeWithLegacy, envelopeFields } from '../shared/envelope';
 import { readCaptureText, ensure7z, compressCaptureFile, decompressToPlain } from '@/lib/compression';
 import { importSession } from '@/lib/ingest/data-service';
 import {
@@ -427,7 +427,7 @@ async function annotateSessionMeta(
   const metaPath = path.join(stagingDir, 'sessions', sid, `${sid}.meta.json`);
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-    const xb = readEnvelope(meta);
+    const xb = readEnvelopeWithLegacy(meta);
     if (xb?.schema !== 'cc-session-meta' || !xb.data || typeof xb.data !== 'object') return;
     if (opGen === 'success' || opGen === 'failure') xb.data.opGen = opGen;
     // 提交信息快照：与 commit message 同源同值（parseSubmitInfo 同一套标签
@@ -596,11 +596,12 @@ async function uploadNativeCounterpart(
     let nativeTaskId: string;
     let nativeFramework: string;
     if (resolution.origin === 'disk') {
-      // 磁盘命中先导入（幂等 merge）：行身份以导入结果为准（源描述符决定
-      // framework），不假设与捕获行的 agent 框架一致
-      await importSession(resolution.hit.path, resolution.hit.sessionId, prisma, resolution.hit.path, resolution.hit.sourceType);
-      const row = await prisma.session.findFirst({
-        where: { taskId: resolution.hit.sessionId },
+      const imported = await importSession(resolution.hit.path, resolution.hit.sessionId, prisma, resolution.hit.path, resolution.hit.sourceType);
+      // 同 sid 下捕获行（-proxy）与原生行共存（@@unique([taskId, framework])），
+      // 按裸 taskId 回查会因字典序取错行（如 cannbot-proxy < opencode 取回捕获行），
+      // 复用 importSession 返回的行 id 精确定位刚导入/复用的原生行。
+      const row = await prisma.session.findUnique({
+        where: { id: imported.sessionId },
         select: { taskId: true, framework: true },
       });
       if (!row) return { status: 'failed', reason: `原生会话导入未建行: ${resolution.hit.sessionId}` };

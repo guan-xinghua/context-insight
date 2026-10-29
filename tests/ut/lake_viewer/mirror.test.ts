@@ -40,6 +40,7 @@ beforeAll(() => {
         { sid: 'con-bbbb2222', paradigm: 'contraction', framework: 'codex', ccVersion: '2.0.0', workflow: 'wf-v3', opGen: 'failure', startTime: '2026-09-01T14:00:00+08:00', endTime: '2026-09-01T14:10:00+08:00', totalTokens: 99_000 },
         // 原生会话双记录位（<sid>.native/ 目录，目录内文件用真实 sid 命名）
         { sid: 'nat-eeee4444', paradigm: 'contraction', recording: 'native', framework: 'opencode', ccVersion: '1.18.30', startTime: '2026-09-02T09:00:00+08:00', endTime: '2026-09-02T09:30:00+08:00', totalTokens: 5_000, model: 'glm-5.3-flash' },
+        { sid: 'old-aaaa3333', paradigm: 'elementwise', legacyEnvelope: true, framework: 'opencode', ccVersion: '1.1.2', producer: 'insight-export', opGen: 'success' },
       ],
     },
   ]);
@@ -103,6 +104,18 @@ describe('lake mirror（本地 bare 仓）', () => {
     expect(nat?.startTime).toBe('2026-09-02T09:00:00+08:00');
     expect(nat?.durationMs).toBe(30 * 60_000);
     expect(nat?.totalTokens).toBe(5_000);
+  });
+
+  it('旧键 meta（x_cannbay，改名前上传的存量仓数据）：Type/opGen 等 meta 字段仍全量可读（cannbay 视图回归锁）', async () => {
+    const { listSessionsDetailed } = await import('../../../src/lib/lake/mirror');
+    const sessions = await listSessionsDetailed();
+    const old = sessions.find(s => s.sid === 'old-aaaa3333');
+    expect(old).toBeDefined();
+    expect(old?.framework).toBe('opencode');
+    expect(old?.ccVersion).toBe('1.1.2');
+    expect(old?.producer).toBe('insight-export');
+    expect(old?.opGen).toBe('success');
+    expect(old?.paradigm).toBe('elementwise');
   });
 
   it('parseSessionFolder / sessionFolderOf：目录名 ↔ 记录类互推', async () => {

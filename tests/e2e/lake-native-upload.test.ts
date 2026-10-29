@@ -23,6 +23,7 @@ import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { importSession } from '../../src/lib/ingest/data-service.ts';
 import { seedLakeConfig } from '../helpers/lake-env';
+import { materializeV1Fixture } from '../helpers/materialize-v1-fixture';
 
 function git(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, stdio: 'pipe', timeout: 60_000 }).toString();
@@ -60,6 +61,7 @@ const SID_PLAIN = 'cc-native-it-plain';
 const CODEX_SID = 'cc-native-it-codex';
 const CODEX_UUID = 'aaaa0dec-uuid-it-0001';
 const ANCHOR = 'codex 原生对位锚点问题';
+const CANNBOT_SID = 'ses_2051a32a4ffevX0jGBWVDDEqCk';
 
 const NOW = new Date();
 const T0 = new Date(NOW.getTime() - 60_000).toISOString();
@@ -93,6 +95,8 @@ const NATIVE_DB = writeFixture(`${SID_DB}-native.jsonl`, nativeLines('路由级�
 const CAP_MISS = writeFixture(`${SID_MISS}.jsonl`, captureLines('未找到场景首问', 'claude-proxy'));
 const CAP_PLAIN = writeFixture(`${SID_PLAIN}.jsonl`, captureLines('回归场景首问', 'claude-proxy'));
 const CAP_CODEX = writeFixture(`${CODEX_SID}.jsonl`, captureLines(ANCHOR, 'codex-proxy'));
+const CAP_CANNBOT = writeFixture(`${CANNBOT_SID}.jsonl`, captureLines('cannbot 原生对位首问', 'cannbot-proxy'));
+const OPENCODE_NATIVE_DB = materializeV1Fixture('lake-native-cannbot');
 
 // 磁盘 claude 原生日志（未导入——上传时组合层自动导入）
 fs.mkdirSync(path.join(CLAUDE_ROOT, 'proj-slug'), { recursive: true });
@@ -121,6 +125,10 @@ function diskRoots() {
   return { claude: CLAUDE_ROOT, codex: CODEX_ROOT, dsh: path.join(TMP, 'no-dsh'), opencode: [path.join(TMP, 'no-opencode')] };
 }
 
+function cannbotNativeRoots() {
+  return { claude: path.join(TMP, 'no-claude'), codex: path.join(TMP, 'no-codex'), dsh: path.join(TMP, 'no-dsh'), opencode: [path.dirname(OPENCODE_NATIVE_DB)] };
+}
+
 const prisma = new PrismaClient();
 
 // env 已设，动态加载 lake 链 + 路由
@@ -135,7 +143,7 @@ function makeRequest(body: unknown): NextRequest {
   });
 }
 
-const ALL_SIDS = [SID_DISK, SID_DB, SID_MISS, SID_PLAIN, CODEX_SID, CODEX_UUID];
+const ALL_SIDS = [SID_DISK, SID_DB, SID_MISS, SID_PLAIN, CODEX_SID, CODEX_UUID, CANNBOT_SID];
 
 afterAll(async () => {
   for (const sid of ALL_SIDS) {
@@ -143,6 +151,7 @@ afterAll(async () => {
   }
   await prisma.$disconnect();
   fs.rmSync(TMP, { recursive: true, force: true });
+  fs.rmSync(path.dirname(OPENCODE_NATIVE_DB), { recursive: true, force: true });
 });
 
 const DESC = '提交人: 测试者\n内容描述: 原生同步上传 IT';
@@ -236,5 +245,27 @@ describe('原生会话同步上传（组合层）', () => {
     const overview = lake.listLakeOverview();
     expect(overview.sessions.some(s => s.sid === SID_PLAIN)).toBe(true);
     expect(overview.sessions.some(s => s.sid === SID_PLAIN && s.recording === 'native')).toBe(false);
+  });
+
+  it('⑥ 框架字典序消歧：cannbot-proxy 捕获经 opencode-db 导入 opencode 原生行（同 sid 双行），按行 id 回读 framework 落 <sid>.native/', async () => {
+    await importSession(CAP_CANNBOT, CANNBOT_SID, prisma, CAP_CANNBOT, 'claude-jsonl');
+    const capRow = await prisma.session.findFirst({ where: { taskId: CANNBOT_SID, framework: 'cannbot-proxy' } });
+    expect(capRow).not.toBeNull();
+
+    const up = await lake.uploadLakeSessionWithNative(prisma, CANNBOT_SID, {
+      description: DESC, category: 'others', framework: 'cannbot-proxy', withNative: true, nativeRoots: cannbotNativeRoots(),
+    });
+    expect(up.sid).toBe(CANNBOT_SID);
+    expect(up.native?.status).toBe('uploaded');
+    expect(up.native?.sid).toBe(CANNBOT_SID);
+    // 若裸 taskId 回查取错行（cannbot-proxy < opencode 排前），会重复上传捕获目录，落盘缺 .native 后缀
+    expect(up.native?.folder).toContain(`${CANNBOT_SID}.native`);
+
+    const nativeRow = await prisma.session.findFirst({ where: { taskId: CANNBOT_SID, framework: 'opencode' } });
+    expect(nativeRow).not.toBeNull();
+
+    const overview = lake.listLakeOverview();
+    const recordings = overview.sessions.filter(s => s.sid === CANNBOT_SID).map(s => s.recording).sort();
+    expect(recordings).toEqual(['capture', 'native']);
   });
 });

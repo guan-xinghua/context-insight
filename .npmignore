@@ -2,9 +2,6 @@
 tests/
 coverage/
 
-# 开发文档（非运行时必需，全部排除）
-docs/
-
 # 构建产物与缓存（next build 产物不放包内 —— 现场构建落 ~/.context-insight/.next）
 .next/
 out/

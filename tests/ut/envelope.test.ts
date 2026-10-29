@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readEnvelope, envelopeFields, ENVELOPE_KEY, type Envelope } from '../../src/lib/shared/envelope.ts';
+import { readEnvelope, readEnvelopeWithLegacy, envelopeFields, ENVELOPE_KEY, LEGACY_ENVELOPE_KEY, type Envelope } from '../../src/lib/shared/envelope.ts';
 
 const ENV: Envelope = { schema: 'cc-session-meta', version: 1, data: { producer: 'cpx' } };
 
@@ -32,6 +32,24 @@ describe('readEnvelope 单轨读', () => {
     expect(readEnvelope({ [ENVELOPE_KEY]: { schema: 's', data: {} } })).toBeUndefined();
     expect(readEnvelope({ [ENVELOPE_KEY]: { schema: 's', version: 1 } })).toBeUndefined();
     expect(readEnvelope({ [ENVELOPE_KEY]: 'nope' })).toBeUndefined();
+  });
+});
+
+describe('readEnvelopeWithLegacy（meta 读侧兼容：改名前上传的旧 meta 仍可读）', () => {
+  it('新键命中优先', () => {
+    expect(readEnvelopeWithLegacy({ [ENVELOPE_KEY]: ENV })).toBe(ENV);
+  });
+  it('旧键回退命中（仓上存量数据回归锁：cannbay 视图 Type/算子生成结果来源）', () => {
+    expect(readEnvelopeWithLegacy({ [LEGACY_ENVELOPE_KEY]: ENV })).toBe(ENV);
+  });
+  it('新旧键并存时新键优先（写侧迁移不回退）', () => {
+    const older: Envelope = { schema: 'cc-session-meta', version: 1, data: { producer: 'old' } };
+    expect(readEnvelopeWithLegacy({ [ENVELOPE_KEY]: ENV, [LEGACY_ENVELOPE_KEY]: older })).toBe(ENV);
+  });
+  it('两键皆无 / 形态不合法 → undefined', () => {
+    expect(readEnvelopeWithLegacy({})).toBeUndefined();
+    expect(readEnvelopeWithLegacy({ [LEGACY_ENVELOPE_KEY]: { schema: 's' } })).toBeUndefined();
+    expect(readEnvelopeWithLegacy(null)).toBeUndefined();
   });
 });
 

@@ -91,6 +91,42 @@ export interface StageBreakdownRow {
   note?: string
 }
 
+export interface InstructionCoverage {
+  instruction_text: string
+  source_excerpt?: string
+  headline?: string
+  source: string
+  category: AuditCategory
+  section?: string
+  status: "covered" | "uncovered" | "unknown"
+  pass_count?: number
+  fail_count?: number
+  na_count?: number
+  unresolved_count?: number
+  indeterminate_count?: number
+  total?: number
+  seqs?: number[]
+}
+
+export interface SectionCoverage {
+  section: string
+  total?: number
+  covered: number
+  uncovered: number
+  unknown: number
+  coverage_rate: number
+  instructions: InstructionCoverage[]
+}
+
+export interface CoverageSummary {
+  total: number
+  covered: number
+  uncovered: number
+  unknown: number
+  coverage_rate: number
+  sections: SectionCoverage[]
+}
+
 /** 一个 skill 一次 audit 的完整报告（对应 pydantic AuditReport）。 */
 export interface AuditReport {
   skill_name: string
@@ -107,6 +143,7 @@ export interface AuditReport {
   }
   findings: AuditFinding[]
   by_instruction?: InstructionAggregate[]
+  coverage?: CoverageSummary
   warnings?: string[]
   /** refine（LLM 精筛伪指令）砍掉的条数。 */
   refine_dropped_count?: number

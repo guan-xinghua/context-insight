@@ -57,6 +57,7 @@ describe('平台中性哨兵（平台化 P1-P3 防回潮锁，词表源 sensitiv
     'insight/scripts/pack-cannbot.mjs',
     'insight/tests/e2e/cannbot-pack.test.ts',
   ]);
+  const LEGACY_ENVELOPE_HOME = new Set(['insight/src/lib/shared/envelope.ts', 'cpx/src/envelope.ts']);
   // 品牌名白名单文件内 CANNbay/CANNBay 合法（branding 字面量/翻转规则/探针）
   const BRAND_FORMS = /CANNBay|CANNbay/;
 
@@ -72,6 +73,7 @@ describe('平台中性哨兵（平台化 P1-P3 防回潮锁，词表源 sensitiv
         const isBrandFile = BRAND_NAME_FILES.has(relPath.replace(/\\/g, '/'));
         lines.forEach((line, i) => {
           for (const word of FORBIDDEN_ANYWHERE) {
+            if (word === 'x_cannbay' && LEGACY_ENVELOPE_HOME.has(relPath.replace(/\\/g, '/'))) continue;
             if (line.includes(word)) offenders.push(`${relPath}:${i + 1} [${word}] ${line.trim().slice(0, 80)}`);
           }
           // 品牌名白名单文件内 CANNbay/CANNBay 合法；其他文件出现品牌字面量即回潮

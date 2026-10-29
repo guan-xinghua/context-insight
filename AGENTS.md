@@ -38,7 +38,7 @@ opencode opencode.db (external)
   → Prisma write (8 models, SQLite)
 ```
 
-Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework，设计见 `docs/design/agent-source-framework/design.md`）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探/内容探测/sessionId 推导）；目前注册 `context-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源，并按文件形态声明源族（`SOURCE_FAMILIES`：jsonl / sqlite，伞形 sourceType 是 API 一等值，`resolveSource` 单点探测解析）。新框架接入 = 适配器模块 + registry 一行（jsonl 系自动入族）+ import-ui quickDir 一条（可选），data-service/API 路由/normalize 零改动。
+Adapter registry in `src/lib/ingest/adapters/registry.ts`（agent-source-framework）— `SourceDescriptor` 单点声明身份（sourceType ↔ framework 映射）、解析、可选能力（子代理发现/版本提取/文件嗅探/内容探测/sessionId 推导）；目前注册 `context-insight` / `opencode-db` / `codex-jsonl` / `claude-jsonl` 四源，并按文件形态声明源族（`SOURCE_FAMILIES`：jsonl / sqlite，伞形 sourceType 是 API 一等值，`resolveSource` 单点探测解析）。新框架接入 = 适配器模块 + registry 一行（jsonl 系自动入族）+ import-ui quickDir 一条（可选），data-service/API 路由/normalize 零改动。
 
 ### Frontend Modes (shared backend)
 
@@ -55,13 +55,13 @@ Session detail page (`session/[taskId]/`) is `"use client"` with 10 tabs
 
 ### Key Code Paths
 
-- **Ingest write**: `src/lib/ingest/data-service.ts` → `importSession()` — batched `createMany` (500 rows/batch) inside `$transaction` via `batchCreateMany()` (see `docs/design/import-batch-write/design.md`)
+- **Ingest write**: `src/lib/ingest/data-service.ts` → `importSession()` — batched `createMany` (500 rows/batch) inside `$transaction` via `batchCreateMany()`
 - **Ingest read**: `src/lib/ingest/adapters/opencode-db.ts` — N+1 query pattern (per-session/per-message sub-queries to `part` table)
 - **Context windows**: `src/lib/context-window-config.ts` — configurable via `context-windows.json`, hardcoded defaults as fallback. Web `ContextTracker.tsx` has its own model mapping — keep in sync.
 - **AI analysis**: `src/lib/ai/analyzer.ts` — only OpenAI-compatible `/chat/completions`, config in localStorage only
 - **CLI client**: `src/cli/client.ts` — InsightClient with 17 methods across `/api/observe/*`, `/api/ingest/*`, `/api/ai/*`
 - **CLI types**: `src/cli/types.ts` — `Api`-prefixed interfaces to distinguish from `src/lib/shared/types.ts`
-- **Lake v2（数据湖引擎）**: `src/lib/lake`（mirror 治理/导出/编排）— 设计见 `docs/design/lake-v2/design.md`
+- **Lake v2（数据湖引擎）**: `src/lib/lake`（mirror 治理/导出/编排）
 
 ### CLI Frontend
 
@@ -104,11 +104,9 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - proxy 以后加新扩展字段（`metadata`/`cache`/`retry`/`dedup` 标记…）在同一
   扩展层文件内加，核心不动。
 
-**格式契约**：捕获/导出 jsonl 的扩展字段格式一律参考 `docs/lake-schema-spec.md`
-（信封冻结 + `x_lake` 命名空间 + `(schema,version)` 声明式分发；加可选字段
-不升版本，改语义/类型必升版本并配 IT 锁）。新增或修改任何扩展字段前先读它；
-规范落地前的现状（legacy 顶层字段 `source`/`duration_ms`/`system`/`tools`）与
-双轨优先级见该文档 §6。
+**格式契约**：捕获/导出 jsonl 的扩展字段格式（信封冻结 + `x_lake` 命名空间 +
+`(schema,version)` 声明式分发；加可选字段不升版本，改语义/类型必升版本并配 IT
+锁；legacy 顶层字段 `source`/`duration_ms`/`system`/`tools` 为存量双轨）。
 
 **红线（不得违反）**：
 
@@ -208,7 +206,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **Doc files**: Don't create `.md` / README unless explicitly requested
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
 - **Version bumps**: PR-granularity — bump once per merged PR (+0.0.1), **only the packages this PR actually touched** — insight only when `packages/insight` changed (`src/lib/version.ts` + `package.json` together, single-track), cpx only when `packages/cpx` changed (`src/version.ts` + `package.json`); untouched packages stay; individual commits don't bump
-- **CHANGELOG 简洁**: 条目一两句说清「什么变了、用户可感知什么」——不写实现细节（函数名/内部机制/IT 清单，那些放 PR 描述或 docs/design）；只有功能性变化才写，小加固/杂项不单开条目
+- **CHANGELOG 简洁**: 条目一两句说清「什么变了、用户可感知什么」——不写实现细节（函数名/内部机制/IT 清单，那些放 PR 描述）；只有功能性变化才写，小加固/杂项不单开条目
 - **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow, slate
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4
 - **Charts**: Pure SVG, no chart libraries — match TraceView DAG style
