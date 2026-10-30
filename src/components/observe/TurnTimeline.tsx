@@ -142,6 +142,16 @@ interface LaneCtx {
   onSelectTurn: (turnId: string) => void
   // 可空：静态渲染/单 lane 直渲的调用方无滚动定位需求，传 null 即可
   selectedSubRef: RefObject<HTMLButtonElement | null> | null
+  // 角色筛选（主链 chips 同一份）：子代理 lane 内轮次同口径过滤——空/缺省 = 不过滤。
+  // 递归传递到任意嵌套深度（子代理的子代理）与孤儿兜底 lane
+  filterRoles?: ReadonlySet<string>
+}
+
+// lane 内按角色可见的轮次（筛选语义与主链 filteredRootTurns 一致：按行显示的
+// role 过滤；子代理轮次无 displayRole 增强链，直接用原始 role）
+function laneVisibleTurns(lane: SubagentLane, ctx: LaneCtx): TurnRowItem[] {
+  if (!ctx.filterRoles || ctx.filterRoles.size === 0) return lane.turns
+  return lane.turns.filter(st => ctx.filterRoles!.has(st.role))
 }
 
 // Recursive subagent lane: renders a lane's turns AND, nested, any sub-lanes
@@ -165,6 +175,8 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
   childPath.add(lane.bridgeId)
   const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
   const isError = lane.status === "error"
+  const visibleTurns = laneVisibleTurns(lane, ctx)
+  const roleFiltering = (ctx.filterRoles?.size ?? 0) > 0
   return (
     <div className={cn(
       "border rounded-lg min-w-0",
@@ -187,13 +199,16 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-2 px-2 pb-1 text-xs text-muted-foreground">
-        <span>{lane.turnCount} turns</span>
+        <span>{roleFiltering ? `${visibleTurns.length}/${lane.turnCount} turns` : `${lane.turnCount} turns`}</span>
         {lane.totalTokens > 0 && <span>{formatTokenCount(lane.totalTokens)} tok</span>}
         {lane.latencyMs > 0 && <span>{formatLatency(lane.latencyMs)}</span>}
       </div>
       {isExpanded && lane.turns.length > 0 && (
         <div className="px-2 pb-2 space-y-1">
-          {lane.turns.map(st => (
+          {visibleTurns.length === 0 && (
+            <p className="text-xs text-muted-foreground px-2 py-0.5">No subagent turns match the current filters</p>
+          )}
+          {visibleTurns.map(st => (
             <div key={st.turnId} className="space-y-1">
               <button
                 ref={ctx.selectedTurnId === st.turnId ? ctx.selectedSubRef : null}
@@ -263,6 +278,8 @@ export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLan
         {lanes.map(lane => {
           const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
           const isError = lane.status === "error"
+          const filtering = (ctx.filterRoles?.size ?? 0) > 0
+          const visibleCount = filtering ? laneVisibleTurns(lane, ctx).length : lane.turnCount
           return (
             <div key={lane.bridgeId} className={cn("min-w-0 flex flex-col gap-1.5", isExpanded && "basis-full")}>
               <button
@@ -280,7 +297,7 @@ export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLan
                 <Badge variant="orange" className="max-w-[180px] truncate">{lane.name}</Badge>
                 {lane.background && <Badge variant="yellow" className="shrink-0" title="后台异步派发：立即返回，完成后再通知父会话">background</Badge>}
                 {isError && <Badge variant="red" className="shrink-0">error</Badge>}
-                <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
+                <span className="text-muted-foreground shrink-0">{filtering ? `${visibleCount}/${lane.turnCount}t` : `${lane.turnCount}t`}</span>
                 {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
               </button>
               {isExpanded && <SubagentLaneView lane={lane} ctx={ctx} path={path} />}
@@ -668,6 +685,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
     selectedTurnId,
     onSelectTurn,
     selectedSubRef,
+    filterRoles,
   }
 
   const handleJump = () => {

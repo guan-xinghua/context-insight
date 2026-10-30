@@ -2,6 +2,11 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [Unreleased]
+
+### Fixed
+- 【Turns 角色筛选对子代理失效】Turns 时间线左上角的角色筛选此前只过滤主链轮次，子代理泳道内的轮次（如 `<total_tokens>` system 轮）不跟着过滤——选了 assistant 仍混着子代理的 system 轮；现泳道内轮次（含嵌套子代理）按同一份筛选口径过滤，泳道与并行组计数在筛选时显示「可见/总数」（如 1/3 turns）
+
 ## [0.2.41] - 2026-10-27
 
 > 更名说明：主体品牌自本版起为 Context-Insight（npm 包 `context-insight`，命令 `context-insight` / `ctxi`，数据目录 `~/.context-insight/`——首启自动迁移 `~/.cannbot-insight/` 存量数据）；`cannbot-insight` 转为同内容变体包，老用户的部署脚本与目录习惯在变体包内不变。数据格式契约不随品牌变，两包数据完全互通。
