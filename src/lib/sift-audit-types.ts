@@ -127,6 +127,40 @@ export interface CoverageSummary {
   sections: SectionCoverage[]
 }
 
+/** 回指到声明原文单元的一条指令（轻量引用：状态 + 人话标题；明细看 coverage.sections）。 */
+export interface TextUnitInstruction {
+  instruction_text: string
+  headline?: string
+  status: "covered" | "uncovered" | "unknown"
+}
+
+/** 声明原文的一个文本单元（声明原文覆盖图的一行；对应 pydantic TextCoverageUnit）。 */
+export interface TextCoverageUnit {
+  kind: "heading" | "bullet" | "paragraph" | "codeblock"
+  /** 单元在 skill_body 里的字符区间（诊断用；渲染以 text 为准——JS 按区间切片有 UTF-16 代理对偏移风险）。 */
+  start?: number
+  end?: number
+  text: string
+  /** 三态：covered=该段指令全部触达 / uncovered=有指令未验证（未触发或判不全，保守最低态）/ unmodeled=没抽出指令；heading 为空串（结构行）。 */
+  state?: "" | "covered" | "uncovered" | "unmodeled"
+  /** codeblock 专属：fence 开块时所处的标题（OUTPUT_FORMAT 回指键）；旧报告可缺省。 */
+  heading?: string
+  instructions?: TextUnitInstruction[]
+}
+
+/** 声明文本覆盖视图总聚合（对应 pydantic TextCoverageSummary）。双指标不混含义：coverage_rate=covered/modeled（未建模不进分母）；modeled_ratio=modeled/total_units（建模完整度）。 */
+export interface TextCoverageSummary {
+  total_units: number
+  covered: number
+  uncovered: number
+  unmodeled: number
+  coverage_rate: number
+  modeled_ratio: number
+  /** 抽出来了但没落回任何文本单元的指令（如类别级参考），诚实计数。 */
+  unmapped_instructions?: string[]
+  units: TextCoverageUnit[]
+}
+
 /** 一个 skill 一次 audit 的完整报告（对应 pydantic AuditReport）。 */
 export interface AuditReport {
   skill_name: string
@@ -144,6 +178,10 @@ export interface AuditReport {
   findings: AuditFinding[]
   by_instruction?: InstructionAggregate[]
   coverage?: CoverageSummary
+  /** 声明文本覆盖视图（对账结果投影回声明原文；旧报告无此字段不显示）。 */
+  text_coverage?: TextCoverageSummary
+  /** 对账时刻的声明正文快照（文本覆盖视图渲染对账时版本；旧报告无此字段）。 */
+  skill_body?: string
   warnings?: string[]
   /** refine（LLM 精筛伪指令）砍掉的条数。 */
   refine_dropped_count?: number

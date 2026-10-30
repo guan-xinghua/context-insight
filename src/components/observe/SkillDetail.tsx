@@ -115,7 +115,10 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
   const [llmError, setLlmError] = useState<string | null>(cached ? cached.error : null)
 
   /** 点击「提取/重试」按钮：启动 LLM 组合声明提取 + 轮询（不自动触发，只在用户点击时跑）。
-   * force=true（重试）：丢弃已失败的缓存，带 restart=1 让服务端重启失败的 job。 */
+   * force=true（重试）：丢弃已失败的缓存，首发请求带 restart=1 让服务端重启失败的 job。
+   * restart=1 只随首发请求走；后续轮询一律 restart=0——若轮询也带 restart=1，
+   * 每次轮询都会重启已 settle 的失败 job，且响应恰是重启瞬间的 loading:true，
+   * 失败态永远轮不到（表现为「提取中…」无限转圈、服务端每 5s 重 spawn CLI）。 */
   function fetchLlmWorkflow(force = false) {
     const cached = llmExtractCache.get(taskId)
     if (!force) {
@@ -141,12 +144,15 @@ export function SkillDetail({ taskId, sessionSkills, skillEvents, hasMainAgentWo
 
     let timer: ReturnType<typeof setTimeout>
     let active = true
+    // 重试意图（restart=1）只表达在首发请求；进入轮询后即清零（见函数头注释）。
+    let first = true
 
     const poll = async () => {
       try {
         const r = await fetch(
-          `/api/observe/session/llm-workflow-extract?taskId=${encodeURIComponent(taskId)}&framework=${encodeURIComponent(framework ?? "")}&restart=${force ? "1" : "0"}`
+          `/api/observe/session/llm-workflow-extract?taskId=${encodeURIComponent(taskId)}&framework=${encodeURIComponent(framework ?? "")}&restart=${force && first ? "1" : "0"}`
         )
+        first = false
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const d = await r.json()
         if (!active) return

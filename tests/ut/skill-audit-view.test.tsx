@@ -330,12 +330,14 @@ describe("AuditReportView render smoke (base-ui 组合)", () => {
   })
 })
 
-describe("声明覆盖视图（CoverageView · 声明 vs 实际触达）", () => {
+describe("声明覆盖视图（CoverageView · 声明 vs 实际触达——旧报告回退路径）", () => {
   it("渲染总比率 + 三态计数 + 进度条 + 分节明细（未触发/未知行、全覆盖节、其余已覆盖）", async () => {
     const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
     const covSample = covReport as unknown as AuditReport
     const result = {
       ...covSample,
+      // 剥掉 text_coverage：走旧报告回退路径（无原文投影数据时保持 CoverageView 指令视角）
+      text_coverage: undefined,
       findings: covSample.findings as AuditFinding[],
     } as SkillAuditStoredResult
     const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
@@ -357,11 +359,13 @@ describe("声明覆盖视图（CoverageView · 声明 vs 实际触达）", () =>
     expect(html).toContain("#3")
   })
 
-  it("组合声明：未触发指令命中规程层 → 打层徽章", async () => {
+  it("组合声明（legacy 路径）：未触发指令命中规程层 → CoverageView 指令行打层徽章", async () => {
     const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
     const covSample = covReport as unknown as AuditReport
     const result = {
       ...covSample,
+      // 剥掉 text_coverage：走 CoverageView 回退路径（总览的归层由总览 describe 单独锁）
+      text_coverage: undefined,
       findings: covSample.findings as AuditFinding[],
       _layers: [
         {
@@ -390,5 +394,95 @@ describe("声明覆盖视图（CoverageView · 声明 vs 实际触达）", () =>
     const result = { ...SAMPLE, findings: SAMPLE.findings as AuditFinding[] } as SkillAuditStoredResult
     const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
     expect(html).not.toContain("声明覆盖")
+  })
+})
+
+describe("声明覆盖总览（DeclarationCoverageOverview · 原文快照 + 文本着色）", () => {
+  it("整篇原文呈现（间隙/代码围栏原样保留）+ 三色直接涂在文本上 + 双指标 + hover 指令摘要", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const covSample = covReport as unknown as AuditReport
+    const result = {
+      ...covSample,
+      findings: covSample.findings as AuditFinding[],
+    } as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).toContain("声明覆盖总览")
+    expect(html).toContain("原文声明快照")
+    // 单一区块：不再渲染原 CoverageView 分节明细（两块合一）
+    expect(html).not.toContain("其余 1 条已覆盖")
+    expect(html).not.toContain("全部声明已覆盖")
+    // 头部双指标：指令覆盖 3/6（50%，未覆盖 2 · 未知 1）+ 可评文本覆盖 3/6（50%）+ 建模完整度 6/8（75%）+ 未建模 2
+    expect(html).toContain("指令覆盖")
+    expect(html).toContain("3/6")
+    expect(html).toContain("（50%）")
+    expect(html).toContain("未覆盖")
+    expect(html).toContain("未知")
+    expect(html).toContain("可评文本覆盖")
+    expect(html).toContain("6/8")
+    expect(html).toContain("（75%）")
+    // 三色图例
+    expect(html).toContain("绿 已触达")
+    expect(html).toContain("黄 未验证")
+    expect(html).toContain("灰 未建模")
+    // 原文快照逐字呈现：bullet 原文、说明文字、代码块围栏（``` 只存在于 skill_body 间隙——
+    // 间隙原样保留是「原文」语义的回归锁）
+    expect(html).toContain("- 关键节点必须向用户确认")
+    expect(html).toContain("- 提交前跑全量回归门禁")
+    expect(html).toContain("以上规则如有疑问,先与维护者确认再行动。")
+    expect(html).toContain("状态:✅完成/❌未完成")
+    expect(html).toContain("```")
+    // 颜色直接涂在文本上（三个状态 class 都出现）
+    expect(html).toContain("bg-emerald-500/15")
+    expect(html).toContain("bg-amber-500/20")
+    expect(html).toContain("bg-muted/60")
+    // hover 摘要：色块 title 带该段指令逐条（covered 段的指令也在 title 里）
+    expect(html).toContain("title=")
+    expect(html).toContain("改动前必须先读相关源码")
+    // 无内联明细行污染原文：verdict 证据只出现在下方 findings 表（header 之后），不在总览快照里
+    expect(html.indexOf("turn 3 直接改了 pool.py")).toBeGreaterThan(html.indexOf("opdef-developer 工作流"))
+    // unmapped 折叠行（诚实计数不静默吞）
+    expect(html).toContain("另有 1 条指令未落回原文")
+    expect(html).toContain("Consult reference material (2 alternative category references)")
+  })
+
+  it("组合声明：hover 摘要带 root 归层（指令命中规程层 → title 含「编排规程」）", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const covSample = covReport as unknown as AuditReport
+    const result = {
+      ...covSample,
+      findings: covSample.findings as AuditFinding[],
+      _layers: [
+        {
+          kind: "regulation" as const,
+          label: "编排规程",
+          source: "turn0 (注入编排规程)",
+          content: "关键节点必须向用户确认后方可继续。",
+        },
+      ],
+    } as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).toContain("声明覆盖总览")
+    expect(html).toContain("（编排规程）")
+  })
+
+  it("旧报告（无 text_coverage / skill_body 字段）→ 回退 CoverageView，不渲染总览", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const result = { ...SAMPLE, findings: SAMPLE.findings as AuditFinding[] } as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).not.toContain("声明覆盖总览")
+    expect(html).not.toContain("可评文本覆盖")
+  })
+
+  it("total_units=0 的空 text_coverage → 不误显总览（回退 CoverageView 指令视角）", async () => {
+    const { AuditReportView } = await import("@/components/observe/skill-audit/AuditReportView")
+    const covSample = covReport as unknown as AuditReport
+    const result = {
+      ...covSample,
+      text_coverage: { total_units: 0, covered: 0, uncovered: 0, unmodeled: 0, coverage_rate: 0, modeled_ratio: 0, units: [] },
+      findings: covSample.findings as AuditFinding[],
+    } as unknown as SkillAuditStoredResult
+    const html = renderToStaticMarkup(createElement(AuditReportView, { result }))
+    expect(html).not.toContain("声明覆盖总览")
+    expect(html).toContain("声明覆盖")
   })
 })

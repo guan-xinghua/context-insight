@@ -1,8 +1,19 @@
 {
   "skill_name": "opdef-developer",
-  "transcripts": ["ses_cov_aaa", "ses_cov_bbb"],
-  "transcript_sources": ["cc", "cc"],
-  "summary": { "total": 4, "pass": 2, "fail": 1, "na": 1 },
+  "transcripts": [
+    "ses_cov_aaa",
+    "ses_cov_bbb"
+  ],
+  "transcript_sources": [
+    "cc",
+    "cc"
+  ],
+  "summary": {
+    "total": 4,
+    "pass": 2,
+    "fail": 1,
+    "na": 1
+  },
   "coverage": {
     "total": 6,
     "covered": 3,
@@ -41,7 +52,9 @@
             "na_count": 1,
             "unresolved_count": 1,
             "total": 2,
-            "seqs": [3]
+            "seqs": [
+              3
+            ]
           },
           {
             "instruction_text": "产物目录结构遵守仓规范",
@@ -53,7 +66,10 @@
             "fail_count": 0,
             "na_count": 0,
             "total": 2,
-            "seqs": [1, 4]
+            "seqs": [
+              1,
+              4
+            ]
           }
         ]
       },
@@ -86,7 +102,10 @@
             "pass_count": 1,
             "fail_count": 1,
             "total": 2,
-            "seqs": [2, 5]
+            "seqs": [
+              2,
+              5
+            ]
           }
         ]
       },
@@ -107,7 +126,9 @@
             "pass_count": 2,
             "fail_count": 0,
             "total": 2,
-            "seqs": [6]
+            "seqs": [
+              6
+            ]
           }
         ]
       }
@@ -136,5 +157,160 @@
       "transcript": "ses_cov_aaa",
       "seq": 1
     }
-  ]
+  ],
+  "skill_body": "# opdef-developer 工作流\n\n## 一、编排规程\n\n- 关键节点必须向用户确认\n- 改动前必须先读相关源码\n\n## 二、任务计划\n\n- 完成 AdaptivePoolMax 算子开发\n\n## 验收标准\n\n- 每个算子必须提供单测用例\n- 提交前跑全量回归门禁\n- 产物目录结构遵守仓规范\n\n以上规则如有疑问,先与维护者确认再行动。\n\n## 输出格式\n\n```\n状态:✅完成/❌未完成\n```\n",
+  "text_coverage": {
+    "total_units": 8,
+    "covered": 3,
+    "uncovered": 3,
+    "unmodeled": 2,
+    "coverage_rate": 0.5,
+    "modeled_ratio": 0.75,
+    "unmapped_instructions": [
+      "Consult reference material (2 alternative category references)"
+    ],
+    "units": [
+      {
+        "kind": "heading",
+        "start": 0,
+        "end": 21,
+        "text": "# opdef-developer 工作流",
+        "state": "",
+        "instructions": []
+      },
+      {
+        "kind": "heading",
+        "start": 23,
+        "end": 32,
+        "text": "## 一、编排规程",
+        "state": "",
+        "instructions": []
+      },
+      {
+        "kind": "bullet",
+        "start": 34,
+        "end": 48,
+        "text": "- 关键节点必须向用户确认",
+        "state": "uncovered",
+        "instructions": [
+          {
+            "instruction_text": "关键节点必须向用户确认",
+            "headline": "关键节点必须向用户确认",
+            "status": "uncovered"
+          }
+        ]
+      },
+      {
+        "kind": "bullet",
+        "start": 48,
+        "end": 62,
+        "text": "- 改动前必须先读相关源码",
+        "state": "covered",
+        "instructions": [
+          {
+            "instruction_text": "改动前必须先读相关源码",
+            "headline": "改动前必须先读相关源码",
+            "status": "covered"
+          }
+        ]
+      },
+      {
+        "kind": "heading",
+        "start": 63,
+        "end": 72,
+        "text": "## 二、任务计划",
+        "state": "",
+        "instructions": []
+      },
+      {
+        "kind": "bullet",
+        "start": 74,
+        "end": 100,
+        "text": "- 完成 AdaptivePoolMax 算子开发",
+        "state": "covered",
+        "instructions": [
+          {
+            "instruction_text": "完成 AdaptivePoolMax 算子开发",
+            "headline": "完成 AdaptivePoolMax 算子开发",
+            "status": "covered"
+          }
+        ]
+      },
+      {
+        "kind": "heading",
+        "start": 101,
+        "end": 108,
+        "text": "## 验收标准",
+        "state": "",
+        "instructions": []
+      },
+      {
+        "kind": "bullet",
+        "start": 110,
+        "end": 125,
+        "text": "- 每个算子必须提供单测用例",
+        "state": "uncovered",
+        "instructions": [
+          {
+            "instruction_text": "每个算子必须提供单测用例",
+            "headline": "每个算子必须提供单测用例",
+            "status": "uncovered"
+          }
+        ]
+      },
+      {
+        "kind": "bullet",
+        "start": 125,
+        "end": 138,
+        "text": "- 提交前跑全量回归门禁",
+        "state": "uncovered",
+        "instructions": [
+          {
+            "instruction_text": "提交前跑全量回归门禁",
+            "headline": "提交前跑全量回归门禁",
+            "status": "unknown"
+          }
+        ]
+      },
+      {
+        "kind": "bullet",
+        "start": 138,
+        "end": 152,
+        "text": "- 产物目录结构遵守仓规范",
+        "state": "covered",
+        "instructions": [
+          {
+            "instruction_text": "产物目录结构遵守仓规范",
+            "headline": "产物目录结构遵守仓规范",
+            "status": "covered"
+          }
+        ]
+      },
+      {
+        "kind": "paragraph",
+        "start": 153,
+        "end": 174,
+        "text": "以上规则如有疑问,先与维护者确认再行动。",
+        "state": "unmodeled",
+        "instructions": []
+      },
+      {
+        "kind": "heading",
+        "start": 175,
+        "end": 182,
+        "text": "## 输出格式",
+        "state": "",
+        "instructions": []
+      },
+      {
+        "kind": "codeblock",
+        "start": 184,
+        "end": 203,
+        "text": "```\n状态:✅完成/❌未完成\n```",
+        "state": "unmodeled",
+        "heading": "输出格式",
+        "instructions": []
+      }
+    ]
+  }
 }

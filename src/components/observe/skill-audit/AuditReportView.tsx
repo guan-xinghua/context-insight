@@ -27,6 +27,7 @@ import { FindingCard } from "./FindingCard"
 import { ByInstructionTable } from "./ByInstructionTable"
 import { StageBreakdownTable } from "./StageBreakdownTable"
 import { CoverageView } from "./CoverageView"
+import { DeclarationCoverageOverview } from "./DeclarationCoverageOverview"
 
 /**
  * 对账报告原生视图（替代 iframe 嵌 sift HTML）。数据 = SkillAuditResult
@@ -73,9 +74,21 @@ export function AuditReportView({
 
   return (
     <div className="space-y-3">
-      {/* ⓪ 声明覆盖（顶部）：总比率 + 分节明细，报告打开即见 */}
-      {report.coverage && report.coverage.total > 0 && (
-        <CoverageView coverage={report.coverage} layers={_layers} onJumpToSeq={jumpToSeq} />
+      {/* ⓪ 声明覆盖总览（原文快照）：对账时刻的声明原文整篇呈现，三色直接涂在
+          文本上（绿=已触达/黄=未验证/灰=未建模），hover 色块看指令摘要——原文即
+          界面；旧报告（无 text_coverage）回退 CoverageView（指令视角聚合） */}
+      {report.text_coverage && report.text_coverage.total_units > 0 ? (
+        <DeclarationCoverageOverview
+          textCoverage={report.text_coverage}
+          skillBody={report.skill_body}
+          coverage={report.coverage}
+          layers={_layers}
+        />
+      ) : (
+        report.coverage &&
+        report.coverage.total > 0 && (
+          <CoverageView coverage={report.coverage} layers={_layers} onJumpToSeq={jumpToSeq} />
+        )
       )}
 
       {/* ① header */}
