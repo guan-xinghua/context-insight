@@ -1,6 +1,6 @@
 {
   "name": "context-insight",
-  "version": "0.2.42",
+  "version": "0.2.41",
   "description": "Session-level observability tool for LLM coding agents (opencode/Claude Code)",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

@@ -186,7 +186,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 2. **解决冲突**: 如有冲突，手动解决后继续
 3. **运行测试**: `npm run test` — 全部通过才能继续
 4. **更新文档**: README.md / README-zh.md（如有功能变更）
-5. **版本号（PR 粒度）**: 提交本身不升版本；每次合 PR 前统一升一次（+0.0.1），**只升本 PR 实际改动的包**——PR 触达 `packages/insight` 才升 insight（`src/lib/version.ts` 与 `package.json` version 同步改，单轨同值），触达 `packages/cpx` 才升 cpx（`src/version.ts` 与 `package.json` 同步改），未触达的包不动；CHANGELOG 的 Unreleased 段落定版号
+5. **版本号（owner 统一管理）**: 版本号由仓库 owner 统一管理——其他协作者（含 AI agent）一律不改动版本号、不在 CHANGELOG 预定版号；提交与 MR 保持当前版本号原样。升版时机与数值由 owner 在合并时自行拍板（改法参考：insight 为 `src/lib/version.ts` 与 `package.json` version 同步改、单轨同值；cpx 为 `src/version.ts` 与 `package.json` 同步改；CHANGELOG 的 Unreleased 段落随升版一并定版号）
 6. **提交推送**: `git commit -m "[type] v0.xx: 描述"` → `[feat]` `[fix]` `[test]` `[docs]` `[chore]`
 
 ## Code Conventions
@@ -205,7 +205,7 @@ proxy（cpx 捕获）是 insight 的扩展来源，不是核心管线的一部�
 - **Comments**: Don't write them unless asked
 - **Doc files**: Don't create `.md` / README unless explicitly requested
 - **README sync**: When features change, update both `README.md` and `README-zh.md` feature lists and tab descriptions
-- **Version bumps**: PR-granularity — bump once per merged PR (+0.0.1), **only the packages this PR actually touched** — insight only when `packages/insight` changed (`src/lib/version.ts` + `package.json` together, single-track), cpx only when `packages/cpx` changed (`src/version.ts` + `package.json`); untouched packages stay; individual commits don't bump
+- **Version bumps**: owner-managed — version numbers are set exclusively by the repo owner; collaborators (including AI agents) never bump, downgrade, or reserve version numbers, and never pin a target version in CHANGELOG — commits/MRs keep current versions untouched; the owner decides bump timing and values at merge time (reference: insight = `src/lib/version.ts` + `package.json` in sync, single-track; cpx = `src/version.ts` + `package.json` in sync; CHANGELOG Unreleased section gets its version header from the owner's bump)
 - **CHANGELOG 简洁**: 条目一两句说清「什么变了、用户可感知什么」——不写实现细节（函数名/内部机制/IT 清单，那些放 PR 描述）；只有功能性变化才写，小加固/杂项不单开条目
 - **Badge variants**: default, secondary, destructive, outline, blue, green, orange, purple, gray, red, yellow, slate
 - **UI primitives**: All from `@base-ui/react` (not radix-ui) via shadcn v4 + Tailwind v4

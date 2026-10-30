@@ -295,7 +295,7 @@ export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLan
 export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, highlightSubagentTurnId, scrollToTurnId, onJumpToTurnIndex }: TurnTimelineProps) {
   const [expandedSubagents, setExpandedSubagents] = useState<Set<string>>(new Set())
   const turnById = new Map(turns.map(t => [t.turnId, t] as const))
-  const [filterRole, setFilterRole] = useState<string | null>(null)
+  const [filterRoles, setFilterRoles] = useState<Set<string>>(new Set())
   const [jumpInput, setJumpInput] = useState("")
   const [jumpNotFound, setJumpNotFound] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -572,7 +572,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
   }
 
   const filteredRootTurns = displayRootTurns.filter(t => {
-    if (filterRole && t.displayRole !== filterRole) return false
+    if (filterRoles.size > 0 && !filterRoles.has(t.displayRole)) return false
     return true
   })
 
@@ -694,9 +694,9 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
           <button
             className={cn(
               "px-2 py-1 rounded text-xs font-medium transition-colors",
-              !filterRole ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"
+              filterRoles.size === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"
             )}
-            onClick={() => setFilterRole(null)}
+            onClick={() => setFilterRoles(new Set())}
           >
             All ({displayRootTurns.length})
           </button>
@@ -705,9 +705,14 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
               key={role}
               className={cn(
                 "px-2 py-1 rounded text-xs font-medium transition-colors",
-                filterRole === role ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"
+                filterRoles.has(role) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"
               )}
-              onClick={() => setFilterRole(role === filterRole ? null : role)}
+              onClick={() => setFilterRoles(prev => {
+                const next = new Set(prev)
+                if (next.has(role)) next.delete(role)
+                else next.add(role)
+                return next
+              })}
             >
               {ROLE_ICONS[role] ?? role} {ROLE_LABELS[role] ?? role} ({displayRootTurns.filter(t => t.displayRole === role).length})
             </button>
