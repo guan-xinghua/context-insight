@@ -625,6 +625,19 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
 
   const rootRoles = [...new Set(displayRootTurns.map(t => t.displayRole))]
 
+  // chip 计数 = 筛选后会看到的行数口径：主链 displayRole 计数 + 子代理原始 role 计数。
+  // 只数主链会把「user (1)」这样的角标贴在 89 行 user（1 主链 + 88 子代理）的列表上，
+  // 读起来像「subagent 的 user 没被当成 user」（真机反馈）。增强角色（command/
+  // continuation/compaction/subagent-return）是 root-only，子代理侧天然 +0
+  const subRoleCounts = new Map<string, number>()
+  for (const t of turns) {
+    if (!t.isSubagent) continue
+    subRoleCounts.set(t.role, (subRoleCounts.get(t.role) ?? 0) + 1)
+  }
+  const totalSubTurns = [...subRoleCounts.values()].reduce((a, b) => a + b, 0)
+  const chipCount = (role: string) =>
+    displayRootTurns.filter(t => t.displayRole === role).length + (subRoleCounts.get(role) ?? 0)
+
   // 兜底 lane（无桥子代理可见性）：桥驱动 lane 覆盖不到的子代理 turns（上游
   // meta 登记为空 / 异步派发回执无子会话 id → 建桥三路全断）此前在时间线上
   // 整组不可见（能搜到、看不到）。按 turnIndex 就近挂到主链最近轮下，slate
@@ -757,7 +770,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
             )}
             onClick={() => setFilterRoles(new Set())}
           >
-            All ({displayRootTurns.length})
+            All ({displayRootTurns.length + totalSubTurns})
           </button>
           {rootRoles.map(role => (
             <button
@@ -773,7 +786,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
                 return next
               })}
             >
-              {ROLE_ICONS[role] ?? role} {ROLE_LABELS[role] ?? role} ({displayRootTurns.filter(t => t.displayRole === role).length})
+              {ROLE_ICONS[role] ?? role} {ROLE_LABELS[role] ?? role} ({chipCount(role)})
             </button>
           ))}
         </div>
