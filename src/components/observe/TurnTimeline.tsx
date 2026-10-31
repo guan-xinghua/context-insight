@@ -142,13 +142,16 @@ interface LaneCtx {
   onSelectTurn: (turnId: string) => void
   // 可空：静态渲染/单 lane 直渲的调用方无滚动定位需求，传 null 即可
   selectedSubRef: RefObject<HTMLButtonElement | null> | null
-  // 角色筛选（主链 chips 同一份）：子代理 lane 内轮次同口径过滤——空/缺省 = 不过滤。
-  // 递归传递到任意嵌套深度（子代理的子代理）与孤儿兜底 lane
+  // 角色筛选（主链 chips 同一份值）：子代理 lane 内轮次按其原始 role 过滤——
+  // 空/缺省 = 不过滤。递归传递到任意嵌套深度（子代理的子代理）与孤儿兜底 lane。
+  // 注意主链 displayRole 的增强角色（command/continuation/compaction/
+  // subagent-return）是 root-only：子代理轮次只有原始 role（与 lane 行渲染的
+  // 徽标一致），选中增强角色时泳道按 0/N 计数如实呈现空态
   filterRoles?: ReadonlySet<string>
 }
 
-// lane 内按角色可见的轮次（筛选语义与主链 filteredRootTurns 一致：按行显示的
-// role 过滤；子代理轮次无 displayRole 增强链，直接用原始 role）
+// lane 内按角色可见的轮次：按轮次行内显示的原始 role 匹配（与主链按 displayRole
+// 过滤共用同一份筛选值；增强角色不会匹配任何子代理轮次——见 LaneCtx.filterRoles 注）
 function laneVisibleTurns(lane: SubagentLane, ctx: LaneCtx): TurnRowItem[] {
   if (!ctx.filterRoles || ctx.filterRoles.size === 0) return lane.turns
   return lane.turns.filter(st => ctx.filterRoles!.has(st.role))
@@ -264,21 +267,22 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
 //     跨 tab 导航祖先链的多桥展开语义）；
 //   - 组头 ⇄ 标识 + 汇总统计，并行关系与规模一目了然。
 export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLane[]; ctx: LaneCtx; path?: ReadonlySet<string> }) {
+  const filtering = (ctx.filterRoles?.size ?? 0) > 0
   const totalTurns = lanes.reduce((s, l) => s + l.turnCount, 0)
   const totalTokens = lanes.reduce((s, l) => s + l.totalTokens, 0)
+  const visibleTurns = filtering ? lanes.reduce((s, l) => s + laneVisibleTurns(l, ctx).length, 0) : totalTurns
   return (
     <div className="ml-4 mt-1 min-w-0 rounded-lg border border-orange-200/70 dark:border-orange-500/20 bg-orange-50/10 dark:bg-orange-500/5 p-1.5 space-y-1.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-0.5">
         <span className="text-[11px] text-muted-foreground shrink-0">⇄ {lanes.length} parallel subagents</span>
         <span className="text-[11px] text-muted-foreground">
-          {totalTurns} turns{totalTokens > 0 ? ` · ${formatTokenCount(totalTokens)} tok` : ""}
+          {filtering ? `${visibleTurns}/${totalTurns}` : totalTurns} turns{totalTokens > 0 ? ` · ${formatTokenCount(totalTokens)} tok` : ""}
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5 items-start">
         {lanes.map(lane => {
           const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
           const isError = lane.status === "error"
-          const filtering = (ctx.filterRoles?.size ?? 0) > 0
           const visibleCount = filtering ? laneVisibleTurns(lane, ctx).length : lane.turnCount
           return (
             <div key={lane.bridgeId} className={cn("min-w-0 flex flex-col gap-1.5", isExpanded && "basis-full")}>

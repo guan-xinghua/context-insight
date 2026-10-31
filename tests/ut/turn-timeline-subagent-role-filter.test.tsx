@@ -251,10 +251,14 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     expect(html()).toContain('parallel subagents')
     expect(html()).toContain('1t')
     expect(html()).toContain('2t')
+    // 组头汇总（无筛选）= 全量口径：3 turns
+    expect(html()).toContain('3 turns')
 
     await act(async () => { chip('🤖 assistant')!.click() })
     expect(html()).toContain('1/1t')
     expect(html()).toContain('1/2t')
+    // 组头汇总与 chip 同步切换 可见/总数（review：组头不得停留在未过滤总数）
+    expect(html()).toContain('2/3 turns')
     expect(html()).not.toContain('p2-system')
 
     await act(async () => { root.unmount() })
