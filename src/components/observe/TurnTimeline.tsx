@@ -157,6 +157,23 @@ function laneVisibleTurns(lane: SubagentLane, ctx: LaneCtx): TurnRowItem[] {
   return lane.turns.filter(st => ctx.filterRoles!.has(st.role))
 }
 
+// 锚点保活判定：本 lane 或其任意深度嵌套 lane 里存在匹配筛选的轮次（review：
+// 只查直接 lane.turns 会在「匹配角色只在孙代」时把整条子树提前丢弃——根轮
+// 被滤、A 直接轮次不匹配 → 根不保活 → B 里的匹配轮随树消失）。
+// bridgeId 已访问集防互引环（渲染侧有 path 截断，保活侧同需）
+function laneHasVisibleTurn(lane: SubagentLane, ctx: LaneCtx, seen?: Set<string>): boolean {
+  const visited = seen ?? new Set<string>()
+  if (visited.has(lane.bridgeId)) return false
+  visited.add(lane.bridgeId)
+  if (laneVisibleTurns(lane, ctx).length > 0) return true
+  for (const st of lane.turns) {
+    for (const l of ctx.subagentBlocksByTurnId.get(st.turnId) ?? []) {
+      if (laneHasVisibleTurn(l, ctx, visited)) return true
+    }
+  }
+  return false
+}
+
 // 筛选把锚点/派发轮本身滤掉、但其下泳道仍有匹配轮次时的降级占位行：锚点行不
 // 渲染则泳道无挂载点、整组随锚点连坐消失（现场：派发轮几乎恒为 assistant，选
 // user 时全部桥接泳道的挂载点被滤掉，子代理会话里的 user 轮——任务提示等——
@@ -228,10 +245,11 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
           )}
           {lane.turns.map(st => {
             // 行本体被滤掉时，只有当它派发的子泳道里还有匹配轮次时才以占位行
-            // 保住挂载点（root 层锚点同款语义）；无匹配则整行连同子泳道略过
+            // 保住挂载点（root 层锚点同款语义，判定同样递归到孙代）；无匹配则
+            // 整行连同子泳道略过
             const stVisible = !roleFiltering || ctx.filterRoles!.has(st.role)
             const nested = ctx.subagentBlocksByTurnId.get(st.turnId) ?? []
-            if (!stVisible && !nested.some(l => laneVisibleTurns(l, ctx).length > 0)) return null
+            if (!stVisible && !nested.some(l => laneHasVisibleTurn(l, ctx))) return null
             return (
             <div key={st.turnId} className="space-y-1">
               {stVisible ? (
@@ -736,10 +754,11 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
 
   // 锚点轮被滤掉但其泳道内有匹配轮次时，锚点以占位行保住挂载点（泳道不随锚点
   // 连坐消失）——否则选 user 时所有 assistant 派发轮全被滤掉，子代理的 user 轮
-  // 无处可见（filteredRootTurns 只含可见锚点，其上泳道跟着全没了）
+  // 无处可见（filteredRootTurns 只含可见锚点，其上泳道跟着全没了）。
+  // 保活判定递归到任意嵌套深度（laneHasVisibleTurn）
   const renderTurns = filterRoles.size === 0 ? filteredRootTurns : displayRootTurns.filter(t =>
     filterRoles.has(t.displayRole)
-    || (subagentBlocksByTurnId.get(t.turnId) ?? []).some(l => laneVisibleTurns(l, laneCtx).length > 0)
+    || (subagentBlocksByTurnId.get(t.turnId) ?? []).some(l => laneHasVisibleTurn(l, laneCtx))
   )
 
   const handleJump = () => {

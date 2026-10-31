@@ -328,4 +328,56 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     await act(async () => { root.unmount() })
     host.remove()
   })
+
+  // review：保活判定只查直接 lane 会在「匹配角色只在孙代」时把整条子树提前
+  // 丢弃——根 assistant 锚点被滤、A 直接轮次（assistant 派发轮）不匹配 user →
+  // 根不进 renderTurns，B 里的 user 轮随树消失。递归 laneHasVisibleTurn 修复
+  it('深层嵌套：匹配角色只在孙代时，两级占位行贯通保活到最深泳道', async () => {
+    const turns = [
+      makeTurn(0, 'user', { contentSummary: 'deep-root-user' }),
+      makeTurn(1, 'assistant', { contentSummary: 'deep-root-dispatch' }),
+      makeTurn(20, 'assistant', { turnId: 'deep-a-disp', isSubagent: true, subagentSessionId: 'sess-deep-a', contentSummary: 'deep-a-dispatcher' }),
+      makeTurn(21, 'user', { turnId: 'deep-b-usr', isSubagent: true, subagentSessionId: 'sess-deep-b', contentSummary: 'deep-b-user' }),
+    ]
+    const bridges = [
+      makeBridge('br-da', 't-1', 'sess-deep-a'),
+      makeBridge('br-db', 'deep-a-disp', 'sess-deep-b'),
+    ]
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root: Root = createRoot(host)
+    await act(async () => {
+      root.render(createElement(TurnTimeline, {
+        turns,
+        bridges,
+        selectedTurnId: null,
+        onSelectTurn: () => {},
+        highlightSubagentTurnId: 'deep-b-usr',
+      }))
+    })
+
+    // 无筛选：两层全展开全显
+    expect(html()).toContain('deep-root-dispatch')
+    expect(html()).toContain('deep-a-dispatcher')
+    expect(html()).toContain('deep-b-user')
+
+    // 选 user：孙代 B 的 user 轮贯通保活——根锚点与 A 派发轮两级占位，B 轮可见
+    await act(async () => { chip('👤 user')!.click() })
+    expect(html()).toContain('deep-root-user')
+    expect(html()).not.toContain('deep-root-dispatch')
+    expect(html()).not.toContain('deep-a-dispatcher')
+    expect(html()).toContain('deep-b-user')
+    expect(html().split('已按角色筛选隐藏').length - 1).toBe(2)
+    expect(html()).toContain('0/1 turns')
+    expect(html()).toContain('1/1 turns')
+
+    // All 清空回全显
+    await act(async () => { chip('All')!.click() })
+    expect(html()).toContain('deep-a-dispatcher')
+    expect(html()).not.toContain('已按角色筛选隐藏')
+
+    await act(async () => { root.unmount() })
+    host.remove()
+  })
 })
