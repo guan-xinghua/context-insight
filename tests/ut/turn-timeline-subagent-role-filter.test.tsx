@@ -303,6 +303,10 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     expect(html()).toContain('sub-assistant-ten')
     expect(html()).toContain('sub-user-eleven')
     expect(html()).toContain('2 turns')
+    // chip 计数含子代理轮次（真机反馈：user (1) 贴在多行 user 的列表上像没认出 subagent 的 user）
+    expect(html()).toContain('👤 user (2)')
+    expect(html()).toContain('🤖 assistant (2)')
+    expect(html()).toContain('All (4)')
 
     // 选 user：assistant 锚点轮本体隐藏 → 占位行保挂载点；泳道只剩 user 轮（1/2）
     await act(async () => { chip('👤 user')!.click() })
