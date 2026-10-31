@@ -134,9 +134,11 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     expect(html()).not.toContain('sub-system-eleven')
     expect(html()).not.toContain('sub-user-twelve')
     expect(html()).toContain('1/3 turns')
-    // 锚在 system 轮 t-2 的 sess-c：锚点轮被过滤，lane 整体不渲染
-    expect(html()).not.toContain('0/1 turns')
-    expect(html()).not.toContain('sub-c-assistant')
+    // 锚在 system 轮 t-2 的 sess-c：锚点轮被滤但其内 assistant 轮匹配 →
+    // 锚点降级为占位行保住挂载点，lane 仍在（折叠态下以 1/1 计数可见，
+    // 不再整组连坐消失；内层行的可见性由「占位行保留」专项用例锁）
+    expect(html()).toContain('已按角色筛选隐藏')
+    expect(html()).toContain('1/1 turns')
 
     // 加选 system：并集——子代理 assistant + system 轮可见
     await act(async () => { chip('⚙️ system')!.click() })
@@ -145,14 +147,17 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     expect(html()).toContain('sub-system-eleven')
     expect(html()).not.toContain('sub-user-twelve')
     expect(html()).toContain('2/3 turns')
-    // sess-c 的 lane 回来（锚点 system 轮可见），其内 assistant 轮在并集内 → 1/1
+    // sess-c 锚点轮（system）恢复完整行，其内 assistant 轮在并集内 → 1/1
+    expect(html()).toContain('root-system-two')
     expect(html()).toContain('1/1 turns')
 
-    // 取消 assistant（只剩 system）：sess-sub 锚点轮被滤 → lane 隐藏；
-    // sess-c 锚点轮（system）可见但内里唯一 assistant 轮被滤空 → 0/1 空态
+    // 取消 assistant（只剩 system）：sess-sub 锚点（assistant）被滤 → 占位行 +
+    // 泳道内只剩 system 轮（1/3）；sess-c 锚点轮可见但内里唯一 assistant 轮被滤空 → 0/1
     await act(async () => { chip('🤖 assistant')!.click() })
     expect(html()).not.toContain('root-assistant-one')
     expect(html()).not.toContain('sub-assistant-ten')
+    expect(html()).toContain('sub-system-eleven')
+    expect(html()).toContain('1/3 turns')
     expect(html()).toContain('0/1 turns')
     expect(html()).not.toContain('2/3 turns')
 
@@ -163,6 +168,7 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     expect(html()).toContain('3 turns')
     expect(html()).not.toContain('1/3 turns')
     expect(html()).not.toContain('0/1 turns')
+    expect(html()).not.toContain('已按角色筛选隐藏')
 
     await act(async () => { root.unmount() })
     host.remove()
@@ -201,16 +207,18 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     expect(html()).toContain('nest-b-system')
     expect(html()).toContain('nest-b-user')
 
-    // 单选 user：锚点轮可见，sess-a 只剩 user 轮（1/2）；嵌套派发轮（system）被滤
-    // → 嵌套 lane 随挂载点隐藏——即使其内有匹配 user 的轮也不出现
+    // 单选 user：锚点轮（user）可见完整行；sess-a 内 system 派发轮被滤但嵌套
+    // lane 里有匹配的 user 轮 → 派发轮降级占位行，嵌套 lane 保留且只显示 user 轮
     await act(async () => { chip('👤 user')!.click() })
     expect(html()).toContain('root-dispatch-one')
     expect(html()).not.toContain('root-system-zero')
     expect(html()).not.toContain('nest-dispatcher-twenty')
+    expect(html()).toContain('已按角色筛选隐藏')
     expect(html()).toContain('nest-a-user')
     expect(html()).toContain('1/2 turns')
     expect(html()).not.toContain('nest-b-system')
-    expect(html()).not.toContain('nest-b-user')
+    expect(html()).toContain('nest-b-user')
+    expect(html()).toContain('1/2 turns')
 
     // 加选 system：派发轮回来 → 嵌套 lane 重现，两级各全显（2/2）
     await act(async () => { chip('⚙️ system')!.click() })
@@ -260,6 +268,58 @@ describe('TurnTimeline 角色筛选对子代理 lane 生效', () => {
     // 组头汇总与 chip 同步切换 可见/总数（review：组头不得停留在未过滤总数）
     expect(html()).toContain('2/3 turns')
     expect(html()).not.toContain('p2-system')
+
+    await act(async () => { root.unmount() })
+    host.remove()
+  })
+
+  // cannbot-sentry #94 追加反馈：选 user 时桥接泳道整组消失（派发锚点轮几乎恒为
+  // assistant，锚点被滤 → 泳道连坐）——占位行修复的最小复现
+  it('选 user：assistant 派发锚点被滤但子代理 user 轮经占位行仍可见', async () => {
+    const turns = [
+      makeTurn(0, 'user', { contentSummary: 'root-user-zero' }),
+      makeTurn(1, 'assistant', { contentSummary: 'root-dispatch-one' }),
+      makeTurn(10, 'assistant', { turnId: 'sub-asst', isSubagent: true, subagentSessionId: 'sess-sub', contentSummary: 'sub-assistant-ten' }),
+      makeTurn(11, 'user', { turnId: 'sub-usr', isSubagent: true, subagentSessionId: 'sess-sub', contentSummary: 'sub-user-eleven' }),
+    ]
+    const bridges = [makeBridge('br-1', 't-1', 'sess-sub')]
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root: Root = createRoot(host)
+    await act(async () => {
+      root.render(createElement(TurnTimeline, {
+        turns,
+        bridges,
+        selectedTurnId: null,
+        onSelectTurn: () => {},
+        highlightSubagentTurnId: 'sub-usr',
+      }))
+    })
+
+    // 无筛选：主链 2 轮 + 泳道 2 轮全显
+    expect(html()).toContain('root-user-zero')
+    expect(html()).toContain('root-dispatch-one')
+    expect(html()).toContain('sub-assistant-ten')
+    expect(html()).toContain('sub-user-eleven')
+    expect(html()).toContain('2 turns')
+
+    // 选 user：assistant 锚点轮本体隐藏 → 占位行保挂载点；泳道只剩 user 轮（1/2）
+    await act(async () => { chip('👤 user')!.click() })
+    expect(html()).toContain('root-user-zero')
+    expect(html()).not.toContain('root-dispatch-one')
+    expect(html()).toContain('已按角色筛选隐藏')
+    expect(html()).toContain('sub-user-eleven')
+    expect(html()).not.toContain('sub-assistant-ten')
+    expect(html()).toContain('1/2 turns')
+    // 有占位泳道在渲染，不得误报空态
+    expect(html()).not.toContain('No turns match the current filters')
+
+    // All 清空：占位行消失，全部恢复
+    await act(async () => { chip('All')!.click() })
+    expect(html()).toContain('root-dispatch-one')
+    expect(html()).toContain('sub-assistant-ten')
+    expect(html()).not.toContain('已按角色筛选隐藏')
 
     await act(async () => { root.unmount() })
     host.remove()
