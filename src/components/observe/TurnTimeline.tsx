@@ -142,6 +142,51 @@ interface LaneCtx {
   onSelectTurn: (turnId: string) => void
   // 可空：静态渲染/单 lane 直渲的调用方无滚动定位需求，传 null 即可
   selectedSubRef: RefObject<HTMLButtonElement | null> | null
+  // 角色筛选（主链 chips 同一份值）：子代理 lane 内轮次按其原始 role 过滤——
+  // 空/缺省 = 不过滤。递归传递到任意嵌套深度（子代理的子代理）与孤儿兜底 lane。
+  // 注意主链 displayRole 的增强角色（command/continuation/compaction/
+  // subagent-return）是 root-only：子代理轮次只有原始 role（与 lane 行渲染的
+  // 徽标一致），选中增强角色时泳道按 0/N 计数如实呈现空态
+  filterRoles?: ReadonlySet<string>
+}
+
+// lane 内按角色可见的轮次：按轮次行内显示的原始 role 匹配（与主链按 displayRole
+// 过滤共用同一份筛选值；增强角色不会匹配任何子代理轮次——见 LaneCtx.filterRoles 注）
+function laneVisibleTurns(lane: SubagentLane, ctx: LaneCtx): TurnRowItem[] {
+  if (!ctx.filterRoles || ctx.filterRoles.size === 0) return lane.turns
+  return lane.turns.filter(st => ctx.filterRoles!.has(st.role))
+}
+
+// 锚点保活判定：本 lane 或其任意深度嵌套 lane 里存在匹配筛选的轮次（review：
+// 只查直接 lane.turns 会在「匹配角色只在孙代」时把整条子树提前丢弃——根轮
+// 被滤、A 直接轮次不匹配 → 根不保活 → B 里的匹配轮随树消失）。
+// bridgeId 已访问集防互引环（渲染侧有 path 截断，保活侧同需）
+function laneHasVisibleTurn(lane: SubagentLane, ctx: LaneCtx, seen?: Set<string>): boolean {
+  const visited = seen ?? new Set<string>()
+  if (visited.has(lane.bridgeId)) return false
+  visited.add(lane.bridgeId)
+  if (laneVisibleTurns(lane, ctx).length > 0) return true
+  for (const st of lane.turns) {
+    for (const l of ctx.subagentBlocksByTurnId.get(st.turnId) ?? []) {
+      if (laneHasVisibleTurn(l, ctx, visited)) return true
+    }
+  }
+  return false
+}
+
+// 筛选把锚点/派发轮本身滤掉、但其下泳道仍有匹配轮次时的降级占位行：锚点行不
+// 渲染则泳道无挂载点、整组随锚点连坐消失（现场：派发轮几乎恒为 assistant，选
+// user 时全部桥接泳道的挂载点被滤掉，子代理会话里的 user 轮——任务提示等——
+// 无处可见；cannbot-sentry #94 追加反馈）。占位行只保留序号与角色标识，明示
+// 「这行被隐藏、泳道为什么还在」
+function FilteredAnchorRow({ turnIndex, role }: { turnIndex: number; role: string }) {
+  return (
+    <div className="w-full flex flex-wrap items-center gap-x-1.5 px-2 py-1 rounded border-l-2 border-dashed border-muted-foreground/40 text-xs text-muted-foreground">
+      <span className="font-mono shrink-0">#{turnIndex}</span>
+      <span className="shrink-0">{ROLE_ICONS[role] ?? role} {ROLE_LABELS[role] ?? role}</span>
+      <span className="truncate">已按角色筛选隐藏 · 其下子代理泳道含匹配轮次，保留展示</span>
+    </div>
+  )
 }
 
 // Recursive subagent lane: renders a lane's turns AND, nested, any sub-lanes
@@ -165,6 +210,8 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
   childPath.add(lane.bridgeId)
   const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
   const isError = lane.status === "error"
+  const visibleTurns = laneVisibleTurns(lane, ctx)
+  const roleFiltering = (ctx.filterRoles?.size ?? 0) > 0
   return (
     <div className={cn(
       "border rounded-lg min-w-0",
@@ -187,41 +234,55 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-2 px-2 pb-1 text-xs text-muted-foreground">
-        <span>{lane.turnCount} turns</span>
+        <span>{roleFiltering ? `${visibleTurns.length}/${lane.turnCount} turns` : `${lane.turnCount} turns`}</span>
         {lane.totalTokens > 0 && <span>{formatTokenCount(lane.totalTokens)} tok</span>}
         {lane.latencyMs > 0 && <span>{formatLatency(lane.latencyMs)}</span>}
       </div>
       {isExpanded && lane.turns.length > 0 && (
         <div className="px-2 pb-2 space-y-1">
-          {lane.turns.map(st => (
+          {visibleTurns.length === 0 && (
+            <p className="text-xs text-muted-foreground px-2 py-0.5">No subagent turns match the current filters</p>
+          )}
+          {lane.turns.map(st => {
+            // 行本体被滤掉时，只有当它派发的子泳道里还有匹配轮次时才以占位行
+            // 保住挂载点（root 层锚点同款语义，判定同样递归到孙代）；无匹配则
+            // 整行连同子泳道略过
+            const stVisible = !roleFiltering || ctx.filterRoles!.has(st.role)
+            const nested = ctx.subagentBlocksByTurnId.get(st.turnId) ?? []
+            if (!stVisible && !nested.some(l => laneHasVisibleTurn(l, ctx))) return null
+            return (
             <div key={st.turnId} className="space-y-1">
-              <button
-                ref={ctx.selectedTurnId === st.turnId ? ctx.selectedSubRef : null}
-                className={cn(
-                  "w-full text-left flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded border-l-2 text-xs transition-colors cursor-pointer",
-                  "border-l-orange-400 bg-orange-50/30 dark:bg-orange-500/10",
-                  ctx.selectedTurnId === st.turnId ? "ring-1 ring-primary/50" : "hover:bg-accent/30"
-                )}
-                onClick={() => ctx.onSelectTurn(st.turnId)}
-              >
-                <span className="font-mono text-muted-foreground shrink-0">#{st.turnIndex}</span>
-                <Badge variant={ROLE_BADGE_VARIANTS[st.role] ?? "gray"} className="text-xs shrink-0">
-                  {ROLE_ICONS[st.role]} {st.role}
-                </Badge>
-                {st.toolCalls.length > 0 && <Badge variant="outline" className="text-xs shrink-0">{st.toolCalls.length} tools</Badge>}
-                {st.contentSummary && (
-                  <span className="text-foreground/80 truncate min-w-[60px] max-w-[200px]">
-                    {st.contentSummary.replace(/^<thinking>/, "").substring(0, 40)}
-                  </span>
-                )}
-                {st.totalTokens > 0 && <span className="text-muted-foreground shrink-0">{formatTokenCount(st.totalTokens)}</span>}
-              </button>
+              {stVisible ? (
+                <button
+                  ref={ctx.selectedTurnId === st.turnId ? ctx.selectedSubRef : null}
+                  className={cn(
+                    "w-full text-left flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded border-l-2 text-xs transition-colors cursor-pointer",
+                    "border-l-orange-400 bg-orange-50/30 dark:bg-orange-500/10",
+                    ctx.selectedTurnId === st.turnId ? "ring-1 ring-primary/50" : "hover:bg-accent/30"
+                  )}
+                  onClick={() => ctx.onSelectTurn(st.turnId)}
+                >
+                  <span className="font-mono text-muted-foreground shrink-0">#{st.turnIndex}</span>
+                  <Badge variant={ROLE_BADGE_VARIANTS[st.role] ?? "gray"} className="text-xs shrink-0">
+                    {ROLE_ICONS[st.role]} {st.role}
+                  </Badge>
+                  {st.toolCalls.length > 0 && <Badge variant="outline" className="text-xs shrink-0">{st.toolCalls.length} tools</Badge>}
+                  {st.contentSummary && (
+                    <span className="text-foreground/80 truncate min-w-[60px] max-w-[200px]">
+                      {st.contentSummary.replace(/^<thinking>/, "").substring(0, 40)}
+                    </span>
+                  )}
+                  {st.totalTokens > 0 && <span className="text-muted-foreground shrink-0">{formatTokenCount(st.totalTokens)}</span>}
+                </button>
+              ) : (
+                <FilteredAnchorRow turnIndex={st.turnIndex} role={st.role} />
+              )}
               {(() => {
                 // 嵌套子 lane 就地挂载在派发轮行后（root 层同款：单 lane 直渲、
                 // 多 lane 并行组），不再统一追加在父 lane 末尾——后台子代理真实
                 // 运行在父的中段，末尾挂载会读成「父结束后才启动」（现场：
                 // designer 运行中段派生的两个 Explore 被读成由末轮 #1847 启动）
-                const lns = ctx.subagentBlocksByTurnId.get(st.turnId)
+                const lns = nested
                 if (!lns || lns.length === 0) return null
                 return (
                   <div className="ml-3 pl-3 border-l border-orange-200 dark:border-orange-500/30 min-w-0">
@@ -232,7 +293,8 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
                 )
               })()}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -249,20 +311,23 @@ export function SubagentLaneView({ lane, ctx, path }: { lane: SubagentLane; ctx:
 //     跨 tab 导航祖先链的多桥展开语义）；
 //   - 组头 ⇄ 标识 + 汇总统计，并行关系与规模一目了然。
 export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLane[]; ctx: LaneCtx; path?: ReadonlySet<string> }) {
+  const filtering = (ctx.filterRoles?.size ?? 0) > 0
   const totalTurns = lanes.reduce((s, l) => s + l.turnCount, 0)
   const totalTokens = lanes.reduce((s, l) => s + l.totalTokens, 0)
+  const visibleTurns = filtering ? lanes.reduce((s, l) => s + laneVisibleTurns(l, ctx).length, 0) : totalTurns
   return (
     <div className="ml-4 mt-1 min-w-0 rounded-lg border border-orange-200/70 dark:border-orange-500/20 bg-orange-50/10 dark:bg-orange-500/5 p-1.5 space-y-1.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-0.5">
         <span className="text-[11px] text-muted-foreground shrink-0">⇄ {lanes.length} parallel subagents</span>
         <span className="text-[11px] text-muted-foreground">
-          {totalTurns} turns{totalTokens > 0 ? ` · ${formatTokenCount(totalTokens)} tok` : ""}
+          {filtering ? `${visibleTurns}/${totalTurns}` : totalTurns} turns{totalTokens > 0 ? ` · ${formatTokenCount(totalTokens)} tok` : ""}
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5 items-start">
         {lanes.map(lane => {
           const isExpanded = ctx.expandedSubagents.has(lane.bridgeId)
           const isError = lane.status === "error"
+          const visibleCount = filtering ? laneVisibleTurns(lane, ctx).length : lane.turnCount
           return (
             <div key={lane.bridgeId} className={cn("min-w-0 flex flex-col gap-1.5", isExpanded && "basis-full")}>
               <button
@@ -280,7 +345,7 @@ export function ParallelSubagentGroup({ lanes, ctx, path }: { lanes: SubagentLan
                 <Badge variant="orange" className="max-w-[180px] truncate">{lane.name}</Badge>
                 {lane.background && <Badge variant="yellow" className="shrink-0" title="后台异步派发：立即返回，完成后再通知父会话">background</Badge>}
                 {isError && <Badge variant="red" className="shrink-0">error</Badge>}
-                <span className="text-muted-foreground shrink-0">{lane.turnCount}t</span>
+                <span className="text-muted-foreground shrink-0">{filtering ? `${visibleCount}/${lane.turnCount}t` : `${lane.turnCount}t`}</span>
                 {lane.latencyMs > 0 && <span className="text-muted-foreground shrink-0">{formatLatency(lane.latencyMs)}</span>}
               </button>
               {isExpanded && <SubagentLaneView lane={lane} ctx={ctx} path={path} />}
@@ -578,6 +643,19 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
 
   const rootRoles = [...new Set(displayRootTurns.map(t => t.displayRole))]
 
+  // chip 计数 = 筛选后会看到的行数口径：主链 displayRole 计数 + 子代理原始 role 计数。
+  // 只数主链会把「user (1)」这样的角标贴在 89 行 user（1 主链 + 88 子代理）的列表上，
+  // 读起来像「subagent 的 user 没被当成 user」（真机反馈）。增强角色（command/
+  // continuation/compaction/subagent-return）是 root-only，子代理侧天然 +0
+  const subRoleCounts = new Map<string, number>()
+  for (const t of turns) {
+    if (!t.isSubagent) continue
+    subRoleCounts.set(t.role, (subRoleCounts.get(t.role) ?? 0) + 1)
+  }
+  const totalSubTurns = [...subRoleCounts.values()].reduce((a, b) => a + b, 0)
+  const chipCount = (role: string) =>
+    displayRootTurns.filter(t => t.displayRole === role).length + (subRoleCounts.get(role) ?? 0)
+
   // 兜底 lane（无桥子代理可见性）：桥驱动 lane 覆盖不到的子代理 turns（上游
   // meta 登记为空 / 异步派发回执无子会话 id → 建桥三路全断）此前在时间线上
   // 整组不可见（能搜到、看不到）。按 turnIndex 就近挂到主链最近轮下，slate
@@ -615,7 +693,10 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
     orphanBySid.set(t.subagentSessionId, list)
   }
   if (orphanBySid.size > 0) {
-    const rootTurns = filteredRootTurns
+    // 锚定用未过滤列表（与上方 bridgedSids 闭包同口径）：筛选只该改变锚点的
+    // 渲染形态（可见行 ⇄ 占位行），不该改变孤儿挂到哪——挂载点随筛选漂移会把
+    // 泳道在不同筛选间搬来搬去
+    const rootTurns = displayRootTurns
     for (const [sid, sturns] of orphanBySid) {
       const sorted = [...sturns].sort((a, b) => a.turnIndex - b.turnIndex)
       const first = sorted[0]
@@ -668,7 +749,17 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
     selectedTurnId,
     onSelectTurn,
     selectedSubRef,
+    filterRoles,
   }
+
+  // 锚点轮被滤掉但其泳道内有匹配轮次时，锚点以占位行保住挂载点（泳道不随锚点
+  // 连坐消失）——否则选 user 时所有 assistant 派发轮全被滤掉，子代理的 user 轮
+  // 无处可见（filteredRootTurns 只含可见锚点，其上泳道跟着全没了）。
+  // 保活判定递归到任意嵌套深度（laneHasVisibleTurn）
+  const renderTurns = filterRoles.size === 0 ? filteredRootTurns : displayRootTurns.filter(t =>
+    filterRoles.has(t.displayRole)
+    || (subagentBlocksByTurnId.get(t.turnId) ?? []).some(l => laneHasVisibleTurn(l, laneCtx))
+  )
 
   const handleJump = () => {
     if (!onJumpToTurnIndex) return
@@ -698,7 +789,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
             )}
             onClick={() => setFilterRoles(new Set())}
           >
-            All ({displayRootTurns.length})
+            All ({displayRootTurns.length + totalSubTurns})
           </button>
           {rootRoles.map(role => (
             <button
@@ -714,7 +805,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
                 return next
               })}
             >
-              {ROLE_ICONS[role] ?? role} {ROLE_LABELS[role] ?? role} ({displayRootTurns.filter(t => t.displayRole === role).length})
+              {ROLE_ICONS[role] ?? role} {ROLE_LABELS[role] ?? role} ({chipCount(role)})
             </button>
           ))}
         </div>
@@ -758,12 +849,15 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" ref={containerRef}>
         <div className="px-3 py-2 space-y-1.5">
-          {filteredRootTurns.map(turn => {
+          {renderTurns.map(turn => {
             const borderColor = ROLE_COLORS[turn.displayRole] ?? "border-l-gray-300 bg-gray-50/50"
             const lanes = subagentBlocksByTurnId.get(turn.turnId) ?? []
+            // 锚点轮本体被滤掉（renderTurns 因其泳道含匹配轮次而保留它）→ 占位行
+            const turnVisible = filterRoles.size === 0 || filterRoles.has(turn.displayRole)
 
             return (
-              <div key={turn.turnId} ref={selectedTurnId === turn.turnId || turn.turnId === dispatchTurnIdForSelected ? selectedRef : null}>
+              <div key={turn.turnId} ref={turnVisible && (selectedTurnId === turn.turnId || turn.turnId === dispatchTurnIdForSelected) ? selectedRef : null}>
+                {turnVisible && (
                 <button
 
                   className={cn(
@@ -826,6 +920,8 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
                     )}
                   </div>
                 </button>
+                )}
+                {!turnVisible && <FilteredAnchorRow turnIndex={turn.turnIndex} role={turn.displayRole} />}
 
                 {lanes.length === 1 && (
                   <div className="ml-4 mt-1 min-w-0">
@@ -839,7 +935,7 @@ export function TurnTimeline({ turns, bridges, selectedTurnId, onSelectTurn, hig
             )
           })}
 
-          {filteredRootTurns.length === 0 && displayRootTurns.length > 0 && (
+          {renderTurns.length === 0 && displayRootTurns.length > 0 && (
             <div className="text-center text-muted-foreground py-8">
               No turns match the current filters
             </div>
