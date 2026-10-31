@@ -90,7 +90,7 @@ ADVANCED=false
 # 默认生产模式（next build 缓存复用 + 请求零编译——dev 按需编译是 Turns tab
 # 首击秒级卡顿的主因）；开发改代码要热重载时用 -d
 PROD=true
-ALLOWED_CLI_COMMANDS="tui sessions session turn search compare stats import delete config"
+ALLOWED_CLI_COMMANDS="tui sessions session turn search compare stats import delete config score"
 # --stop：长参 getopts 不识别（会落进 *) 分支报 usage），先扫描剥离再走正常解析
 STOP_REQUESTED=false
 ARGS=()
