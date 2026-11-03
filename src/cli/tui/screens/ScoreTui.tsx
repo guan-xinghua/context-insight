@@ -67,7 +67,6 @@ export interface ScoreTuiProps {
 }
 
 // 左栏宽度自适应：宽终端给配置更多空间，窄终端保右栏可读（100 列测试环境也够用）
-const LOGO_LINE = '█▀▄▀█ █▀▀█ █▀▀▄ █▀▀█ █▀▀▄';
 
 function padEndV(str: string, width: number): string {
   const w = stringWidth(str);
@@ -758,16 +757,17 @@ export function ScoreTui(props: ScoreTuiProps) {
     ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A 或 Tab] 回配置 · [b] 保存 · [o] 页面 · [q] 退出'
     : '[W/S 或 ↑↓] 移动 · [J/K] 分区跳转 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [D 或 Tab] 看结果 · [b] 保存 · [o] 页面 · [q] 退出';
 
-  // 顶栏单行：左段按剩余宽度截断，中段空隙按 termW 精确计算——任何终端宽度下都完整
-  const leftTitle = `${LOGO_LINE}  Insight Score`;
+  // 顶栏单行纯文本：块字符 logo（█▀▄）在 CJK 字体终端是歧义宽度（每字符占 2 格），
+  // 布局按 1 格计算必然错位溢出——改零歧义文本 logo，任何终端/字体下稳定
   const rightAction = '[o] 评分页面 ↗';
-  const topPad = Math.max(1, termW - stringWidth(truncV(leftTitle, Math.max(10, termW - stringWidth(rightAction) - 2))) - stringWidth(rightAction));
+  const leftTitle = 'SCORE · Insight 会话独立评分';
+  const topPad = Math.max(2, termW - stringWidth(leftTitle) - stringWidth(rightAction) - 2);
 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" height={1} overflow="hidden">
-        <Text bold color="cyan">{truncV(LOGO_LINE, Math.max(8, termW - stringWidth(rightAction) - 15))}</Text>
-        <Text bold> Insight Score</Text>
+        <Text bold color="cyan">SCORE</Text>
+        <Text bold> · Insight 会话独立评分</Text>
         <Text>{' '.repeat(topPad)}</Text>
         <Text color="cyan">{rightAction}</Text>
       </Box>
