@@ -68,7 +68,6 @@ export interface ScoreTuiProps {
 
 const LEFT_W = 42;
 const LOGO_LINE = '█▀▄▀█ █▀▀█ █▀▀▄ █▀▀█ █▀▀▄';
-const RIGHT_H = 22;
 
 function padEndV(str: string, width: number): string {
   const w = stringWidth(str);
@@ -234,6 +233,10 @@ export function ScoreTui(props: ScoreTuiProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const termW = stdout?.columns ?? 120;
+  const termH = stdout?.rows ?? 40;
+  // 固定画布：顶栏 1 + 主体（双栏）+ keybar 1 + 状态行 1 恒占位——总高不随内容跳动
+  const bodyH = Math.max(12, termH - 4);
+  const rightH = Math.max(8, bodyH - 2); // 减双栏边框
 
   // 配置态
   const [sourceMode, setSourceMode] = useState<'db' | 'dir'>('db');
@@ -677,33 +680,38 @@ export function ScoreTui(props: ScoreTuiProps) {
     });
     rightLines.push(<Text key="hint" color="gray">[Tab 后 ↑↓] 选择 · [Enter] 看评分卡</Text>);
   }
-  if (savedTo) rightLines.push(<Text key="sv" color="green">jsonl：{truncV(savedTo, 40)}</Text>);
-  if (jumpUrl) rightLines.push(<Text key="ju" color="cyan">↗ {jumpUrl}</Text>);
-  const rightWin = rightLines.slice(rightScroll, rightScroll + RIGHT_H);
+  const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
 
   const keybar = focus === 'right'
     ? '[↑↓] 滚动/选择 · [Enter] 详情/返回 · [Tab] 回配置 · [s] 保存 · [o] 页面 · [q] 退出'
     : '[↑↓] 移动 · [Space] 勾选 · [a] 全选 · [/] 过滤 · [Enter] 激活 · [Tab] 看结果 · [s] 保存 · [o] 页面 · [q] 退出';
 
+  // 顶栏单行：左段按剩余宽度截断，中段空隙按 termW 精确计算——任何终端宽度下都完整
+  const leftTitle = `${LOGO_LINE}  Insight Score`;
+  const rightAction = '[o] 评分页面 ↗';
+  const topPad = Math.max(1, termW - stringWidth(truncV(leftTitle, Math.max(10, termW - stringWidth(rightAction) - 2))) - stringWidth(rightAction));
+
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row" justifyContent="space-between">
-        <Box>
-          <Text bold color="cyan">{LOGO_LINE}</Text>
-          <Text>  </Text>
-          <Text bold>Insight Score</Text>
-        </Box>
-        <Text color="cyan">[o] 评分页面 ↗</Text>
+      <Box flexDirection="row" height={1} overflow="hidden">
+        <Text bold color="cyan">{truncV(LOGO_LINE, Math.max(8, termW - stringWidth(rightAction) - 15))}</Text>
+        <Text bold> Insight Score</Text>
+        <Text>{' '.repeat(topPad)}</Text>
+        <Text color="cyan">{rightAction}</Text>
       </Box>
-      <Box flexDirection="row" gap={1}>
-        <Box flexDirection="column" width={LEFT_W} borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
+      <Box flexDirection="row" gap={1} height={bodyH}>
+        <Box flexDirection="column" width={LEFT_W} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
           {leftLines}
         </Box>
-        <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
+        <Box flexDirection="column" flexGrow={1} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
           {rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>}
         </Box>
       </Box>
       <Text color="gray">{truncV(keybar, Math.max(40, termW - 4))}</Text>
+      <Text color="gray">{
+        [savedTo ? `jsonl：${savedTo}` : null, jumpUrl ? `↗ ${jumpUrl}` : null]
+          .filter(Boolean).join(' · ') || ' '
+      }</Text>
     </Box>
   );
 }
