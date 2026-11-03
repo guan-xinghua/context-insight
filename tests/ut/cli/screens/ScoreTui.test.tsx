@@ -119,20 +119,26 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     // 右栏预览同步
     await vi.waitFor(() => expect(plain()).toContain('已选 1 个'), { timeout: 5_000 });
 
-    // 运行行 → Enter 开跑
+    // 运行行 → Enter 开跑（焦点自动去右栏）
     expect(await moveCursorTo(tui, plain, '开始评分')).toBe(true);
     tui.pressEnter();
-    await vi.waitFor(() => expect(plain()).toContain('评分中'), { timeout: 20_000 });
-    // 完成 → 右栏评分卡（定高窗口：W/S 滚动到中下部看子项备注）
-    await vi.waitFor(() => expect(plain()).toContain('总分'), { timeout: 150_000 });
-    expect(plain()).toContain('D1');
-    let sawNote = false;
-    for (let i = 0; i < 24 && !sawNote; i++) {
-      if (plain().includes('tui-correct')) { sawNote = true; break; }
-      tui.pressKey('s'); // 右栏焦点：s = 下滚
+    await vi.waitFor(() => expect(plain()).toContain('⏳'), { timeout: 20_000 });
+    // 完成：①队列显示已完成，②有结果行（评分卡③为手动载入）
+    await vi.waitFor(() => expect(plain()).toContain('队列已完成'), { timeout: 150_000 });
+    await vi.waitFor(() => expect(plain()).toContain('1/1'), { timeout: 10_000 }); // ②列表头（成功/总数）
+    // ②中 Enter 载入③评分卡（rightSub=list，rightSel=0）
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('总分'), { timeout: 10_000 });
+    expect(plain()).toContain('tui-correct');   // mate 子项备注（③首屏可见）
+    expect(plain()).toContain('正确性');          // D3 子项标签
+    // ↓ 滚动③（rightSub=card）
+    let sawTail = false;
+    for (let i = 0; i < 30 && !sawTail; i++) {
+      if (plain().includes('自主性') || plain().includes('冗余度')) { sawTail = true; break; }
+      tui.pressDown();
       await new Promise(r => setTimeout(r, 30));
     }
-    expect(sawNote).toBe(true);
+    expect(sawTail).toBe(true);
 
     // [o] 跳转 URL（SCORE_TUI_NO_OPEN=1 只回显不 spawn）
     tui.pressKey('o');
@@ -179,8 +185,8 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     await vi.waitFor(() => expect(plain()).toContain('已选 2'), { timeout: 5_000 });
     expect(await moveCursorTo(tui, plain, '开始评分')).toBe(true);
     tui.pressEnter();
-    await vi.waitFor(() => expect(plain()).toContain('批量完成'), { timeout: 200_000 });
-    expect(plain()).toContain('2/2 成功');
+    await vi.waitFor(() => expect(plain()).toContain('队列已完成'), { timeout: 200_000 });
+    await vi.waitFor(() => expect(plain()).toContain('2/2'), { timeout: 10_000 });
 
     tui.unmount();
     await prisma.session.deleteMany({ where: { taskId: { in: [`${SID}-a`, `${SID}-b`] } } });

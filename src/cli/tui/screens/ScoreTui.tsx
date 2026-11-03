@@ -261,8 +261,9 @@ export function ScoreTui(props: ScoreTuiProps) {
   const [cursor, setCursor] = useState(0);
   const [focus, setFocus] = useState<'left' | 'right'>('left');
   const [rightScroll, setRightScroll] = useState(0);
-  const [rightSel, setRightSel] = useState(0);   // 已完成框内的选中行
-  const [detailIdx, setDetailIdx] = useState<number | null>(null);
+  const [rightSel, setRightSel] = useState(0);   // ②已完成框内的选中行
+  const [detailIdx, setDetailIdx] = useState<number | null>(null); // ③评分卡载入的行
+  const [rightSub, setRightSub] = useState<'list' | 'card'>('list'); // 右栏子块焦点
 
   // 运行态
   const [runPhase, setRunPhase] = useState<'idle' | 'running' | 'done'>('idle');
@@ -382,6 +383,7 @@ export function ScoreTui(props: ScoreTuiProps) {
     setSavedTo(null);
     setDetailIdx(null);
     setRightScroll(0);
+    setRightSub('list');
     setFocus('right');
   }, [sourceMode, sessions, filteredSessions, dbSelected, dirSelected, dirSessions, tools, toolIdx, runPhase, rows, cursor]);
 
@@ -426,7 +428,7 @@ export function ScoreTui(props: ScoreTuiProps) {
       }
       if (!alive) return;
       setRunPhase('done');
-      setDetailIdx(outcomes.length === 1 && outcomes[0].card ? 0 : null);
+      // 评分卡完全手动：不自动载入——用户在②列表 Enter 载入③
     })();
     return () => { alive = false; };
   }, [runPhase, queue, tools, toolIdx, props.concurrency, props.timeoutMs, props.workdir]);
@@ -464,54 +466,51 @@ export function ScoreTui(props: ScoreTuiProps) {
     if (input === 'q' || (key.ctrl && input === 'c')) { exit(); return; }
     if (input === 'o') { jump(); return; }
     if (input === 'b' && events.length) { saveJsonl(); return; }
-    // WASD 导航（不分大小写）：W/S 上下移动，A/D 左右切换分区（右栏内 A = 回配置）。
-    // 导航优先级最高，冲突功能让位：全选 t、保存 b；Tab 仍为左右栏切换
+    // 导航体系：WASD = 块级（W/S 分区、A/D 左右栏），↑↓ = 行级（分区内逐行，
+    // 到边界经拍平行跨界续走）。无 Tab、无 J/K
     const k = input.toLowerCase();
-    const wasdUD = k === 'w' ? 'up' : k === 's' ? 'down' : null;
-    if (k === 'a' && focus === 'right') { setFocus('left'); return; }
-    if (key.tab) {
-      setFocus(f => (f === 'left' && (events.length > 0 || results.length > 0) ? 'right' : 'left'));
-      return;
-    }
-    if (wasdUD) {
-      const up = wasdUD === 'up';
-      if (focus === 'right') { setRightScroll(v => (up ? Math.max(0, v - 1) : v + 1)); return; }
-      setCursor(c => (up ? Math.max(0, c - 1) : Math.min(rows.length - 1, c + 1)));
-      return;
-    }
-
-    if (focus === 'right') {
-      const up = key.upArrow || k === 'w';
-      const down = key.downArrow || k === 's';
-      if (detailIdx != null) {
-        if (key.return || key.escape) { setDetailIdx(null); setRightScroll(0); }
-        else if (up) setRightScroll(v => Math.max(0, v - 1));
-        else if (down) setRightScroll(v => v + 1);
-        return;
-      }
-      if (up) setRightSel(i => Math.max(0, i - 1));
-      else if (down) setRightSel(i => Math.min(Math.max(0, results.length - 1), i + 1));
-      else if (key.return && results[rightSel]?.card) { setDetailIdx(rightSel); setRightScroll(0); }
-      return;
-    }
-
-    // 左栏：跨分区连续光标（[/] 分区跳转：会话清单长时 ↓ 逐行太慢）
-    const row = rows[cursor];
-    const sectionOf = (r: FlatRow) => r.k === 'source' ? 0 : r.k === 'dirQuick' ? 1 : r.k === 'session' ? 2 : r.k === 'tool' ? 3 : 4;
     const sectionStarts = (() => {
+      const sectionOf = (r: FlatRow) => r.k === 'source' ? 0 : r.k === 'dirQuick' ? 1 : r.k === 'session' ? 2 : r.k === 'tool' ? 3 : 4;
       const starts: number[] = [];
       let last = -1;
       rows.forEach((r, i) => { const sec = sectionOf(r); if (sec !== last) { starts.push(i); last = sec; } });
       return starts;
     })();
-    if (k === 'j' || k === 'd' || k === 'k' || k === 'a') { // A/D 与 J/K 同为分区切换
+
+    if (k === 'a' && focus === 'right') { setFocus('left'); return; }
+    if (k === 'd' && focus === 'left') { setFocus('right'); return; }
+    if (k === 'w' || k === 's') {
+      const fwd = k === 's';
+      if (focus === 'right') {
+        // 右栏子块切换：S（下）list→card，W（上）card→list
+        setRightSub(sub => (fwd ? (detailIdx != null ? 'card' : sub) : 'list'));
+        return;
+      }
+      // 左栏分区跳转
       const curSecIdx = sectionStarts.findIndex((start, i) =>
         cursor >= start && (i === sectionStarts.length - 1 || cursor < sectionStarts[i + 1]));
-      const fwd = k === 'j' || k === 'd';
       const nextIdx = fwd ? Math.min(sectionStarts.length - 1, curSecIdx + 1) : Math.max(0, curSecIdx - 1);
       if (curSecIdx >= 0 && nextIdx !== curSecIdx) setCursor(sectionStarts[nextIdx]);
       return;
     }
+
+    if (focus === 'right') {
+      const up = key.upArrow;
+      const down = key.downArrow;
+      if (rightSub === 'card' && detailIdx != null) {
+        if (key.return) { setRightSub('list'); return; }
+        if (up) setRightScroll(v => Math.max(0, v - 1));
+        else if (down) setRightScroll(v => v + 1);
+        return;
+      }
+      if (up) setRightSel(i => Math.max(0, i - 1));
+      else if (down) setRightSel(i => Math.min(Math.max(0, results.length - 1), i + 1));
+      else if (key.return && results[rightSel]?.card) { setDetailIdx(rightSel); setRightScroll(0); setRightSub('card'); }
+      return;
+    }
+
+    // 左栏：拍平行连续光标（↑↓ 行级移动，跨界自然续走）
+    const row = rows[cursor];
     const toggleSession = (s: SessionRow | DirSessionRow | undefined) => {
       if (!s) return;
       const k = sessionKey(s);
@@ -653,8 +652,13 @@ export function ScoreTui(props: ScoreTuiProps) {
     </Text>));
 
   // ── 右栏渲染（预览 / 进度 / 结果三态）──────────────────────────────────────
+  // ── 右栏渲染：idle = 预览；运行/完成 = 三段式（①待评分 ②已完成 ③评分卡）──
+  // 单框内分节（分隔线代嵌套边框）：Ink 对结构性嵌套定高 Box 有布局缓存缺陷
   const rightLines: React.ReactNode[] = [];
-  let rightSplit: React.ReactNode = null; // 批量运行时的双框形态（替代普通行窗口）
+  const sectLine = (label: string, active: boolean) => (
+    <Text key={rightLines.length} bold color={active ? 'cyan' : 'yellow'}>{'─'.repeat(2)} {label} {'─'.repeat(8)}</Text>
+  );
+
   if (runPhase === 'idle') {
     rightLines.push(<Text bold key="rt">待运行</Text>);
     const preview = sourceMode === 'db'
@@ -671,88 +675,90 @@ export function ScoreTui(props: ScoreTuiProps) {
         rightLines.push(<Text key={`p-${id}`}>• {truncV(id, 30)} <Text color="gray">{truncV(q ?? '', 30)}</Text></Text>);
       });
     }
-  } else if (runPhase === 'running') {
-    // 批量运行：上框「正在评分」实时进度，下框「已完成」可浏览（focus 右栏可选）
-    if (queue.length > 1) {
-      const runningBox: React.ReactNode[] = [];
-      runningBox.push(<Text bold key="rb-t">正在评分（{batchIndex + 1}/{queue.length}）：{truncV(currentId ?? '', 30)}</Text>);
-      if (phase === 'rule') runningBox.push(<Spinner key="rb-sp" label="规则层直算中…" />);
+  } else {
+    // ── ① 待评分（当前处理中内联进度 + 剩余队列）──
+    rightLines.push(sectLine(runPhase === 'running'
+      ? `① 待评分（${batchIndex + 1}/${queue.length}）`
+      : '① 待评分（完成）', false));
+    if (runPhase === 'running') {
+      const cur = queue[batchIndex];
+      const progText = phase === 'mate' && progress
+        ? <Text> <Text color="green">[{progress.done}/{progress.total}]</Text> {truncV(progress.current, 14)}</Text>
+        : phase === 'rule' ? <Text color="gray"> 规则层直算中…</Text> : null;
+      rightLines.push(
+        <Text key="q-cur" color="yellow">⏳ {truncV(cur?.id ?? currentId ?? '', Math.max(10, rightInnerW - 24))}{progText}</Text>,
+      );
       if (phase === 'mate' && progress) {
-        runningBox.push(<Text key="rb-pg"><Text color="green">[{progress.done}/{progress.total}]</Text> {progress.current}</Text>);
-        runningBox.push(
-          <Text key="rb-pb">
+        rightLines.push(
+          <Text key="q-bar">
             <Text color="green">{'█'.repeat(Math.max(0, progress.done))}</Text>
             <Text color="gray">{'░'.repeat(Math.max(0, progress.total - progress.done))}</Text>
           </Text>,
         );
       }
-      const doneBox: React.ReactNode[] = [];
-      doneBox.push(<Text bold key="db-t" color="gray">已完成 {results.length}：</Text>);
-      results.forEach((r, i) => {
-        const sel = focus === 'right' && i === rightSel;
+      queue.slice(batchIndex + 1, batchIndex + 4).forEach((item, i) => {
+        rightLines.push(<Text key={`q-${i}`} color="gray">· {truncV(item.id, rightInnerW - 6)}</Text>);
+      });
+      if (queue.length - batchIndex - 1 > 4) {
+        rightLines.push(<Text key="q-more" color="gray">· …共剩 {queue.length - batchIndex - 1} 个</Text>);
+      }
+    } else {
+      rightLines.push(<Text key="q-done" color="gray">— 队列已完成 —</Text>);
+    }
+
+    // ── ② 已完成（↑↓ 选行 · Enter 载入③）──
+    rightLines.push(sectLine(results.length > 0
+      ? `② 已完成（${results.filter(r => r.card).length}/${results.length}）` : '② 已完成', rightSub === 'list'));
+    if (results.length === 0) {
+      rightLines.push(<Text key="d-empty" color="gray">（尚无完成项）</Text>);
+    } else {
+      results.slice(0, 6).forEach((r, i) => {
+        const sel = focus === 'right' && rightSub === 'list' && i === rightSel;
+        const loaded = detailIdx === i;
         const score = r.card?.framework.totalScore;
-        doneBox.push(
-          <Text key={`db-${i}`} color={sel ? 'cyan' : undefined} inverse={sel}>
-            {sel ? '❯' : ' '}{r.error ? <Text color="red">✗</Text> : <Text color="green">✓</Text>} {padEndV(truncV(r.taskId, 24), 25)}
-            {score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text> : null}
+        rightLines.push(
+          <Text key={`d-${i}`} color={sel ? 'cyan' : undefined} inverse={sel}>
+            {sel ? '❯' : ' '}{loaded ? '▤' : r.error ? <Text color="red">✗</Text> : r.card?.framework.veto?.triggered ? <Text color="red">⛔</Text> : <Text color="green">✓</Text>}{' '}
+            {padEndV(truncV(r.taskId, Math.max(14, rightInnerW - 18)), Math.max(15, rightInnerW - 17))}
+            {r.error ? <Text color="red">{truncV(r.error, Math.max(8, rightInnerW - 40))}</Text>
+              : score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text>
+              : null}
           </Text>,
         );
       });
-      if (results.length === 0) doneBox.push(<Text key="db-e" color="gray">（尚无完成项）</Text>);
-      rightSplit = (
-        <Box flexDirection="column" height="100%">
-          <Box flexDirection="column" height={7} overflow="hidden" borderStyle="round" borderColor="yellow">
-            <Text bold color="yellow">正在评分（{batchIndex + 1}/{queue.length}）</Text>
-            {runningBox.slice(1)}
-          </Box>
-          <Box flexDirection="column" height={rightH - 8} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'} marginTop={0}>
-            {doneBox}
-          </Box>
-        </Box>
-      );
+      if (results.length > 6) rightLines.push(<Text key="d-more" color="gray">… 共 {results.length} 个</Text>);
     }
-    rightLines.push(<Text bold key="rt">评分中：{truncV(currentId ?? '', 36)}</Text>);
-    if (phase === 'rule') rightLines.push(<Spinner key="sp" label="规则层直算中…" />);
-    if (phase === 'mate' && progress) {
-      rightLines.push(
-        <Text key="pg"><Text color="green">[{progress.done}/{progress.total}]</Text> {progress.current}</Text>,
-      );
-      rightLines.push(
-        <Text key="pb">
-          <Text color="green">{'█'.repeat(Math.max(0, progress.done))}</Text>
-          <Text color="gray">{'░'.repeat(Math.max(0, progress.total - progress.done))}</Text>
-        </Text>,
-      );
+
+    // ── ③ 评分卡（完全手动：②中 Enter 载入；↑↓ 滚动）──
+    rightLines.push(sectLine('③ 评分卡', rightSub === 'card'));
+    const loadedResult = detailIdx != null ? results[detailIdx] : null;
+    if (loadedResult?.card) {
+      const card = loadedResult.card;
+      const fw = card.framework;
+      const cardLines: React.ReactNode[] = [];
+      cardLines.push(<Text bold color="cyan" key="c-id">{truncV(card.sessionId, rightInnerW - 4)}</Text>);
+      cardLines.push(<Text key="c-meta" color="gray">{(loadedResult.durationMs / 1000).toFixed(1)}s · 覆盖率 {(fw.coverage * 100).toFixed(0)}%</Text>);
+      if (fw.veto?.triggered) {
+        cardLines.push(<Text key="c-veto" color="red">否决触发：总分归 0</Text>);
+      } else if (typeof fw.totalScore === 'number') {
+        cardLines.push(<Text key="c-total">总分 <Bar10 score={fw.totalScore} /> <Text bold>{(fw.totalScore * 10).toFixed(1)} / 10</Text></Text>);
+      }
+      card.dimensions.forEach(dim => cardLines.push(<DimBlock key={`c-${dim.dimensionId}`} dim={dim} w={rightInnerW} />));
+      if (fw.coverageGap?.length) {
+        cardLines.push(<Text key="c-gap" color="yellow">未覆盖 {fw.coverageGap.length} 项</Text>);
+      }
+      // ③滚动偏移：rightScroll 相对 cardLines 首行
+      const visible = rightSub === 'card' ? rightScroll : 0;
+      cardLines.slice(visible, visible + Math.max(4, rightH - 12)).forEach(n => rightLines.push(n));
+    } else {
+      rightLines.push(<Text key="c-ph" color="gray">在②中 ↑↓ 选择 · [Enter] 载入评分卡 · [W/S] 切换②/③焦点</Text>);
     }
-  } else if (detailIdx != null && results[detailIdx]?.card) {
-    rightLines.push(<Text key="bk" color="gray">[Enter] 返回列表</Text>);
-    rightLines.push(<ScorecardView key="card" card={results[detailIdx].card!} meta={{ durationMs: results[detailIdx].durationMs }} w={rightInnerW} />);
-  } else if (results.length === 1) {
-    const r = results[0];
-    if (r.card) rightLines.push(<ScorecardView key="card" card={r.card} meta={{ durationMs: r.durationMs }} w={rightInnerW} />);
-    else rightLines.push(<Text key="err" color="red">✗ {truncV(r.taskId, 32)}：{r.error}</Text>);
-  } else if (results.length > 1) {
-    rightLines.push(<Text bold key="sum">批量完成（{results.filter(r => r.card).length}/{results.length} 成功）</Text>);
-    results.forEach((r, i) => {
-      const sel = focus === 'right' && i === rightSel;
-      const score = r.card?.framework.totalScore;
-      rightLines.push(
-        <Text key={`s-${i}`} color={sel ? 'cyan' : undefined} inverse={sel}>
-          {sel ? '❯ ' : '  '}{r.error ? <Text color="red">✗</Text> : r.card?.framework.veto?.triggered ? <Text color="red">⛔</Text> : <Text color="green">✓</Text>}{' '}
-          {padEndV(truncV(r.taskId, Math.max(14, rightInnerW - 18)), Math.max(15, rightInnerW - 17))}
-          {r.error ? <Text color="red">{truncV(r.error, Math.max(8, rightInnerW - 36))}</Text>
-            : score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text>
-            : null}
-        </Text>,
-      );
-    });
-    rightLines.push(<Text key="hint" color="gray">[Tab] 切到列表 · [W/S] 选择 · [Enter] 看评分卡</Text>);
   }
   const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
 
   const keybar = focus === 'right'
-    ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A 或 Tab] 回配置 · [b] 保存 · [o] 页面 · [q] 退出'
-    : '[W/S 或 ↑↓] 上下移动 · [A/D 或 J/K] 左右切分区 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [Tab] 看结果 · [b] 保存 · [o] 页面 · [q] 退出';
+    ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A] 回配置 · [b] 保存 · [o] 页面 · [q] 退出'
+    : '[W/S 或 ↑↓] 上下移动 · [J/K] 切分区 · [D] 看结果 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [b] 保存 · [o] 页面 · [q] 退出';
 
   // 顶栏单行纯文本：块字符 logo（█▀▄）在 CJK 字体终端是歧义宽度（每字符占 2 格），
   // 布局按 1 格计算必然错位溢出——改零歧义文本 logo，任何终端/字体下稳定
@@ -773,7 +779,7 @@ export function ScoreTui(props: ScoreTuiProps) {
           {leftLines}
         </Box>
         <Box flexDirection="column" flexGrow={1} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
-          {rightSplit ?? (rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>)}
+          {rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>}
         </Box>
       </Box>
       <Text color="gray">{truncV(keybar, Math.max(40, termW - 4))}</Text>
