@@ -41,6 +41,7 @@ interface DirSessionRow {
   source: string;
   filePath: string;
   framework: string | null;
+  createdAt: string;
   turnCount: number;
   modelName: string | null;
   firstQuery: string | null;
@@ -84,6 +85,14 @@ function truncV(str: string, maxWidth: number): string {
     w += cw;
   }
   return out + '…';
+}
+
+/** MM-DD HH:mm（列表列宽友好；跨年才需要年份，会话列表按时间倒序基本同年） */
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function fmtTokens(n: number): string {
@@ -392,6 +401,7 @@ export function ScoreTui(props: ScoreTuiProps) {
                 source: t,
                 filePath: s.filePath,
                 framework: s.framework ?? null,
+                createdAt: s.createdAt,
                 turnCount: s.turnCount,
                 modelName: s.modelName,
                 firstQuery: s.firstQuery,
@@ -400,7 +410,7 @@ export function ScoreTui(props: ScoreTuiProps) {
           } catch { /* 单源失败不炸整个扫描 */ }
         }
       }
-      rows.sort((a, b) => (b.firstQuery ?? '').localeCompare(a.firstQuery ?? ''));
+      rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); // 最新在前（时间列可见）
       setDirSessions(rows);
       setDirCursor(0);
       setDirOffset(0);
@@ -618,14 +628,14 @@ export function ScoreTui(props: ScoreTuiProps) {
         <Box flexDirection="column">
           <Text bold>目录内会话（{filteredDirSessions.length}/{dirSessions.length} 个 · [Space] 勾选 · [a] 全选/清空 · [/] 过滤 · Enter 评分所选 · Esc 返回）</Text>
           {filterInput('dirSessions')}
-          <Text color="gray">{padEndV('Session ID', 34)} {padEndV('Source', 14)} {padEndV('Turns', 6)} Model</Text>
+          <Text color="gray">{padEndV('Session ID', 30)} {padEndV('时间', 11)} {padEndV('Source', 12)} {padEndV('Turns', 5)} {padEndV('Model', 12)} 简介</Text>
           {dirWindow.map((row, i) => {
             const idx = dirOffset + i;
             const selected = idx === dirCursor;
             const checked = dirSelected.has(`${row.id}:${row.source}`);
             return (
               <Text key={`${row.id}:${row.source}`} color={selected ? 'cyan' : undefined} inverse={selected}>
-                {checked ? '[x]' : '[ ]'}{selected ? '❯' : ' '}{padEndV(truncV(row.id, 30), 31)} {padEndV(truncV(row.source, 13), 14)} {padEndV(String(row.turnCount), 6)} {truncV(row.modelName ?? '', 16)}
+                {checked ? '[x]' : '[ ]'}{selected ? '❯' : ' '}{padEndV(truncV(row.id, 27), 28)} {padEndV(fmtTime(row.createdAt), 11)} {padEndV(truncV(row.source, 11), 12)} {padEndV(String(row.turnCount), 5)} {padEndV(truncV(row.modelName ?? '', 11), 12)} {truncV(row.firstQuery ?? '—', 22)}
               </Text>
             );
           })}
