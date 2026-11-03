@@ -1,0 +1,14 @@
+{
+  "name": "context-insight-tui-poc",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx demo.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^1.5.0",
+    "tsx": "^4.23.15",
+    "vitest": "^5.1.0"
+  }
+}
