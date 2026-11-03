@@ -48,65 +48,62 @@ export interface ScoreCliOptions {
   store?: boolean;
 }
 
-export async function runScoreCli(opts: ScoreCliOptions, log: (s: string) => void): Promise<number> {
-  const tool = resolveTool(opts.tool);
-  const events: unknown[] = [];
-  const emit = (obj: unknown) => { events.push(obj) };
+export type ScoreEvent = { type: string } & Record<string, unknown>;
+
+export interface ScoreFlowOptions {
+  session: string;
+  framework?: string;
+  tool: MateAgentTool;
+  concurrency?: number;
+  timeoutMs?: number;
+  workdir?: string;
+  store?: boolean;
+}
+
+/** 评分执行流（CLI 一次性与 TUI 交互共用）：事件实时回调，返回退出码 */
+export async function runMateScoreFlow(o: ScoreFlowOptions, onEvent: (e: ScoreEvent) => void): Promise<number> {
+  const emit = onEvent;
   const startedAt = new Date().toISOString();
 
-  if (!tool) {
-    emit({ type: 'error', message: '本机未探测到 mate agent CLI（claude/opencode），或 --tool 值非法' });
-    flush(events, opts.out);
-    return 1;
-  }
-
   const session = await prisma.session.findFirst({
-    where: { taskId: opts.session, ...(opts.framework ? { framework: opts.framework } : {}) },
+    where: { taskId: o.session, ...(o.framework ? { framework: o.framework } : {}) },
     select: { id: true },
   });
   if (!session) {
-    emit({ type: 'error', message: `Session not found: ${opts.session}${opts.framework ? ` (framework=${opts.framework})` : ''}` });
-    flush(events, opts.out);
+    emit({ type: 'error', message: `Session not found: ${o.session}${o.framework ? ` (framework=${o.framework})` : ''}` });
     return 1;
   }
 
-  emit({ type: 'meta', taskId: opts.session, framework: opts.framework ?? null, tool, scorerVersion: SCORER_VERSION, startedAt });
+  emit({ type: 'meta', taskId: o.session, framework: o.framework ?? null, tool: o.tool, scorerVersion: SCORER_VERSION, startedAt });
   const t0 = Date.now();
 
   // 规则层直算（与「运行 LLM 评审」共用同一套确定性结果；noop store 不落盘）
   const registry = await loadRegistry();
-  const ruleCard = await runScorecard(opts.session, prisma, { framework: opts.framework, store: noopStore, registry });
+  const ruleCard = await runScorecard(o.session, prisma, { framework: o.framework, store: noopStore, registry });
   if (!ruleCard) {
     emit({ type: 'error', message: 'Session not found' });
-    flush(events, opts.out);
     return 1;
   }
 
   // 截断 → 整卡出局：与服务端路径同口径（不评、只出规则层卡）
   if (ruleCard.status === 'aborted') {
     const card = deriveItemScores(await applyOverlays(ruleCard, registry.defs, registry.profile), registry.defs);
-    const durationMs = Date.now() - t0;
-    for (const line of renderScorecardCli(card, { tool, durationMs, aborted: true })) log(line);
-    emit({ type: 'done', card, aborted: true, durationMs });
-    flush(events, opts.out);
+    emit({ type: 'done', card, aborted: true, durationMs: Date.now() - t0 });
     return 0;
   }
 
   // mate 判 LLM 子项
   const r = await runMateAgentOrchestrated(
-    opts.session,
+    o.session,
     prisma,
     {
-      tool, framework: opts.framework,
-      concurrency: opts.concurrency ? Math.max(1, +opts.concurrency) : 3,
-      timeoutMs: opts.timeout ? +opts.timeout : undefined,
-      rootDir: opts.workdir,
+      tool: o.tool, framework: o.framework,
+      concurrency: o.concurrency ? Math.max(1, o.concurrency) : 3,
+      timeoutMs: o.timeoutMs,
+      rootDir: o.workdir,
       defs: registry.defs,
     },
-    p => {
-      emit({ type: 'progress', done: p.done, total: p.total, current: p.current });
-      log(`[${p.done}/${p.total}] ${p.current}`);
-    },
+    p => emit({ type: 'progress', done: p.done, total: p.total, current: p.current }),
   );
 
   // 全失败（没有任何可用子项）：如实报错，不落一张语义层全空的卡假装成功
@@ -114,29 +111,56 @@ export async function runScoreCli(opts: ScoreCliOptions, log: (s: string) => voi
   if (!usable) {
     const detail = Object.entries(r.failures).map(([k, v]) => `${DIM_NAMES[k] ?? k}：${v}`).join('；');
     emit({ type: 'error', message: `Mate Agent 未产出任何子项评审${detail ? `（${detail}）` : ''}` });
-    flush(events, opts.out);
     return 1;
   }
 
   const card = mergeMateCard(ruleCard, r.parsed, registry.defs, { sessionId: ruleCard.sessionId },
-    { reviewer: 'mate', tool, completedAt: new Date().toISOString(), durationMs: r.totalMs });
-  if (opts.store !== false) {
+    { reviewer: 'mate', tool: o.tool, completedAt: new Date().toISOString(), durationMs: r.totalMs });
+  if (o.store !== false) {
     await scorecardStore().put(card);
-    log(`scorecard 已落盘（--no-store 可跳过）`);
   }
   const failedDims = Object.keys(r.failures);
   const failureNote = failedDims.length ? failedDims.map(k => `${DIM_NAMES[k] ?? k}：${r.failures[k]}`).join('；') : null;
-  const finalCard = deriveItemScores(await applyOverlays(card, registry.defs, registry.profile), registry.defs);
-  for (const line of renderScorecardCli(finalCard, { tool, durationMs: Date.now() - t0, failureNote })) log(line);
   emit({
     type: 'done',
-    card: finalCard,
+    card: deriveItemScores(await applyOverlays(card, registry.defs, registry.profile), registry.defs),
     durationMs: Date.now() - t0,
     ...(failureNote ? { failureNote } : {}),
   });
-  log(`完成：${failedDims.length ? `部分维度失败（${failedDims.join(',')}）` : '全部维度成功'} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-  flush(events, opts.out);
   return 0;
+}
+
+export async function runScoreCli(opts: ScoreCliOptions, log: (s: string) => void): Promise<number> {
+  const tool = resolveTool(opts.tool);
+  const events: ScoreEvent[] = [];
+
+  if (!tool) {
+    events.push({ type: 'error', message: '本机未探测到 mate agent CLI（claude/opencode），或 --tool 值非法' });
+    flush(events, opts.out);
+    return 1;
+  }
+
+  const code = await runMateScoreFlow({
+    session: opts.session,
+    framework: opts.framework,
+    tool,
+    concurrency: opts.concurrency ? +opts.concurrency : undefined,
+    timeoutMs: opts.timeout ? +opts.timeout : undefined,
+    workdir: opts.workdir,
+    store: opts.store,
+  }, e => {
+    events.push(e);
+    if (e.type === 'progress') log(`[${e.done}/${e.total}] ${e.current}`);
+  });
+
+  const done = events.find(e => e.type === 'done') as { card: Scorecard; durationMs: number; aborted?: boolean; failureNote?: string | null } | undefined;
+  if (done) {
+    for (const line of renderScorecardCli(done.card, { tool, durationMs: done.durationMs ?? 0, aborted: done.aborted, failureNote: done.failureNote })) log(line);
+    const failed = events.some(e => e.type === 'done' && e.failureNote);
+    log(`完成：${failed ? '部分维度失败' : '全部维度成功'} · ${(((done.durationMs ?? 0)) / 1000).toFixed(1)}s`);
+  }
+  flush(events, opts.out);
+  return code;
 }
 
 function flush(events: unknown[], out?: string): void {
@@ -239,7 +263,18 @@ export function scoreCommand(): Command {
     .option('--timeout <ms>', 'Per-dimension agent timeout in ms (default: 900000)')
     .option('--workdir <dir>', 'Material export root dir (agent-readable slices)')
     .option('--no-store', 'Do not persist the scorecard to the scorecard store')
-    .action(async (opts: ScoreCliOptions) => {
+    .option('--tui', 'Interactive TUI: pick session & tool, live progress, scorecard view')
+    .action(async (opts: ScoreCliOptions & { tui?: boolean }) => {
+      if (opts.tui) {
+        const { runScoreTui } = await import('../tui/screens/ScoreTui');
+        process.exitCode = await runScoreTui({
+          initialSession: opts.session ? { taskId: opts.session, framework: opts.framework ?? null } : undefined,
+          concurrency: opts.concurrency ? +opts.concurrency : undefined,
+          timeoutMs: opts.timeout ? +opts.timeout : undefined,
+          workdir: opts.workdir,
+        });
+        return;
+      }
       const log = (s: string) => process.stderr.write(`${s}\n`);
       log(formatHeader('Mate Score (standalone)'));
       log(formatDivider());
