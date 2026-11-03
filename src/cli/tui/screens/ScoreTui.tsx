@@ -70,6 +70,16 @@ export interface ScoreTuiProps {
 
 const VIEW_ROWS = 12;
 
+// 入口 logo（像素块风，参照 iCode 首屏：大字 + 标语 + 灰色信息行）
+const SCORE_LOGO = [
+  '███████╗ ██████╗ ██████╗ ██████╗ ███████╗',
+  '██╔════╝██╔═══██╗██╔══██╗██╔══██╗██╔════╝',
+  '███████╗██║   ██║██║  ██║██████╔╝███████╗',
+  '╚════██║██║   ██║██║  ██║██╔═══╝ ╚══════╝',
+  '     ██║╚██████╔╝██████╔╝██║     ███████╗',
+  '     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝',
+];
+
 function padEndV(str: string, width: number): string {
   const w = stringWidth(str);
   return w >= width ? str : str + ' '.repeat(width - w);
@@ -559,11 +569,16 @@ export function ScoreTui(props: ScoreTuiProps) {
 
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
-      <Text bold color="cyan">Insight Score TUI</Text>
-      <Text color="gray">────────────────────────────────────────────────────────────</Text>
+      {stage !== 'source' && <Text bold color="cyan">Insight Score TUI</Text>}
+      {stage !== 'source' && <Text color="gray">────────────────────────────────────────────────────────────</Text>}
 
       {stage === 'source' && (
         <Box flexDirection="column">
+          {SCORE_LOGO.map((line, i) => (
+            <Text key={i} bold color="cyan">{line}</Text>
+          ))}
+          <Text color="gray">Insight 会话独立评分 · 规则层直算 + 本地 agent 判卷</Text>
+          <Text> </Text>
           <Text bold>选择会话来源（↑↓ · Enter）</Text>
           <Text color={sourceCursor === 0 ? 'cyan' : undefined} inverse={sourceCursor === 0}>
             {sourceCursor === 0 ? '❯ ' : '  '}本机库已导入会话

@@ -124,6 +124,9 @@ describe('ScoreTui（独立 mate 评分 TUI）', () => {
 
     await vi.waitFor(() => expect(plain()).toContain('选择会话来源'), { timeout: 15_000 });
     expect(plain()).toContain('从目录选择');
+    // 入口 logo（ANSI Shadow 体 SCORE）与标语
+    expect(plain()).toContain('███████╗');
+    expect(plain()).toContain('Insight 会话独立评分');
     tui.pressEnter(); // 本机库
     await vi.waitFor(() => expect(plain()).toContain('选择会话'), { timeout: 15_000 });
     await vi.waitFor(() => expect(plain()).toContain(SID), { timeout: 15_000 });
