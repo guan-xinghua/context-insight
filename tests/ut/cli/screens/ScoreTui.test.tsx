@@ -109,7 +109,7 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     for (const label of ['从目录选择', 'Agent 工具', 'claude', '运行', '待运行']) {
       expect(plain()).toContain(label);
     }
-    expect(plain()).toContain('Insight 会话独立评分');
+    expect(plain()).toContain('Insight Score');
     expect(plain()).toContain('[o] 评分页面');
 
     // 勾选目标会话（光标移到该行 → Enter）

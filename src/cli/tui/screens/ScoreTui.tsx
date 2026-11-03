@@ -760,14 +760,14 @@ export function ScoreTui(props: ScoreTuiProps) {
   // 顶栏单行纯文本：块字符 logo（█▀▄）在 CJK 字体终端是歧义宽度（每字符占 2 格），
   // 布局按 1 格计算必然错位溢出——改零歧义文本 logo，任何终端/字体下稳定
   const rightAction = '[o] 评分页面 ↗';
-  const leftTitle = 'SCORE · Insight 会话独立评分';
+  const leftTitle = 'Insight Score · 会话独立评分';
   const topPad = Math.max(2, termW - stringWidth(leftTitle) - stringWidth(rightAction) - 2);
 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" height={1} overflow="hidden">
-        <Text bold color="cyan">SCORE</Text>
-        <Text bold> · Insight 会话独立评分</Text>
+        <Text bold color="cyan">Insight Score</Text>
+        <Text bold> · 会话独立评分</Text>
         <Text>{' '.repeat(topPad)}</Text>
         <Text color="cyan">{rightAction}</Text>
       </Box>
