@@ -478,8 +478,22 @@ export function ScoreTui(props: ScoreTuiProps) {
       return;
     }
 
-    // 左栏：跨分区连续光标
+    // 左栏：跨分区连续光标（[/] 分区跳转：会话清单长时 ↓ 逐行太慢）
     const row = rows[cursor];
+    const sectionOf = (r: FlatRow) => r.k === 'source' ? 0 : r.k === 'dirQuick' ? 1 : r.k === 'session' ? 2 : r.k === 'tool' ? 3 : 4;
+    const sectionStarts = (() => {
+      const starts: number[] = [];
+      let last = -1;
+      rows.forEach((r, i) => { const sec = sectionOf(r); if (sec !== last) { starts.push(i); last = sec; } });
+      return starts;
+    })();
+    if (input === 'J' || input === 'K') {
+      const curSecIdx = sectionStarts.findIndex((start, i) =>
+        cursor >= start && (i === sectionStarts.length - 1 || cursor < sectionStarts[i + 1]));
+      const nextIdx = input === 'J' ? Math.min(sectionStarts.length - 1, curSecIdx + 1) : Math.max(0, curSecIdx - 1);
+      if (curSecIdx >= 0 && nextIdx !== curSecIdx) setCursor(sectionStarts[nextIdx]);
+      return;
+    }
     const toggleSession = (s: SessionRow | DirSessionRow | undefined) => {
       if (!s) return;
       const k = sessionKey(s);
@@ -684,7 +698,7 @@ export function ScoreTui(props: ScoreTuiProps) {
 
   const keybar = focus === 'right'
     ? '[↑↓] 滚动/选择 · [Enter] 详情/返回 · [Tab] 回配置 · [s] 保存 · [o] 页面 · [q] 退出'
-    : '[↑↓] 移动 · [Space] 勾选 · [a] 全选 · [/] 过滤 · [Enter] 激活 · [Tab] 看结果 · [s] 保存 · [o] 页面 · [q] 退出';
+    : '[↑↓] 移动 · [J/K] 分区跳转 · [Space] 勾选 · [a] 全选 · [/] 过滤 · [Enter] 激活 · [Tab] 看结果 · [s] 保存 · [o] 页面 · [q] 退出';
 
   // 顶栏单行：左段按剩余宽度截断，中段空隙按 termW 精确计算——任何终端宽度下都完整
   const leftTitle = `${LOGO_LINE}  Insight Score`;
