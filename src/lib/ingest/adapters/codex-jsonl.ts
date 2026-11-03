@@ -567,6 +567,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
       modelName,
       totalTokens,
       version: meta.cliVersion,
+      filePath: file,
     });
   }
 

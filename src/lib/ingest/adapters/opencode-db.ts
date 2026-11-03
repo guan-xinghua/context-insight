@@ -110,13 +110,13 @@ export function listSessions(dbPath: string): SessionListItem[] {
 
   try {
     const schema = opencodeSchemaOf(db);
-    if (schema === 2) {
+    const items = schema === 2
       // 两代表共存 → 按会话粒度合并（回填停更副本不能代表全库）
-      if (listTables(db).includes('session')) return listSessionsMixed(db);
-      return listSessionsV2(db);
-    }
-    if (schema === 1) return listSessionsV1(db);
-    throw new NotOpencodeDbError(listTables(db));
+      ? (listTables(db).includes('session') ? listSessionsMixed(db) : listSessionsV2(db))
+      : schema === 1 ? listSessionsV1(db) : null;
+    if (!items) throw new NotOpencodeDbError(listTables(db));
+    // 源文件路径回填在出口统一做：v1/v2/Mixed 都是单库扫描，条目同源同路径
+    return items.map(it => ({ ...it, filePath: dbPath }));
   } finally {
     db.close();
   }

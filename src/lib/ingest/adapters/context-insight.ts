@@ -66,6 +66,7 @@ export function listSessions(dbPath: string): SessionListItem[] {
       totalTokens: s.totalTokens ?? 0,
       version: versionBySession.get(s.taskId) ?? null,
       framework: frameworkBySession.get(s.taskId) ?? null,
+      filePath: dbPath,
     }));
   } finally {
     db.close();

@@ -118,19 +118,86 @@ describe('ScoreTui（独立 mate 评分 TUI）', () => {
     tui.unmount();
   });
 
-  it('无初始会话：会话清单 → 定位目标行 → Enter 进入工具选择', { timeout: 30_000 }, async () => {
+  it('无初始会话：来源菜单 → 本机库清单渲染与光标交互', { timeout: 30_000 }, async () => {
     const tui = renderTui(<ScoreTui saveDir={path.join(TMP, 'save')} />);
     const plain = () => tui.getPlainText();
 
+    await vi.waitFor(() => expect(plain()).toContain('选择会话来源'), { timeout: 15_000 });
+    expect(plain()).toContain('从目录选择');
+    tui.pressEnter(); // 本机库
     await vi.waitFor(() => expect(plain()).toContain('选择会话'), { timeout: 15_000 });
     await vi.waitFor(() => expect(plain()).toContain(SID), { timeout: 15_000 });
     expect(plain()).toContain('Task ID');
 
-    // ↓↓ 移动光标（清单按 startTime 倒序，移动只是确认交互生效：选中行变化）
     tui.pressDown();
     await vi.waitFor(() => expect(plain()).toContain('❯'), { timeout: 5_000 });
     tui.pressUp();
 
+    // [/] 过滤：按关键字收敛到目标会话
+    tui.pressKey('/');
+    await vi.waitFor(() => expect(plain()).toContain('过滤:'), { timeout: 5_000 });
+    for (const ch of SID) tui.pressKey(ch);
+    await vi.waitFor(() => expect(plain()).toContain('1/'), { timeout: 5_000 });
+    tui.pressEscape(); // 清除过滤（TextInput onEscape）
+    await vi.waitFor(() => expect(plain()).not.toContain('过滤:'), { timeout: 5_000 });
+
     tui.unmount();
+  });
+
+  it('目录流：手输路径 → 扫描 → 全选批量 → 工具 → 汇总 + 详情 + 保存', { timeout: 180_000 }, async () => {
+    // 夹具目录：两个独立会话文件
+    const dir = path.join(TMP, 'fixtures');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const sid of [`${SID}-a`, `${SID}-b`]) {
+      fs.writeFileSync(path.join(dir, `${sid}.jsonl`), LINES.map(l => JSON.stringify(l)).join('\n') + '\n');
+    }
+
+    const tui = renderTui(<ScoreTui saveDir={path.join(TMP, 'save')} workdir={path.join(TMP, 'work2')} />);
+    const plain = () => tui.getPlainText();
+
+    // 来源 → 目录（按键间等一帧：连续写 stdin 会落在同一次渲染前，闭包里是旧状态）
+    await vi.waitFor(() => expect(plain()).toContain('选择会话来源'), { timeout: 15_000 });
+    tui.pressDown();
+    await vi.waitFor(() => expect(plain()).toContain('❯ 从目录选择'), { timeout: 5_000 });
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('选择目录'), { timeout: 15_000 });
+
+    // 首项即「手动输入路径」：Enter 进入输入模式，键入路径后 Enter 扫描
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('/path/to/sessions'), { timeout: 5_000 });
+    for (const ch of dir) tui.pressKey(ch);
+    tui.pressEnter();
+
+    // 扫描结果：两个会话可见，[a] 全选
+    await vi.waitFor(() => expect(plain()).toContain('目录内会话'), { timeout: 30_000 });
+    await vi.waitFor(() => expect(plain()).toContain(`${SID}-a`), { timeout: 15_000 });
+    expect(plain()).toContain(`${SID}-b`);
+    tui.pressKey('a');
+    await vi.waitFor(() => expect(plain()).toContain('已选 2 个'), { timeout: 5_000 });
+
+    // Enter → 工具（批量提示）→ Enter 开跑
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('批量 2 个会话'), { timeout: 10_000 });
+    tui.pressEnter();
+
+    // 跑完 → 汇总（2 行），进详情再返回
+    await vi.waitFor(() => expect(plain()).toContain('批量评分完成'), { timeout: 150_000 });
+    expect(plain()).toContain(`${SID}-a`);
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('评分结果'), { timeout: 10_000 });
+    tui.pressEscape();
+
+    // s 保存批量事件流（score-batch.jsonl，含两个会话的 meta）
+    await vi.waitFor(() => expect(plain()).toContain('批量评分完成'), { timeout: 5_000 });
+    tui.pressKey('s');
+    await vi.waitFor(() => expect(plain()).toContain('已保存'), { timeout: 10_000 });
+    const savedFile = path.join(TMP, 'save', 'score-batch.jsonl');
+    expect(fs.existsSync(savedFile)).toBe(true);
+    const evLines = fs.readFileSync(savedFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+    expect(evLines.filter(e => e.type === 'meta').length).toBe(2);
+
+    // 清理批量导入的会话
+    tui.unmount();
+    await prisma.session.deleteMany({ where: { taskId: { in: [`${SID}-a`, `${SID}-b`] } } });
   });
 });

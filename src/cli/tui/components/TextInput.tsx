@@ -6,25 +6,38 @@
 // INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
+import { useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 interface TextInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit?: (value: string) => void;
+  onEscape?: () => void;
   placeholder?: string;
   focus?: boolean;
 }
 
-export function TextInput({ value, onChange, onSubmit, placeholder, focus = true }: TextInputProps) {
+export function TextInput({ value, onChange, onSubmit, onEscape, placeholder, focus = true }: TextInputProps) {
+  // 受控值的前置镜像：连续多次 stdin 写入落在同一次渲染前时，闭包里的 value 是
+  // 旧值（逐字符连打只留最后一个字符）——ref 同步领先，链式拼接不失字
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
   useInput((input, key) => {
     if (!focus) return;
     if (key.backspace || key.delete) {
-      onChange(value.slice(0, -1));
+      const next = valueRef.current.slice(0, -1);
+      valueRef.current = next;
+      onChange(next);
+    } else if (key.escape) {
+      onEscape?.();
     } else if (key.return) {
-      onSubmit?.(value);
+      onSubmit?.(valueRef.current);
     } else if (!key.ctrl && !key.meta) {
-      onChange(value + input);
+      const next = valueRef.current + input;
+      valueRef.current = next;
+      onChange(next);
     }
   }, { isActive: focus });
 
