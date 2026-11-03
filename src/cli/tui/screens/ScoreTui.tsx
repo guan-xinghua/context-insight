@@ -78,11 +78,11 @@ function truncV(str: string, maxWidth: number): string {
   let w = 0;
   for (const ch of str) {
     const cw = stringWidth(ch);
-    if (w + cw > maxWidth - 1) break;
+    if (w + cw > maxWidth - 2) break; // 预留 '..' 两列，总宽恒 ≤ maxWidth
     out += ch;
     w += cw;
   }
-  return out + '…';
+  return out + '..';
 }
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -128,6 +128,67 @@ function openInBrowser(url: string): void {
   try { spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref(); } catch { /* 打不开时 URL 仍回显 */ }
 }
 
+/** 手工分区框：每行一个 Text 节点（行内零 Box——Ink 布局引擎对动态内容的
+ * 行内 Box 有丢行缺陷；纯 span + 手动补位绝对稳定）。行可以是 string（自动补
+ * 齐到内宽）或 { node, w }（已算好视觉宽度的着色 span 行） */
+type FrameRow = string | { node: React.ReactNode; w: number };
+/** 严格等宽手绘框：总宽 w = '│ ' + 内容(w-4) + ' │'；顶/底行同宽（CJK 宽度计入） */
+function drawFrame(title: string, color: string, rows: FrameRow[], w: number, key: string): React.ReactNode[] {
+  const inner = Math.max(8, w - 4);
+  const head = `─ ${title} `;
+  const top = `╭${head}${'─'.repeat(Math.max(1, w - 2 - stringWidth(head)))}╮`;
+  const bottom = `╰${'─'.repeat(w - 2)}╯`;
+  const rail = <Text color={color}>│ </Text>;
+  const railR = <Text color={color}> │</Text>;
+  return [
+    <Text key={`${key}-t`} color={color}>{top}</Text>,
+    ...rows.map((r, i) => {
+      const visW = Math.min(inner, typeof r === 'string' ? stringWidth(r) : r.w);
+      const pad = Math.max(0, inner - visW);
+      const content = typeof r === 'string'
+        ? <Text>{truncV(r, inner - 2)}{' '.repeat(Math.max(0, inner - 2 - stringWidth(truncV(r, inner - 2))))}{'  '}</Text>
+        : <Text>{r.node}{' '.repeat(pad)}</Text>;
+      return <Text key={`${key}-r${i}`}>{rail}{content}{railR}</Text>;
+    }),
+    <Text key={`${key}-b`} color={color}>{bottom}</Text>,
+  ];
+}
+
+/** 带光标前缀的行：node 可含着色 span；w = 视觉宽度（drawFrame 按此补位） */
+function row(active: boolean, plain: string, node?: React.ReactNode, activeColor = 'cyan'): FrameRow {
+  const prefix = active ? '❯ ' : '  ';
+  return { node: <Text color={active ? activeColor : undefined}>{prefix}{node ?? plain}</Text>, w: stringWidth(prefix + plain) };
+}
+
+/** 维度行 / 子项行（FrameRow 版）：单行 Text + span，无 Box */
+function dimRow(dim: DimensionResult): FrameRow {
+  if (dim.status === 'not-applicable') return { node: <Text color="gray">{dim.dimensionId} {truncV(dim.name, 8)}  不适用</Text>, w: stringWidth(`${dim.dimensionId} ${truncV(dim.name, 8)}  不适用`) };
+  if (dim.status === 'error') return { node: <Text color="red">{dim.dimensionId} {truncV(dim.name, 8)}  评算失败</Text>, w: stringWidth(`${dim.dimensionId} ${truncV(dim.name, 8)}  评算失败`) };
+  if (typeof dim.score === 'number') {
+    const tail = `${(dim.score * 10).toFixed(1)}${dim.verdict ? `  ${dim.verdict}` : ''}`;
+    const plain = `${dim.dimensionId} ${truncV(dim.name, 8)}  ${tail}`;
+    return { node: <Text><Text bold>{dim.dimensionId}</Text> {padEndV(truncV(dim.name, 8), 9)} <Bar10 score={dim.score} width={12} /> <Text color={scoreColor(dim.score)}>{tail}</Text></Text>, w: stringWidth(plain) + 4 };
+  }
+  const v = dim.verdict ?? '—';
+  const plain = `${dim.dimensionId} ${truncV(dim.name, 8)}  ${v}${dim.disclose ? `  ${truncV(dim.disclose, 20)}` : ''}`;
+  const color = v === 'clean' || v === '完成' ? 'green' : v === 'violation' || v === '未完成' ? 'red' : 'yellow';
+  return { node: <Text><Text bold>{dim.dimensionId}</Text> {padEndV(truncV(dim.name, 8), 9)} <Text color={color}>{v}</Text>{dim.disclose ? <Text color="gray">  {truncV(dim.disclose, 20)}</Text> : null}</Text>, w: stringWidth(plain) };
+}
+
+function itemRow(it: SubItemResult, w: number): FrameRow {
+  const icon = it.status === 'ok' ? '✓' : it.status === 'not-applicable' ? '○' : '✗';
+  const iconColor = it.status === 'ok' ? 'green' : it.status === 'not-applicable' ? 'gray' : 'red';
+  const parts: string[] = [];
+  if (it.value !== undefined && it.value !== null) parts.push(String(it.value));
+  if (typeof it.score === 'number') parts.push(`${(it.score * 10).toFixed(1)}分`);
+  if (it.verdict) parts.push(it.verdict);
+  if (it.note) parts.push(it.note);
+  const labelW = Math.max(10, Math.min(16, w - 30));
+  const text = truncV(parts.join(' / ') || '-', Math.max(12, w - labelW - 10));
+  const plain = `  ${icon} ${truncV(it.label, labelW)}  ${text}`;
+  return { node: <Text>  <Text color={iconColor}>{icon}</Text> {padEndV(truncV(it.label, labelW), labelW)}  <Text color="gray">{text}</Text></Text>, w: stringWidth(plain) };
+}
+
 const scoreColor = (score: number): string =>
   score >= 0.8 ? 'green' : score >= 0.6 ? 'yellow' : 'red';
 
@@ -150,7 +211,7 @@ function ItemLine({ it, w }: { it: SubItemResult; w: number }) {
   if (typeof it.score === 'number') parts.push(`${(it.score * 10).toFixed(1)}分`);
   if (it.verdict) parts.push(it.verdict);
   if (it.note) parts.push(it.note);
-  const partsText = truncV(parts.join(' · ') || '—', Math.max(12, w - labelW - 10));
+  const partsText = truncV(parts.join(' / ') || '-', Math.max(12, w - labelW - 10));
   return (
     <Text>
       <Text>  </Text>
@@ -462,7 +523,27 @@ export function ScoreTui(props: ScoreTuiProps) {
   const setDirInputLed = (v: string) => { dirInputRef.current = v; setDirInput(v); };
 
   useInput((input, key) => {
-    if (dirFocus || filterFocus) return; // 输入模式由 TextInput 处理
+    // 输入模式（路径/过滤）行内捕获：TextInput 已为渲染稳定改为纯字符串行，
+    // 键盘处理在此手写（ref 前置镜像防同 tick 连打丢字）
+    if (dirFocus) {
+      if (key.escape) { setDirFocus(false); return; }
+      if (key.return) {
+        setDirFocus(false);
+        const v = dirInputRef.current.trim();
+        if (v) scanDir(v);
+        return;
+      }
+      if (key.backspace || key.delete) { setDirInputLed(dirInputRef.current.slice(0, -1)); return; }
+      if (!key.ctrl && !key.meta && input) setDirInputLed(dirInputRef.current + input);
+      return;
+    }
+    if (filterFocus) {
+      if (key.escape) { setFilterFocus(false); setFilterText(''); return; }
+      if (key.return) { setFilterFocus(false); return; }
+      if (key.backspace || key.delete) { setFilterText(t => t.slice(0, -1)); return; }
+      if (!key.ctrl && !key.meta && input) setFilterText(t => t + input);
+      return;
+    }
     if (input === 'q' || (key.ctrl && input === 'c')) { exit(); return; }
     if (input === 'o') { jump(); return; }
     if (input === 'b' && events.length) { saveJsonl(); return; }
@@ -556,224 +637,203 @@ export function ScoreTui(props: ScoreTuiProps) {
 
   // 左栏 = 真分区：每区独立边框盒（光标所在区边框高亮青色，其余灰）
   const curSection = curRow ? (curRow.k === 'source' ? 0 : curRow.k === 'dirQuick' ? 1 : curRow.k === 'session' ? 2 : curRow.k === 'tool' ? 3 : 4) : -1;
-  let lineKey = 0;
-  const rowNode = (active: boolean, node: React.ReactNode) => (
-    <Box key={lineKey++}>
-      {active ? <Text color="cyan">❯ </Text> : <Text>  </Text>}
-      {node}
-    </Box>
-  );
-  const mkBox = (title: string, secIdx: number, children: React.ReactNode[]) => (
-    <Box key={`sec-${title}`} flexDirection="column" borderStyle="round" borderColor={curSection === secIdx ? 'cyan' : 'gray'}>
-      <Text bold color={curSection === secIdx ? 'cyan' : 'gray'}>{title}</Text>
-      {children}
-    </Box>
-  );
+  const mkBox = (title: string, secIdx: number, children: FrameRow[]): React.ReactNode[] =>
+    drawFrame(title, curSection === secIdx ? 'cyan' : 'gray', children, leftW - 2, `sec-${secIdx}`);
 
   // ── 来源 ──
-  const srcNodes: React.ReactNode[] = [];
+  const srcNodes: FrameRow[] = [];
   for (const v of ['db', 'dir'] as const) {
     const on = sourceMode === v;
-    srcNodes.push(rowNode(isActiveRow({ k: 'source', v }),
-      <Text color={on ? 'green' : undefined}>{on ? '●' : '○'} {v === 'db' ? '本机库已导入会话' : '从目录选择（批量）'}</Text>));
+    const plain = `${on ? '●' : '○'} ${v === 'db' ? '本机库已导入会话' : '从目录选择（批量）'}`;
+    srcNodes.push(row(isActiveRow({ k: 'source', v }), plain,
+      <Text color={on ? 'green' : undefined}>{plain}</Text>));
   }
 
   // ── 目录（dir 模式）──
-  const dirNodes: React.ReactNode[] = [];
+  const dirNodes: FrameRow[] = [];
   if (sourceMode === 'dir') {
     quicks.forEach((q, i) => {
-      dirNodes.push(rowNode(isActiveRow({ k: 'dirQuick', idx: i }),
-        <Text>{truncV(q.label, 14)} <Text color="gray">{truncV(q.dir || 'Enter 输入', 20)}</Text></Text>));
+      const plain = `${truncV(q.label, 14)} ${truncV(q.dir || 'Enter 输入', 18)}`;
+      dirNodes.push(row(isActiveRow({ k: 'dirQuick', idx: i }), plain,
+        <Text>{truncV(q.label, 14)} <Text color="gray">{truncV(q.dir || 'Enter 输入', 18)}</Text></Text>));
     });
-    if (dirFocus) {
-      dirNodes.push(
-        <Box key="dir-input" marginLeft={2}>
-          <TextInput
-            value={dirInput}
-            onChange={setDirInputLed}
-            focus={dirFocus}
-            onEscape={() => setDirFocus(false)}
-            placeholder="路径（Enter 扫描）"
-            onSubmit={() => { setDirFocus(false); const v = dirInputRef.current.trim(); if (v) scanDir(v); }}
-          />
-        </Box>,
-      );
-    }
-    if (scanning) dirNodes.push(<Spinner key="dir-scan" label="扫描目录中…" />);
+    if (dirFocus) dirNodes.push(`路径: ${dirInput}█（Enter 扫描 / Esc 取消）`);
+    if (scanning) dirNodes.push('扫描目录中…');
   }
 
   // ── 会话 ──
   const sessLabel = sourceMode === 'db'
     ? `会话 ${filteredSessions.length}/${sessions.length}${loadingSessions ? '（加载中…）' : ''}`
     : dirSessions == null ? '会话（未扫描）' : `会话 ${filteredDirSessions.length}/${dirSessions.length}`;
-  const sessNodes: React.ReactNode[] = [];
-  if (filterFocus) {
-    sessNodes.push(
-      <Box key="filter" marginLeft={1}>
-        <Text color="cyan">过滤: </Text>
-        <TextInput
-          value={filterText}
-          focus={filterFocus}
-          onChange={v => setFilterText(v)}
-          onEscape={() => { setFilterFocus(false); setFilterText(''); }}
-          onSubmit={() => setFilterFocus(false)}
-          placeholder="关键字（Esc 清除）"
-        />
-      </Box>,
-    );
-  }
+  const sessNodes: FrameRow[] = [];
+  if (filterFocus) sessNodes.push(`过滤: ${filterText}█（Esc 清除）`);
   const curSessIdx = curRow?.k === 'session' ? (curRow as { idx: number }).idx : 0;
   const sessWinSize = sourceMode === 'dir' ? 5 : 7; // dir 模式多一框，会话窗口收窄
   const sessWinStart = Math.max(0, Math.min(curSessIdx - 3, Math.max(0, activeSessions.length - sessWinSize)));
   activeSessions.slice(sessWinStart, sessWinStart + sessWinSize).forEach((s, i) => {
     const gIdx = sessWinStart + i;
     const id = 'taskId' in s ? s.taskId : s.id;
-    const time = 'taskId' in s ? fmtTime(s.startTime) : fmtTime(s.createdAt);
-    const sub = 'taskId' in s
-      ? `${fmtTokens(s.totalTokens)}·${s.totalSubagentCount}ag`
-      : `${s.turnCount}轮 ${truncV(s.modelName ?? '', 10)}`;
-    sessNodes.push(rowNode(isActiveRow({ k: 'session', idx: gIdx }),
-      <Text>
-        {activeSelected.has(sessionKey(s)) ? <Text color="green">[x]</Text> : <Text color="gray">[ ]</Text>}{' '}
-        {padEndV(truncV(id, Math.max(18, leftW - 28)), Math.max(19, leftW - 27))} <Text color="gray">{time} {sub}</Text>
-      </Text>));
+    const check = activeSelected.has(sessionKey(s)) ? '[x]' : '[ ]';
+    // 按帧内宽自适应组装：inner - 前缀(2) - 勾选框(3) - 空格，余量优先保 id
+    const budget = (leftW - 6) - 2 - 3 - 1;
+    const timeS = fmtTime('taskId' in s ? s.startTime : s.createdAt);
+    const subS = 'taskId' in s ? `${fmtTokens(s.totalTokens)} ${s.totalSubagentCount}ag` : `${s.turnCount}轮`;
+    let idW = budget - timeS.length - 1 - Math.min(subS.length, 10) - 1;
+    let sub2 = truncV(subS, 10);
+    if (idW < 10) { sub2 = ''; idW = budget - timeS.length - 1; } // 窄终端：先丢摘要
+    if (idW < 8) { sub2 = ''; } // 再丢时间已不可能（budget≥8+12）
+    idW = Math.max(8, idW);
+    const plain = `${check} ${truncV(id, idW)} ${timeS}${sub2 ? ` ${sub2}` : ''}`;
+    sessNodes.push(row(isActiveRow({ k: 'session', idx: gIdx }), plain,
+      <Text>{check} {truncV(id, idW)} <Text color="gray">{timeS}{sub2 ? ` ${sub2}` : ''}</Text></Text>));
   });
   if (sourceMode === 'dir' && dirSessions == null) {
-    sessNodes.push(<Text key="sess-hint" color="gray"> 选上方目录项开始扫描</Text>);
+    sessNodes.push(' 选上方目录项开始扫描');
   } else if (activeSessions.length === 0 && (sourceMode === 'db' ? !loadingSessions : true)) {
-    sessNodes.push(<Text key="sess-empty" color="gray"> {filterText ? '无匹配（Esc 清除过滤）' : sourceMode === 'db' ? '本机库暂无会话' : '目录内未发现会话'}</Text>);
+    sessNodes.push(filterText ? ' 无匹配（Esc 清除过滤）' : sourceMode === 'db' ? ' 本机库暂无会话' : ' 目录内未发现会话');
   }
-  sessNodes.push(<Text key="sess-keys" color="gray"> [Space] 勾选 · [t] 全选 · [/] 过滤</Text>);
+  sessNodes.push(' [Space] 勾选  [t] 全选  [/] 过滤');
 
   // ── Agent 工具 ──
-  const toolNodes: React.ReactNode[] = [];
+  const toolNodes: FrameRow[] = [];
   tools.forEach(t => {
     const on = tools[toolIdx] === t;
-    toolNodes.push(rowNode(isActiveRow({ k: 'tool', v: t }),
-      <Text color={on ? 'green' : undefined}>{on ? '●' : '○'} {t}</Text>));
+    const plain = `${on ? '●' : '○'} ${t}`;
+    toolNodes.push(row(isActiveRow({ k: 'tool', v: t }), plain,
+      <Text color={on ? 'green' : undefined}>{plain}</Text>));
   });
-  if (tools.length === 0) toolNodes.push(<Text key="no-tool" color="red"> 未探测到 claude / opencode</Text>);
+  if (tools.length === 0) toolNodes.push('未探测到 claude / opencode');
 
   // ── 运行 ──
   const selCount = sourceMode === 'db' ? dbSelected.size : dirSelected.size;
-  const runNodes: React.ReactNode[] = [rowNode(isActiveRow({ k: 'run' }),
-    <Text bold color={runPhase === 'running' ? 'yellow' : 'green'}>
-      {runPhase === 'running' ? '⏳ 评分中…（右栏看进度）'
-        : runPhase === 'done' ? '↻ [Enter] 再评一轮'
-        : `▶ [Enter] 开始评分${selCount > 0 ? `（已选 ${selCount}）` : sourceMode === 'db' ? '（光标会话）' : '（需勾选）'}`}
-    </Text>)];
+  const runText = runPhase === 'running' ? '⏳ 评分中…（右栏看进度）'
+    : runPhase === 'done' ? '↻ [Enter] 再评一轮'
+    : `▶ [Enter] 开始评分${selCount > 0 ? `（已选 ${selCount}）` : sourceMode === 'db' ? '（光标会话）' : '（需勾选）'}`;
+  const runNodes: FrameRow[] = [row(isActiveRow({ k: 'run' }), runText,
+    <Text bold color={runPhase === 'running' ? 'yellow' : 'green'}>{runText}</Text>)];
 
-  const leftSections: React.ReactNode[] = [
-    mkBox('来源', 0, srcNodes),
-    ...(sourceMode === 'dir' ? [mkBox('目录', 1, dirNodes)] : []),
-    mkBox(sessLabel, 2, sessNodes),
-    mkBox('Agent 工具', 3, toolNodes),
-    mkBox('运行', 4, runNodes),
+  let leftSections: React.ReactNode[] = [
+    ...mkBox('来源', 0, srcNodes),
+    ...(sourceMode === 'dir' ? mkBox('目录', 1, dirNodes) : []),
+    ...mkBox(sessLabel, 2, sessNodes),
+    ...mkBox('Agent 工具', 3, toolNodes),
+    ...mkBox('运行', 4, runNodes),
   ];
+  // 行数定长（不足补空行）：行数随数据变化会触发 ink 行 diff 错位（顶边框丢失）
+  const leftLineBudget = bodyH - 2;
+  leftSections = leftSections.slice(0, leftLineBudget);
+  while (leftSections.length < leftLineBudget) {
+    leftSections.push(<Text key={`pad-${leftSections.length}`}> </Text>);
+  }
 
   // ── 右栏渲染：idle = 预览；运行/完成 = 三段式（①待评分 ②已完成 ③评分卡）──
   // 单框内分节（分隔线代嵌套边框）：Ink 对结构性嵌套定高 Box 有布局缓存缺陷
   const rightLines: React.ReactNode[] = [];
-  const sectLine = (label: string, active: boolean) => (
-    <Text key={rightLines.length} bold color={active ? 'cyan' : 'yellow'}>{'─'.repeat(2)} {label} {'─'.repeat(8)}</Text>
-  );
+  const rBox = (title: string, color: string, children: FrameRow[]): React.ReactNode[] =>
+    drawFrame(title, color, children, rightInnerW, `rsec-${title}`);
 
   if (runPhase === 'idle') {
-    rightLines.push(<Text bold key="rt">待运行</Text>);
+    const pvNodes: FrameRow[] = [];
     const preview = sourceMode === 'db'
       ? sessions.filter(s => dbSelected.has(sessionKey(s)))
       : (dirSessions ?? []).filter(s => dirSelected.has(sessionKey(s)));
     if (preview.length === 0) {
-      rightLines.push(<Text key="rp" color="gray">左栏 [Space] 勾选会话；本机库模式未勾选时评光标行。</Text>);
-      rightLines.push(<Text key="rp2" color="gray">目录模式先选目录扫描 → 勾选 → 未导入的自动导入再评分。</Text>);
+      pvNodes.push('左栏 [Space] 勾选会话；本机库模式未勾选时评光标行。');
+      pvNodes.push('目录模式先选目录扫描 → 勾选 → 未导入的自动导入再评分。');
     } else {
-      rightLines.push(<Text key="rpc" color="gray">已选 {preview.length} 个：</Text>);
+      pvNodes.push(`已选 ${preview.length} 个：`);
       preview.slice(0, 12).forEach(s => {
         const id = 'taskId' in s ? s.taskId : s.id;
         const q = 'taskId' in s ? s.query : s.firstQuery;
-        rightLines.push(<Text key={`p-${id}`}>• {truncV(id, 30)} <Text color="gray">{truncV(q ?? '', 30)}</Text></Text>);
+        pvNodes.push(`• ${truncV(id, 30)} ${truncV(q ?? '', 30)}`);
       });
     }
+    rightLines.push(...rBox('预览', 'gray', pvNodes));
   } else {
-    // ── ① 待评分（当前处理中内联进度 + 剩余队列）──
-    rightLines.push(sectLine(runPhase === 'running'
-      ? `待评分（${batchIndex + 1}/${queue.length}）`
-      : '待评分（完成）', false));
+    const qNodes: FrameRow[] = [];
     if (runPhase === 'running') {
       const cur = queue[batchIndex];
-      const progText = phase === 'mate' && progress
-        ? <Text> <Text color="green">[{progress.done}/{progress.total}]</Text> {truncV(progress.current, 14)}</Text>
-        : phase === 'rule' ? <Text color="gray"> 规则层直算中…</Text> : null;
-      rightLines.push(
-        <Text key="q-cur" color="yellow">⏳ {truncV(cur?.id ?? currentId ?? '', Math.max(10, rightInnerW - 24))}{progText}</Text>,
-      );
+      const curPlain = `⏳ ${truncV(cur?.id ?? currentId ?? '', Math.max(10, rightInnerW - 26))}${phase === 'mate' && progress ? ` [${progress.done}/${progress.total}] ${truncV(progress.current, 12)}` : phase === 'rule' ? ' 规则层…' : ''}`;
+      qNodes.push({ node: <Text color="yellow">{curPlain}</Text>, w: stringWidth(curPlain) });
       if (phase === 'mate' && progress) {
-        rightLines.push(
-          <Text key="q-bar">
-            <Text color="green">{'█'.repeat(Math.max(0, progress.done))}</Text>
-            <Text color="gray">{'░'.repeat(Math.max(0, progress.total - progress.done))}</Text>
-          </Text>,
-        );
+        qNodes.push({ node: <Text>
+        <Text color="green">{'█'.repeat(Math.max(0, progress.done))}</Text>
+        <Text color="gray">{'░'.repeat(Math.max(0, progress.total - progress.done))}</Text>
+      </Text>, w: Math.max(progress.done, 0) + Math.max(progress.total - progress.done, 0) });
       }
       queue.slice(batchIndex + 1, batchIndex + 4).forEach((item, i) => {
-        rightLines.push(<Text key={`q-${i}`} color="gray">· {truncV(item.id, rightInnerW - 6)}</Text>);
+        qNodes.push(`- ${truncV(item.id, rightInnerW - 6)}`);
       });
       if (queue.length - batchIndex - 1 > 4) {
-        rightLines.push(<Text key="q-more" color="gray">· …共剩 {queue.length - batchIndex - 1} 个</Text>);
+        qNodes.push(`- ..共剩 ${queue.length - batchIndex - 1} 个`);
       }
     } else {
-      rightLines.push(<Text key="q-done" color="gray">— 队列已完成 —</Text>);
+      qNodes.push('— 队列已完成 —');
     }
 
-    // ── ② 已完成（↑↓ 选行 · Enter 载入③）──
-    rightLines.push(sectLine(results.length > 0
-      ? `已完成（${results.filter(r => r.card).length}/${results.length}）` : '已完成', rightSub === 'list'));
+    // ── 已完成（↑↓ 选行 · Enter 载入评分卡）──
+    const dNodes: FrameRow[] = [];
     if (results.length === 0) {
-      rightLines.push(<Text key="d-empty" color="gray">（尚无完成项）</Text>);
+      dNodes.push('（尚无完成项）');
     } else {
       results.slice(0, 6).forEach((r, i) => {
         const sel = focus === 'right' && rightSub === 'list' && i === rightSel;
         const loaded = detailIdx === i;
         const score = r.card?.framework.totalScore;
-        rightLines.push(
-          <Text key={`d-${i}`} color={sel ? 'cyan' : undefined} inverse={sel}>
-            {sel ? '❯' : ' '}{loaded ? '▤' : r.error ? <Text color="red">✗</Text> : r.card?.framework.veto?.triggered ? <Text color="red">⛔</Text> : <Text color="green">✓</Text>}{' '}
-            {padEndV(truncV(r.taskId, Math.max(14, rightInnerW - 18)), Math.max(15, rightInnerW - 17))}
-            {r.error ? <Text color="red">{truncV(r.error, Math.max(8, rightInnerW - 40))}</Text>
-              : score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text>
-              : null}
-          </Text>,
-        );
+        const mark = loaded ? '▤' : r.error ? '✗' : r.card?.framework.veto?.triggered ? '⛔' : '✓';
+        const markColor = r.error || r.card?.framework.veto?.triggered ? 'red' : 'green';
+        const idW = Math.max(12, rightInnerW - 18);
+        const plain = `${sel ? '❯' : ' '}${mark} ${truncV(r.taskId, idW)} ${r.error ? truncV(r.error, Math.max(8, rightInnerW - 40)) : score != null ? `${(score * 10).toFixed(1)}` : ''}`;
+        const tail = r.error != null
+          ? <Text color="red">{truncV(r.error, Math.max(8, rightInnerW - 40))}</Text>
+          : score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text>
+          : null;
+        dNodes.push(row(sel, `${mark} ${truncV(r.taskId, idW)}`,
+          <Text><Text color={markColor}>{mark}</Text> {truncV(r.taskId, idW)} {tail}</Text>));
       });
-      if (results.length > 6) rightLines.push(<Text key="d-more" color="gray">… 共 {results.length} 个</Text>);
+      if (results.length > 6) dNodes.push(`… 共 ${results.length} 个`);
     }
 
-    // ── ③ 评分卡（完全手动：②中 Enter 载入；↑↓ 滚动）──
-    rightLines.push(sectLine('评分卡', rightSub === 'card'));
+    // ── 评分卡（完全手动：已完成中 Enter 载入；↑↓ 滚动）──
+    const cNodes: FrameRow[] = [];
     const loadedResult = detailIdx != null ? results[detailIdx] : null;
     if (loadedResult?.card) {
       const card = loadedResult.card;
       const fw = card.framework;
-      const cardLines: React.ReactNode[] = [];
-      cardLines.push(<Text bold color="cyan" key="c-id">{truncV(card.sessionId, rightInnerW - 4)}</Text>);
-      cardLines.push(<Text key="c-meta" color="gray">{(loadedResult.durationMs / 1000).toFixed(1)}s · 覆盖率 {(fw.coverage * 100).toFixed(0)}%</Text>);
+      const cardLines: FrameRow[] = [];
+      cardLines.push({ node: <Text bold color="cyan">{truncV(card.sessionId, rightInnerW - 6)}</Text>, w: stringWidth(truncV(card.sessionId, rightInnerW - 6)) });
+      cardLines.push(`${(loadedResult.durationMs / 1000).toFixed(1)}s  覆盖率 ${(fw.coverage * 100).toFixed(0)}%`);
       if (fw.veto?.triggered) {
-        cardLines.push(<Text key="c-veto" color="red">否决触发：总分归 0</Text>);
+        cardLines.push('否决触发：总分归 0');
       } else if (typeof fw.totalScore === 'number') {
-        cardLines.push(<Text key="c-total">总分 <Bar10 score={fw.totalScore} /> <Text bold>{(fw.totalScore * 10).toFixed(1)} / 10</Text></Text>);
+        cardLines.push({ node: <Text>总分 <Bar10 score={fw.totalScore} /> <Text bold>{(fw.totalScore * 10).toFixed(1)} / 10</Text></Text>, w: 3 + 10 + 1 + stringWidth(`${(fw.totalScore * 10).toFixed(1)} / 10`) });
       }
-      card.dimensions.forEach(dim => cardLines.push(<DimBlock key={`c-${dim.dimensionId}`} dim={dim} w={rightInnerW} />));
+      card.dimensions.forEach(dim => {
+        cardLines.push(dimRow(dim));
+        dim.items.forEach(it => cardLines.push(itemRow(it, rightInnerW)));
+      });
       if (fw.coverageGap?.length) {
-        cardLines.push(<Text key="c-gap" color="yellow">未覆盖 {fw.coverageGap.length} 项</Text>);
+        cardLines.push(`未覆盖 ${fw.coverageGap.length} 项`);
       }
       // ③滚动偏移：rightScroll 相对 cardLines 首行
       const visible = rightSub === 'card' ? rightScroll : 0;
-      cardLines.slice(visible, visible + Math.max(4, rightH - 12)).forEach(n => rightLines.push(n));
+      cardLines.slice(visible, visible + Math.max(4, rightH - 14)).forEach(n => cNodes.push(n));
     } else {
-      rightLines.push(<Text key="c-ph" color="gray">在已完成列表中 ↑↓ 选择 · [Enter] 载入评分卡 · [W/S] 切换列表/评分卡焦点</Text>);
+      cNodes.push('在已完成列表中 ↑↓ 选择  [Enter] 载入评分卡');
     }
+
+    // 三分区盒渲染（活动子块青色；待评分运行中黄色）
+    rightLines.push(...rBox(runPhase === 'running'
+      ? `待评分（${batchIndex + 1}/${queue.length}）` : '待评分（完成）',
+      runPhase === 'running' ? 'yellow' : 'gray', qNodes));
+    rightLines.push(...rBox(results.length > 0
+      ? `已完成（${results.filter(r => r.card).length}/${results.length}）` : '已完成',
+      focus === 'right' && rightSub === 'list' ? 'cyan' : 'gray', dNodes));
+    rightLines.push(...rBox('评分卡',
+      focus === 'right' && rightSub === 'card' ? 'cyan' : 'gray', cNodes));
   }
   const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
+  while (rightWin.length < rightH) rightWin.push(<Text key={`rpad-${rightWin.length}`}> </Text>);
 
   const keybar = focus === 'right'
     ? '[W/S] 切换列表/评分卡 · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [b] 保存 · [o] 页面 · [q] 退出'
@@ -793,11 +853,11 @@ export function ScoreTui(props: ScoreTuiProps) {
         <Text>{' '.repeat(topPad)}</Text>
         <Text color="cyan">{rightAction}</Text>
       </Box>
-      <Box flexDirection="row" gap={1} height={bodyH}>
-        <Box flexDirection="column" width={leftW} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
+      <Box flexDirection="row" gap={1}>
+        <Box flexDirection="column" width={leftW} borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
           {leftSections}
         </Box>
-        <Box flexDirection="column" flexGrow={1} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
+        <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
           {rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>}
         </Box>
       </Box>
