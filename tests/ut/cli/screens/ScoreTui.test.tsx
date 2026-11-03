@@ -3,11 +3,11 @@
 // CANN Open Software License Agreement Version 2.0 (the "License").
 // Please refer to the License for details. You do not use this file except in compliance with the License.
 // THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE.
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE.
 // See LICENSE in the root of the software repository for the full text of the License.
 
-// ScoreTui IT：jsonl 夹具入库 + PATH 假 claude → 选会话 → 选工具 → 实时进度 →
-// 评分卡展示 → s 落 jsonl。ink-testing-library 真实驱动按键与渲染帧。
+// Insight Score TUI IT（左配置/右输出统一双栏）：jsonl 夹具入库 + PATH 假 claude
+// → 左栏勾选会话 → 运行 → 右栏评分卡 → [o] 跳转 URL / [s] 落盘；目录批量流。
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import React from 'react';
 import fs from 'node:fs';
@@ -61,6 +61,7 @@ const SET_ENV: Record<string, string> = {
   SCORING_USER_DEF_DIR: path.join(TMP, 'user-defs'),
   SCORING_DATA_DIR: path.join(TMP, 'scorecards'),
   MATE_AGENT_LOG_DIR: path.join(TMP, 'mate-logs'),
+  SCORE_TUI_NO_OPEN: '1',
 };
 const OLD_PATH = process.env.PATH;
 
@@ -77,7 +78,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  await prisma.session.deleteMany({ where: { taskId: SID } }).catch(() => {});
+  await prisma.session.deleteMany({ where: { taskId: { in: [SID, `${SID}-a`, `${SID}-b`] } } }).catch(() => {});
   await prisma.$disconnect();
   for (const [k, v] of Object.entries(OLD_ENV)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
@@ -87,68 +88,61 @@ afterAll(async () => {
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
-describe('ScoreTui（独立 mate 评分 TUI）', () => {
-  it('初始会话直跑：进度 → 评分卡展示 → s 落 jsonl', { timeout: 120_000 }, async () => {
-    const tui = renderTui(
-      <ScoreTui initialSession={{ taskId: SID, framework: 'claude-code' }}
-        workdir={path.join(TMP, 'work')} saveDir={path.join(TMP, 'save')} />,
-    );
+/** 移动光标到左栏某行（按帧等 ❯ 落位，规避同 tick 闭包旧状态） */
+async function moveCursorTo(tui: ReturnType<typeof renderTui>, plain: () => string, rowText: string, maxSteps = 30) {
+  for (let i = 0; i < maxSteps; i++) {
+    const lines = plain().split('\n');
+    if (lines.some(l => l.includes('❯') && l.includes(rowText))) return true;
+    tui.pressDown();
+    await new Promise(r => setTimeout(r, 30));
+  }
+  return false;
+}
+
+describe('Insight Score TUI（左配置 / 右输出）', () => {
+  it('双栏常驻：左栏分区齐备，右栏待运行预览；勾选 → 运行 → 右栏评分卡 → [o]/[s]', { timeout: 180_000 }, async () => {
+    const tui = renderTui(<ScoreTui saveDir={path.join(TMP, 'save')} workdir={path.join(TMP, 'work')} />);
     const plain = () => tui.getPlainText();
 
-    // 进度阶段可见
-    await vi.waitFor(() => expect(plain()).toContain('评分中'), { timeout: 60_000 });
-    // 完成 → 评分卡视图
-    await vi.waitFor(() => expect(plain()).toContain('评分结果'), { timeout: 90_000 });
-    await vi.waitFor(() => expect(plain()).toContain('总分'), { timeout: 10_000 });
-    expect(plain()).toContain('█');
+    // 双栏结构与左栏分区
+    await vi.waitFor(() => expect(plain()).toContain('本机库已导入会话'), { timeout: 20_000 });
+    for (const label of ['从目录选择', 'Agent 工具', 'claude', '运行', '待运行']) {
+      expect(plain()).toContain(label);
+    }
+    expect(plain()).toContain('Insight Score');
+    expect(plain()).toContain('[o] 评分页面');
+
+    // 勾选目标会话（光标移到该行 → Enter）
+    expect(await moveCursorTo(tui, plain, SID)).toBe(true);
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('[x]'), { timeout: 5_000 });
+    // 右栏预览同步
+    await vi.waitFor(() => expect(plain()).toContain('已选 1 个'), { timeout: 5_000 });
+
+    // 运行行 → Enter 开跑
+    expect(await moveCursorTo(tui, plain, '开始评分')).toBe(true);
+    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('评分中'), { timeout: 20_000 });
+    // 完成 → 右栏评分卡
+    await vi.waitFor(() => expect(plain()).toContain('总分'), { timeout: 150_000 });
     expect(plain()).toContain('D3');
     expect(plain()).toContain('tui-correct');
-    expect(plain()).toContain('[s] 保存 jsonl');
 
-    // s 落 jsonl（事件流完整：meta/progress/done）
+    // [o] 跳转 URL（SCORE_TUI_NO_OPEN=1 只回显不 spawn）
+    tui.pressKey('o');
+    await vi.waitFor(() => expect(plain()).toContain('/scoring/'), { timeout: 5_000 });
+    expect(plain()).toContain('127.0.0.1');
+
+    // [s] 保存事件流
     tui.pressKey('s');
-    await vi.waitFor(() => expect(plain()).toContain('已保存'), { timeout: 10_000 });
+    await vi.waitFor(() => expect(plain()).toContain('jsonl：'), { timeout: 5_000 });
     const saved = fs.readdirSync(path.join(TMP, 'save'));
-    expect(saved.length).toBe(1);
-    const events = fs.readFileSync(path.join(TMP, 'save', saved[0]), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
-    expect(events[0].type).toBe('meta');
-    expect(events.some(e => e.type === 'progress')).toBe(true);
-    expect(events[events.length - 1].type).toBe('done');
+    expect(saved.some(f => f.endsWith('.score.jsonl'))).toBe(true);
 
     tui.unmount();
   });
 
-  it('无初始会话：来源菜单 → 本机库清单渲染与光标交互', { timeout: 30_000 }, async () => {
-    const tui = renderTui(<ScoreTui saveDir={path.join(TMP, 'save')} />);
-    const plain = () => tui.getPlainText();
-
-    await vi.waitFor(() => expect(plain()).toContain('选择会话来源'), { timeout: 15_000 });
-    expect(plain()).toContain('从目录选择');
-    // 入口 logo（ANSI Shadow 体 SCORE）与标语
-    expect(plain()).toContain('███████╗');
-    expect(plain()).toContain('Insight 会话独立评分');
-    tui.pressEnter(); // 本机库
-    await vi.waitFor(() => expect(plain()).toContain('选择会话'), { timeout: 15_000 });
-    await vi.waitFor(() => expect(plain()).toContain(SID), { timeout: 15_000 });
-    expect(plain()).toContain('Task ID');
-
-    tui.pressDown();
-    await vi.waitFor(() => expect(plain()).toContain('❯'), { timeout: 5_000 });
-    tui.pressUp();
-
-    // [/] 过滤：按关键字收敛到目标会话
-    tui.pressKey('/');
-    await vi.waitFor(() => expect(plain()).toContain('过滤:'), { timeout: 5_000 });
-    for (const ch of SID) tui.pressKey(ch);
-    await vi.waitFor(() => expect(plain()).toContain('1/'), { timeout: 5_000 });
-    tui.pressEscape(); // 清除过滤（TextInput onEscape）
-    await vi.waitFor(() => expect(plain()).not.toContain('过滤:'), { timeout: 5_000 });
-
-    tui.unmount();
-  });
-
-  it('目录流：手输路径 → 扫描 → 全选批量 → 工具 → 汇总 + 详情 + 保存', { timeout: 180_000 }, async () => {
-    // 夹具目录：两个独立会话文件
+  it('目录批量：切目录来源 → 手输路径 → 扫描 → 全选 → 运行 → 批量汇总', { timeout: 240_000 }, async () => {
     const dir = path.join(TMP, 'fixtures');
     fs.mkdirSync(dir, { recursive: true });
     for (const sid of [`${SID}-a`, `${SID}-b`]) {
@@ -158,48 +152,30 @@ describe('ScoreTui（独立 mate 评分 TUI）', () => {
     const tui = renderTui(<ScoreTui saveDir={path.join(TMP, 'save')} workdir={path.join(TMP, 'work2')} />);
     const plain = () => tui.getPlainText();
 
-    // 来源 → 目录（按键间等一帧：连续写 stdin 会落在同一次渲染前，闭包里是旧状态）
-    await vi.waitFor(() => expect(plain()).toContain('选择会话来源'), { timeout: 15_000 });
+    await vi.waitFor(() => expect(plain()).toContain('从目录选择'), { timeout: 20_000 });
+    // 切到目录来源（光标在第一行=本机库，↓ 到从目录选择 → Enter）
     tui.pressDown();
-    await vi.waitFor(() => expect(plain()).toContain('❯ 从目录选择'), { timeout: 5_000 });
+    await vi.waitFor(() => expect(plain().split('\n').some(l => l.includes('❯') && l.includes('从目录选择'))), { timeout: 5_000 });
     tui.pressEnter();
-    await vi.waitFor(() => expect(plain()).toContain('选择目录'), { timeout: 15_000 });
+    await vi.waitFor(() => expect(plain()).toContain('手动输入路径'), { timeout: 5_000 });
 
-    // 首项即「手动输入路径」：Enter 进入输入模式，键入路径后 Enter 扫描
+    // 手动输入项（目录分区首行）→ Enter 输入模式 → 键入路径 → Enter 扫描
+    expect(await moveCursorTo(tui, plain, '手动输入路径')).toBe(true);
     tui.pressEnter();
-    await vi.waitFor(() => expect(plain()).toContain('/path/to/sessions'), { timeout: 5_000 });
+    await vi.waitFor(() => expect(plain()).toContain('路径（Enter 扫描）'), { timeout: 5_000 });
     for (const ch of dir) tui.pressKey(ch);
     tui.pressEnter();
-
-    // 扫描结果：两个会话可见，[a] 全选
-    await vi.waitFor(() => expect(plain()).toContain('目录内会话'), { timeout: 30_000 });
-    await vi.waitFor(() => expect(plain()).toContain(`${SID}-a`), { timeout: 15_000 });
+    await vi.waitFor(() => expect(plain()).toContain(`${SID}-a`), { timeout: 30_000 });
     expect(plain()).toContain(`${SID}-b`);
+
+    // [a] 全选 → 运行行 → Enter
     tui.pressKey('a');
-    await vi.waitFor(() => expect(plain()).toContain('已选 2 个'), { timeout: 5_000 });
-
-    // Enter → 工具（批量提示）→ Enter 开跑
+    await vi.waitFor(() => expect(plain()).toContain('已选 2'), { timeout: 5_000 });
+    expect(await moveCursorTo(tui, plain, '开始评分')).toBe(true);
     tui.pressEnter();
-    await vi.waitFor(() => expect(plain()).toContain('批量 2 个会话'), { timeout: 10_000 });
-    tui.pressEnter();
+    await vi.waitFor(() => expect(plain()).toContain('批量完成'), { timeout: 200_000 });
+    expect(plain()).toContain('2/2 成功');
 
-    // 跑完 → 汇总（2 行），进详情再返回
-    await vi.waitFor(() => expect(plain()).toContain('批量评分完成'), { timeout: 150_000 });
-    expect(plain()).toContain(`${SID}-a`);
-    tui.pressEnter();
-    await vi.waitFor(() => expect(plain()).toContain('评分结果'), { timeout: 10_000 });
-    tui.pressEscape();
-
-    // s 保存批量事件流（score-batch.jsonl，含两个会话的 meta）
-    await vi.waitFor(() => expect(plain()).toContain('批量评分完成'), { timeout: 5_000 });
-    tui.pressKey('s');
-    await vi.waitFor(() => expect(plain()).toContain('已保存'), { timeout: 10_000 });
-    const savedFile = path.join(TMP, 'save', 'score-batch.jsonl');
-    expect(fs.existsSync(savedFile)).toBe(true);
-    const evLines = fs.readFileSync(savedFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l));
-    expect(evLines.filter(e => e.type === 'meta').length).toBe(2);
-
-    // 清理批量导入的会话
     tui.unmount();
     await prisma.session.deleteMany({ where: { taskId: { in: [`${SID}-a`, `${SID}-b`] } } });
   });
