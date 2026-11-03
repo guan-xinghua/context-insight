@@ -9,8 +9,12 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
 
-export function renderTui(element: React.ReactElement) {
+export function renderTui(element: React.ReactElement, columns = 160, rows = 40) {
   const instance = render(element);
+  // ink-testing-library 的 Stdout.columns 硬编码 100：实例级覆盖为真实终端
+  // 尺寸（窄列会把行内容挤到换行错位），下一次渲染即生效
+  Object.defineProperty(instance.stdout, 'columns', { value: columns });
+  Object.defineProperty(instance.stdout, 'rows', { value: rows });
   return {
     ...instance,
     lastFrame: () => instance.lastFrame(),

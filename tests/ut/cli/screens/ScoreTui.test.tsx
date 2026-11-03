@@ -123,10 +123,16 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     expect(await moveCursorTo(tui, plain, '开始评分')).toBe(true);
     tui.pressEnter();
     await vi.waitFor(() => expect(plain()).toContain('评分中'), { timeout: 20_000 });
-    // 完成 → 右栏评分卡
+    // 完成 → 右栏评分卡（定高窗口：W/S 滚动到中下部看子项备注）
     await vi.waitFor(() => expect(plain()).toContain('总分'), { timeout: 150_000 });
-    expect(plain()).toContain('D3');
-    expect(plain()).toContain('tui-correct');
+    expect(plain()).toContain('D1');
+    let sawNote = false;
+    for (let i = 0; i < 24 && !sawNote; i++) {
+      if (plain().includes('tui-correct')) { sawNote = true; break; }
+      tui.pressKey('s'); // 右栏焦点：s = 下滚
+      await new Promise(r => setTimeout(r, 30));
+    }
+    expect(sawNote).toBe(true);
 
     // [o] 跳转 URL（SCORE_TUI_NO_OPEN=1 只回显不 spawn）
     tui.pressKey('o');

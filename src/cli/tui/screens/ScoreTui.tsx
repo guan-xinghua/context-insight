@@ -66,7 +66,7 @@ export interface ScoreTuiProps {
   saveDir?: string;
 }
 
-const LEFT_W = 42;
+// 左栏宽度自适应：宽终端给配置更多空间，窄终端保右栏可读（100 列测试环境也够用）
 const LOGO_LINE = '█▀▄▀█ █▀▀█ █▀▀▄ █▀▀█ █▀▀▄';
 
 function padEndV(str: string, width: number): string {
@@ -142,25 +142,27 @@ function Bar10({ score }: { score: number }) {
   );
 }
 
-function ItemLine({ it }: { it: SubItemResult }) {
+function ItemLine({ it, w }: { it: SubItemResult; w: number }) {
   const icon = it.status === 'ok' ? '✓' : it.status === 'not-applicable' ? '○' : '✗';
   const iconColor = it.status === 'ok' ? 'green' : it.status === 'not-applicable' ? 'gray' : 'red';
+  const labelW = Math.max(10, Math.min(16, w - 30));
   const parts: string[] = [];
   if (it.value !== undefined && it.value !== null) parts.push(String(it.value));
   if (typeof it.score === 'number') parts.push(`${(it.score * 10).toFixed(1)}分`);
   if (it.verdict) parts.push(it.verdict);
-  if (it.note) parts.push(truncV(it.note, 28));
+  if (it.note) parts.push(it.note);
+  const partsText = truncV(parts.join(' · ') || '—', Math.max(12, w - labelW - 10));
   return (
     <Text>
       <Text>  </Text>
       <Text color={iconColor}>{icon}</Text>
-      <Text> {padEndV(truncV(it.label, 16), 16)}  </Text>
-      <Text color="gray">{parts.join(' · ') || '—'}</Text>
+      <Text> {padEndV(truncV(it.label, labelW), labelW)}  </Text>
+      <Text color="gray">{partsText}</Text>
     </Text>
   );
 }
 
-function DimBlock({ dim }: { dim: DimensionResult }) {
+function DimBlock({ dim, w }: { dim: DimensionResult; w: number }) {
   const head = (
     <Text>
       <Text bold>{dim.dimensionId}</Text>
@@ -191,12 +193,12 @@ function DimBlock({ dim }: { dim: DimensionResult }) {
   return (
     <Box flexDirection="column">
       <Text>{head}  {line}</Text>
-      {dim.items.map(it => <ItemLine key={it.itemId} it={it} />)}
+      {dim.items.map(it => <ItemLine key={it.itemId} it={it} w={w} />)}
     </Box>
   );
 }
 
-function ScorecardView({ card, meta }: { card: Scorecard; meta: { durationMs: number; aborted?: boolean; failureNote?: string | null } }) {
+function ScorecardView({ card, meta, w = 80 }: { card: Scorecard; meta: { durationMs: number; aborted?: boolean; failureNote?: string | null }; w?: number }) {
   const fw = card.framework;
   return (
     <Box flexDirection="column">
@@ -205,18 +207,18 @@ function ScorecardView({ card, meta }: { card: Scorecard; meta: { durationMs: nu
       {fw.veto?.triggered ? (
         <Box flexDirection="column">
           <Text color="red">否决触发：总分归 0</Text>
-          {fw.veto.reasons.map((r, i) => <Text key={i} color="red">  • {truncV(r, 44)}</Text>)}
+          {fw.veto.reasons.map((r, i) => <Text key={i} color="red">  • {truncV(r, w - 4)}</Text>)}
         </Box>
       ) : typeof fw.totalScore === 'number' ? (
         <Text>总分  <Bar10 score={fw.totalScore} />  <Text bold>{(fw.totalScore * 10).toFixed(1)} / 10</Text></Text>
       ) : (
         <Text color="gray">总分不可算（维度覆盖不足 / 全部不适用）</Text>
       )}
-      {card.dimensions.map(dim => <DimBlock key={dim.dimensionId} dim={dim} />)}
+      {card.dimensions.map(dim => <DimBlock key={dim.dimensionId} dim={dim} w={w} />)}
       {fw.coverageGap?.length ? (
-        <Text color="yellow">未覆盖 {fw.coverageGap.length} 项：{fw.coverageGap.map(g => truncV(g, 20)).join('、')}</Text>
+        <Text color="yellow">未覆盖 {fw.coverageGap.length} 项：{fw.coverageGap.map(g => truncV(g, Math.max(8, w - 20))).join('、')}</Text>
       ) : null}
-      {meta.failureNote ? <Text color="yellow">部分维度失败：{truncV(meta.failureNote, 44)}</Text> : null}
+      {meta.failureNote ? <Text color="yellow">部分维度失败：{truncV(meta.failureNote, w - 4)}</Text> : null}
     </Box>
   );
 }
@@ -234,6 +236,8 @@ export function ScoreTui(props: ScoreTuiProps) {
   const { stdout } = useStdout();
   const termW = stdout?.columns ?? 120;
   const termH = stdout?.rows ?? 40;
+  const leftW = Math.min(56, Math.max(36, Math.floor(termW * 0.44)));
+  const rightInnerW = Math.max(24, termW - leftW - 6);
   // 固定画布：顶栏 1 + 主体（双栏）+ keybar 1 + 状态行 1 恒占位——总高不随内容跳动
   const bodyH = Math.max(12, termH - 4);
   const rightH = Math.max(8, bodyH - 2); // 减双栏边框
@@ -258,6 +262,7 @@ export function ScoreTui(props: ScoreTuiProps) {
   const [cursor, setCursor] = useState(0);
   const [focus, setFocus] = useState<'left' | 'right'>('left');
   const [rightScroll, setRightScroll] = useState(0);
+  const [rightSel, setRightSel] = useState(0);   // 已完成框内的选中行
   const [detailIdx, setDetailIdx] = useState<number | null>(null);
 
   // 运行态
@@ -481,15 +486,17 @@ export function ScoreTui(props: ScoreTuiProps) {
     }
 
     if (focus === 'right') {
-      if (key.upArrow) setRightScroll(s => Math.max(0, s - 1));
-      else if (key.downArrow) setRightScroll(s => s + 1);
-      else if (key.return) {
-        if (detailIdx != null) setDetailIdx(null);
-        else if (results.length > 1) {
-          const idx = Math.max(0, Math.min(results.length - 1, rightScroll - 1));
-          if (results[idx]?.card) { setDetailIdx(idx); setRightScroll(0); }
-        }
+      const up = key.upArrow || k === 'w';
+      const down = key.downArrow || k === 's';
+      if (detailIdx != null) {
+        if (key.return || key.escape) { setDetailIdx(null); setRightScroll(0); }
+        else if (up) setRightScroll(v => Math.max(0, v - 1));
+        else if (down) setRightScroll(v => v + 1);
+        return;
       }
+      if (up) setRightSel(i => Math.max(0, i - 1));
+      else if (down) setRightSel(i => Math.min(Math.max(0, results.length - 1), i + 1));
+      else if (key.return && results[rightSel]?.card) { setDetailIdx(rightSel); setRightScroll(0); }
       return;
     }
 
@@ -622,7 +629,7 @@ export function ScoreTui(props: ScoreTuiProps) {
     leftLines.push(rowNode(isActiveRow({ k: 'session', idx: gIdx }),
       <Text>
         {activeSelected.has(sessionKey(s)) ? <Text color="green">[x]</Text> : <Text color="gray">[ ]</Text>}{' '}
-        {padEndV(truncV(id, 20), 20)} <Text color="gray">{time} {sub}</Text>
+        {padEndV(truncV(id, Math.max(18, leftW - 24)), Math.max(19, leftW - 23))} <Text color="gray">{time} {sub}</Text>
       </Text>));
   });
   if (sourceMode === 'dir' && dirSessions == null) {
@@ -651,6 +658,7 @@ export function ScoreTui(props: ScoreTuiProps) {
 
   // ── 右栏渲染（预览 / 进度 / 结果三态）──────────────────────────────────────
   const rightLines: React.ReactNode[] = [];
+  let rightSplit: React.ReactNode = null; // 批量运行时的双框形态（替代普通行窗口）
   if (runPhase === 'idle') {
     rightLines.push(<Text bold key="rt">待运行</Text>);
     const preview = sourceMode === 'db'
@@ -668,7 +676,46 @@ export function ScoreTui(props: ScoreTuiProps) {
       });
     }
   } else if (runPhase === 'running') {
-    rightLines.push(<Text bold key="rt">评分中{queue.length > 1 ? `（${batchIndex + 1}/${queue.length}）` : ''}：{truncV(currentId ?? '', 36)}</Text>);
+    // 批量运行：上框「正在评分」实时进度，下框「已完成」可浏览（focus 右栏可选）
+    if (queue.length > 1) {
+      const runningBox: React.ReactNode[] = [];
+      runningBox.push(<Text bold key="rb-t">正在评分（{batchIndex + 1}/{queue.length}）：{truncV(currentId ?? '', 30)}</Text>);
+      if (phase === 'rule') runningBox.push(<Spinner key="rb-sp" label="规则层直算中…" />);
+      if (phase === 'mate' && progress) {
+        runningBox.push(<Text key="rb-pg"><Text color="green">[{progress.done}/{progress.total}]</Text> {progress.current}</Text>);
+        runningBox.push(
+          <Text key="rb-pb">
+            <Text color="green">{'█'.repeat(Math.max(0, progress.done))}</Text>
+            <Text color="gray">{'░'.repeat(Math.max(0, progress.total - progress.done))}</Text>
+          </Text>,
+        );
+      }
+      const doneBox: React.ReactNode[] = [];
+      doneBox.push(<Text bold key="db-t" color="gray">已完成 {results.length}：</Text>);
+      results.forEach((r, i) => {
+        const sel = focus === 'right' && i === rightSel;
+        const score = r.card?.framework.totalScore;
+        doneBox.push(
+          <Text key={`db-${i}`} color={sel ? 'cyan' : undefined} inverse={sel}>
+            {sel ? '❯' : ' '}{r.error ? <Text color="red">✗</Text> : <Text color="green">✓</Text>} {padEndV(truncV(r.taskId, 24), 25)}
+            {score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text> : null}
+          </Text>,
+        );
+      });
+      if (results.length === 0) doneBox.push(<Text key="db-e" color="gray">（尚无完成项）</Text>);
+      rightSplit = (
+        <Box flexDirection="column" height="100%">
+          <Box flexDirection="column" height={7} overflow="hidden" borderStyle="round" borderColor="yellow">
+            <Text bold color="yellow">正在评分（{batchIndex + 1}/{queue.length}）</Text>
+            {runningBox.slice(1)}
+          </Box>
+          <Box flexDirection="column" height={rightH - 8} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'} marginTop={0}>
+            {doneBox}
+          </Box>
+        </Box>
+      );
+    }
+    rightLines.push(<Text bold key="rt">评分中：{truncV(currentId ?? '', 36)}</Text>);
     if (phase === 'rule') rightLines.push(<Spinner key="sp" label="规则层直算中…" />);
     if (phase === 'mate' && progress) {
       rightLines.push(
@@ -681,33 +728,29 @@ export function ScoreTui(props: ScoreTuiProps) {
         </Text>,
       );
     }
-    if (results.length > 0) {
-      rightLines.push(<Text key="dsf" color="gray">已完成：</Text>);
-      results.forEach((r, i) => rightLines.push(
-        <Text key={`d-${i}`}>  {truncV(r.taskId, 30)} {r.error ? <Text color="red">✗</Text> : <Text color="green">✓</Text>}</Text>));
-    }
   } else if (detailIdx != null && results[detailIdx]?.card) {
-    rightLines.push(<Text key="bk" color="gray">[Enter] 返回汇总</Text>);
-    rightLines.push(<ScorecardView key="card" card={results[detailIdx].card!} meta={{ durationMs: results[detailIdx].durationMs }} />);
+    rightLines.push(<Text key="bk" color="gray">[Enter] 返回列表</Text>);
+    rightLines.push(<ScorecardView key="card" card={results[detailIdx].card!} meta={{ durationMs: results[detailIdx].durationMs }} w={rightInnerW} />);
   } else if (results.length === 1) {
     const r = results[0];
-    if (r.card) rightLines.push(<ScorecardView key="card" card={r.card} meta={{ durationMs: r.durationMs }} />);
+    if (r.card) rightLines.push(<ScorecardView key="card" card={r.card} meta={{ durationMs: r.durationMs }} w={rightInnerW} />);
     else rightLines.push(<Text key="err" color="red">✗ {truncV(r.taskId, 32)}：{r.error}</Text>);
   } else if (results.length > 1) {
     rightLines.push(<Text bold key="sum">批量完成（{results.filter(r => r.card).length}/{results.length} 成功）</Text>);
     results.forEach((r, i) => {
+      const sel = focus === 'right' && i === rightSel;
       const score = r.card?.framework.totalScore;
       rightLines.push(
-        <Text key={`s-${i}`}>
-          {r.error ? <Text color="red">✗</Text> : r.card?.framework.veto?.triggered ? <Text color="red">⛔</Text> : <Text color="green">✓</Text>}{' '}
-          {padEndV(truncV(r.taskId, 26), 27)}
-          {r.error ? <Text color="red">{truncV(r.error, 20)}</Text>
+        <Text key={`s-${i}`} color={sel ? 'cyan' : undefined} inverse={sel}>
+          {sel ? '❯ ' : '  '}{r.error ? <Text color="red">✗</Text> : r.card?.framework.veto?.triggered ? <Text color="red">⛔</Text> : <Text color="green">✓</Text>}{' '}
+          {padEndV(truncV(r.taskId, Math.max(14, rightInnerW - 18)), Math.max(15, rightInnerW - 17))}
+          {r.error ? <Text color="red">{truncV(r.error, Math.max(8, rightInnerW - 36))}</Text>
             : score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text>
             : null}
         </Text>,
       );
     });
-    rightLines.push(<Text key="hint" color="gray">[Tab 后 ↑↓] 选择 · [Enter] 看评分卡</Text>);
+    rightLines.push(<Text key="hint" color="gray">[Tab] 切到列表 · [W/S] 选择 · [Enter] 看评分卡</Text>);
   }
   const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
 
@@ -729,11 +772,11 @@ export function ScoreTui(props: ScoreTuiProps) {
         <Text color="cyan">{rightAction}</Text>
       </Box>
       <Box flexDirection="row" gap={1} height={bodyH}>
-        <Box flexDirection="column" width={LEFT_W} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
+        <Box flexDirection="column" width={leftW} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
           {leftLines}
         </Box>
         <Box flexDirection="column" flexGrow={1} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
-          {rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>}
+          {rightSplit ?? (rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>)}
         </Box>
       </Box>
       <Text color="gray">{truncV(keybar, Math.max(40, termW - 4))}</Text>
