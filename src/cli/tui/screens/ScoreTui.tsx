@@ -464,17 +464,13 @@ export function ScoreTui(props: ScoreTuiProps) {
     if (input === 'q' || (key.ctrl && input === 'c')) { exit(); return; }
     if (input === 'o') { jump(); return; }
     if (input === 'b' && events.length) { saveJsonl(); return; }
-    // WASD 导航（不分大小写；与 ↑↓/Tab 等效；A/D 左右栏）。导航优先级最高，
-    // 冲突功能让位：全选 t、保存 b
+    // WASD 导航（不分大小写）：W/S 上下移动，A/D 左右切换分区（右栏内 A = 回配置）。
+    // 导航优先级最高，冲突功能让位：全选 t、保存 b；Tab 仍为左右栏切换
     const k = input.toLowerCase();
     const wasdUD = k === 'w' ? 'up' : k === 's' ? 'down' : null;
-    if (k === 'a' || k === 'd' || key.tab) {
-      setFocus(f => {
-        const canRight = f === 'left' && (events.length > 0 || results.length > 0);
-        if (k === 'a') return 'left';
-        if (k === 'd') return canRight ? 'right' : f;
-        return canRight ? 'right' : 'left'; // Tab 保持原切换语义
-      });
+    if (k === 'a' && focus === 'right') { setFocus('left'); return; }
+    if (key.tab) {
+      setFocus(f => (f === 'left' && (events.length > 0 || results.length > 0) ? 'right' : 'left'));
       return;
     }
     if (wasdUD) {
@@ -508,10 +504,11 @@ export function ScoreTui(props: ScoreTuiProps) {
       rows.forEach((r, i) => { const sec = sectionOf(r); if (sec !== last) { starts.push(i); last = sec; } });
       return starts;
     })();
-    if (k === 'j' || k === 'k') {
+    if (k === 'j' || k === 'd' || k === 'k' || k === 'a') { // A/D 与 J/K 同为分区切换
       const curSecIdx = sectionStarts.findIndex((start, i) =>
         cursor >= start && (i === sectionStarts.length - 1 || cursor < sectionStarts[i + 1]));
-      const nextIdx = k === 'j' ? Math.min(sectionStarts.length - 1, curSecIdx + 1) : Math.max(0, curSecIdx - 1);
+      const fwd = k === 'j' || k === 'd';
+      const nextIdx = fwd ? Math.min(sectionStarts.length - 1, curSecIdx + 1) : Math.max(0, curSecIdx - 1);
       if (curSecIdx >= 0 && nextIdx !== curSecIdx) setCursor(sectionStarts[nextIdx]);
       return;
     }
@@ -755,7 +752,7 @@ export function ScoreTui(props: ScoreTuiProps) {
 
   const keybar = focus === 'right'
     ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A 或 Tab] 回配置 · [b] 保存 · [o] 页面 · [q] 退出'
-    : '[W/S 或 ↑↓] 移动 · [J/K] 分区跳转 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [D 或 Tab] 看结果 · [b] 保存 · [o] 页面 · [q] 退出';
+    : '[W/S 或 ↑↓] 上下移动 · [A/D 或 J/K] 左右切分区 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [Tab] 看结果 · [b] 保存 · [o] 页面 · [q] 退出';
 
   // 顶栏单行纯文本：块字符 logo（█▀▄）在 CJK 字体终端是歧义宽度（每字符占 2 格），
   // 布局按 1 格计算必然错位溢出——改零歧义文本 logo，任何终端/字体下稳定
