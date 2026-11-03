@@ -131,12 +131,12 @@ function openInBrowser(url: string): void {
 const scoreColor = (score: number): string =>
   score >= 0.8 ? 'green' : score >= 0.6 ? 'yellow' : 'red';
 
-function Bar10({ score }: { score: number }) {
-  const filled = Math.max(0, Math.min(10, Math.round(score * 10)));
+function Bar10({ score, width = 10 }: { score: number; width?: number }) {
+  const filled = Math.max(0, Math.min(width, Math.round(score * width)));
   return (
     <Text>
       <Text color={scoreColor(score)}>{'█'.repeat(filled)}</Text>
-      <Text color="gray">{'░'.repeat(10 - filled)}</Text>
+      <Text color="magenta">{'░'.repeat(width - filled)}</Text>
     </Text>
   );
 }
@@ -174,7 +174,7 @@ function DimBlock({ dim, w }: { dim: DimensionResult; w: number }) {
   else if (typeof dim.score === 'number') {
     line = (
       <Text>
-        <Bar10 score={dim.score} />
+        <Bar10 score={dim.score} width={16} />
         <Text color={scoreColor(dim.score)}> {(dim.score * 10).toFixed(1)}</Text>
         {dim.verdict ? <Text color="gray">  {dim.verdict}</Text> : null}
       </Text>
@@ -757,8 +757,8 @@ export function ScoreTui(props: ScoreTuiProps) {
   const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
 
   const keybar = focus === 'right'
-    ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A] 回配置 · [b] 保存 · [o] 页面 · [q] 退出'
-    : '[W/S 或 ↑↓] 上下移动 · [J/K] 切分区 · [D] 看结果 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [b] 保存 · [o] 页面 · [q] 退出';
+    ? '[W/S] 切换②/③ · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [b] 保存 · [o] 页面 · [q] 退出'
+    : '[W/S] 切分区 · [A/D] 左右栏 · [↑↓] 行移动 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [b] 保存 · [o] 页面 · [q] 退出';
 
   // 顶栏单行纯文本：块字符 logo（█▀▄）在 CJK 字体终端是歧义宽度（每字符占 2 格），
   // 布局按 1 格计算必然错位溢出——改零歧义文本 logo，任何终端/字体下稳定
