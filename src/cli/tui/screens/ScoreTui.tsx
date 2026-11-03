@@ -549,7 +549,7 @@ export function ScoreTui(props: ScoreTuiProps) {
 
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
-      <Text bold color="cyan">Mate Score TUI</Text>
+      <Text bold color="cyan">Insight Score TUI</Text>
       <Text color="gray">────────────────────────────────────────────────────────────</Text>
 
       {stage === 'source' && (
