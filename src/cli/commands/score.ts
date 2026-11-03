@@ -251,11 +251,16 @@ export function renderScorecardCli(card: Scorecard, meta: ScorecardDisplayMeta):
   return lines;
 }
 
+/** 入口模式判定：无 --session（交互式缺省）或显式 --tui → TUI；否则一次性 CLI */
+export function scoreMode(opts: { session?: string; tui?: boolean }): 'tui' | 'cli' {
+  return opts.tui || !opts.session ? 'tui' : 'cli';
+}
+
 export function scoreCommand(): Command {
   const cmd = new Command('score');
   cmd
-    .description('Standalone mate-agent scoring for one session (no server, no LLM API)')
-    .requiredOption('--session <taskId>', 'Session task ID')
+    .description('Mate scoring, standalone (no server, no LLM API). Without --session opens an interactive TUI; with --session runs once and outputs NDJSON')
+    .option('--session <taskId>', 'Session task ID (omit to open the interactive TUI)')
     .option('--framework <fw>', 'Framework filter (disambiguate same-sid dual records)')
     .option('--tool <name>', 'Mate agent CLI: claude | opencode | auto (default: auto-detect)')
     .option('--out <file>', 'Write NDJSON result to file (default: stdout)')
@@ -263,9 +268,9 @@ export function scoreCommand(): Command {
     .option('--timeout <ms>', 'Per-dimension agent timeout in ms (default: 900000)')
     .option('--workdir <dir>', 'Material export root dir (agent-readable slices)')
     .option('--no-store', 'Do not persist the scorecard to the scorecard store')
-    .option('--tui', 'Interactive TUI: pick session & tool, live progress, scorecard view')
+    .option('--tui', 'Force the interactive TUI even when --session is given')
     .action(async (opts: ScoreCliOptions & { tui?: boolean }) => {
-      if (opts.tui) {
+      if (scoreMode(opts) === 'tui') {
         const { runScoreTui } = await import('../tui/screens/ScoreTui');
         process.exitCode = await runScoreTui({
           initialSession: opts.session ? { taskId: opts.session, framework: opts.framework ?? null } : undefined,
