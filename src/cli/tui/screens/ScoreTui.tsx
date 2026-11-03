@@ -756,10 +756,12 @@ export function ScoreTui(props: ScoreTuiProps) {
       const curPlain = `⏳ ${truncV(cur?.id ?? currentId ?? '', Math.max(10, rightInnerW - 26))}${phase === 'mate' && progress ? ` [${progress.done}/${progress.total}] ${truncV(progress.current, 12)}` : phase === 'rule' ? ' 规则层…' : ''}`;
       qNodes.push({ node: <Text color="yellow">{curPlain}</Text>, w: stringWidth(curPlain) });
       if (phase === 'mate' && progress) {
+        const barW = Math.max(12, rightInnerW - 4);
+        const fill = progress.total > 0 ? Math.min(barW, Math.round((progress.done / progress.total) * barW)) : 0;
         qNodes.push({ node: <Text>
-        <Text color="green">{'█'.repeat(Math.max(0, progress.done))}</Text>
-        <Text color="gray">{'░'.repeat(Math.max(0, progress.total - progress.done))}</Text>
-      </Text>, w: Math.max(progress.done, 0) + Math.max(progress.total - progress.done, 0) });
+        <Text color="green">{'█'.repeat(fill)}</Text>
+        <Text color="magenta">{'░'.repeat(barW - fill)}</Text>
+      </Text>, w: barW });
       }
       queue.slice(batchIndex + 1, batchIndex + 4).forEach((item, i) => {
         qNodes.push(`- ${truncV(item.id, rightInnerW - 6)}`);
