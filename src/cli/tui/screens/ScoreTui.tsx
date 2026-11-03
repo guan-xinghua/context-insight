@@ -163,17 +163,22 @@ function openInBrowser(url: string): void {
  * 行内 Box 有丢行缺陷；纯 span + 手动补位绝对稳定）。行可以是 string（自动补
  * 齐到内宽）或 { node, w }（已算好视觉宽度的着色 span 行） */
 type FrameRow = string | { node: React.ReactNode; w: number };
-/** 严格等宽手绘框：总宽 w = '│ ' + 内容(w-4) + ' │'；顶/底行同宽（CJK 宽度计入） */
-function drawFrame(title: string, color: string, rows: FrameRow[], w: number, key: string): React.ReactNode[] {
+/** 严格等宽手绘框：总宽 w = '│ ' + 内容(w-4) + ' │'；顶/底行同宽（CJK 宽度计入）。
+ * h 给定则定高：内容行精确 h-2（不足补空行、超出裁掉）——每帧行数逐框同构，
+ * ink 行 diff 无重排机会 */
+function drawFrame(title: string, color: string, rows: FrameRow[], w: number, key: string, h?: number): React.ReactNode[] {
   const inner = Math.max(8, w - 4);
   const head = `─ ${title} `;
   const top = `╭${head}${'─'.repeat(Math.max(1, w - 2 - stringWidth(head)))}╮`;
   const bottom = `╰${'─'.repeat(w - 2)}╯`;
   const rail = <Text color={color}>│ </Text>;
   const railR = <Text color={color}> │</Text>;
+  const body = h != null
+    ? rows.slice(0, Math.max(0, h - 2)).concat(Array.from({ length: Math.max(0, h - 2 - rows.length) }, (_, i) => ({ node: <Text key={`${key}-pad${i}`}> </Text> as React.ReactNode, w: 1 })))
+    : rows;
   return [
     <Text key={`${key}-t`} color={color}>{top}</Text>,
-    ...rows.map((r, i) => {
+    ...body.map((r, i) => {
       const visW = Math.min(inner, typeof r === 'string' ? stringWidth(r) : r.w);
       const pad = Math.max(0, inner - visW);
       const content = typeof r === 'string'
@@ -371,6 +376,7 @@ export function ScoreTui(props: ScoreTuiProps) {
   const [savedTo, setSavedTo] = useState<string | null>(null);
   const [jumpUrl, setJumpUrl] = useState<string | null>(null);
   const dirInputRef = useRef('');
+  const cardMaxRef = useRef(0); // ③框内滚动上界（渲染帧内更新，按键时读取）
 
   // ── 数据装载 ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -624,7 +630,7 @@ export function ScoreTui(props: ScoreTuiProps) {
       if (rightSub === 'card' && detailIdx != null) {
         if (key.return) { setRightSub('list'); return; }
         if (up) setRightScroll(v => Math.max(0, v - 1));
-        else if (down) setRightScroll(v => v + 1);
+        else if (down) setRightScroll(v => Math.min(cardMaxRef.current, v + 1));
         return;
       }
       if (up) setRightSel(i => Math.max(0, i - 1));
@@ -772,8 +778,8 @@ export function ScoreTui(props: ScoreTuiProps) {
   // ── 右栏渲染：idle = 预览；运行/完成 = 三段式（①待评分 ②已完成 ③评分卡）──
   // 单框内分节（分隔线代嵌套边框）：Ink 对结构性嵌套定高 Box 有布局缓存缺陷
   const rightLines: React.ReactNode[] = [];
-  const rBox = (title: string, color: string, children: FrameRow[]): React.ReactNode[] =>
-    drawFrame(title, color, children, rightInnerW, `rsec-${title}`);
+  const rBox = (title: string, color: string, children: FrameRow[], h?: number): React.ReactNode[] =>
+    drawFrame(title, color, children, rightInnerW, `rsec-${title}`, h);
 
   if (runPhase === 'idle' && results.length === 0) {
     const pvNodes: FrameRow[] = [];
@@ -791,8 +797,20 @@ export function ScoreTui(props: ScoreTuiProps) {
         pvNodes.push(`• ${truncV(id, 30)} ${truncV(q ?? '', 30)}`);
       });
     }
-    rightLines.push(...rBox('预览', 'gray', pvNodes));
+    rightLines.push(...rBox('预览', 'gray', pvNodes, rightH));
   } else {
+    // 三框恒定行高：① 7 行 ② 8 行 ③ 吃余量（~56%）——每帧行数逐框同构（ink 行
+    // diff 零重排机会），③ 改框内滚动（全局切片会把框从中间切成半截）
+    let qBoxH = 7, dBoxH = 8;
+    let cBoxH = rightH - qBoxH - dBoxH;
+    if (cBoxH < 6) { // 矮终端：③ 保底 40%，余量再分①②
+      cBoxH = Math.max(4, Math.floor(rightH * 0.4));
+      const rest = rightH - cBoxH;
+      dBoxH = Math.max(4, Math.floor(rest * 0.5));
+      qBoxH = Math.max(3, rest - dBoxH);
+    }
+
+    // ① 待评分（定高 qBoxH：cur + 进度条 + 待办窗口 + 计数）
     const qNodes: FrameRow[] = [];
     if (runPhase === 'running') {
       const cur = queue[batchIndex];
@@ -806,10 +824,11 @@ export function ScoreTui(props: ScoreTuiProps) {
         <Text color="magenta">{'░'.repeat(barW - fill)}</Text>
       </Text>, w: barW });
       }
-      queue.slice(batchIndex + 1, batchIndex + 4).forEach((item, i) => {
+      const pendSlots = Math.max(0, qBoxH - 2 - 3); // 预留 cur/bar/计数三行
+      queue.slice(batchIndex + 1, batchIndex + 1 + pendSlots).forEach(item => {
         qNodes.push(`- ${truncV(item.id, rightInnerW - 6)}`);
       });
-      if (queue.length - batchIndex - 1 > 4) {
+      if (queue.length - batchIndex - 1 > pendSlots) {
         qNodes.push(`- ..共剩 ${queue.length - batchIndex - 1} 个`);
       }
     } else if (runPhase === 'idle') {
@@ -818,19 +837,23 @@ export function ScoreTui(props: ScoreTuiProps) {
       qNodes.push('— 队列已完成 —');
     }
 
-    // ── 已完成（↑↓ 选行 · Enter 载入评分卡）──
+    // ── ② 已完成（定高 dBoxH：视口窗口 + 选中行跟随，纯派生无同步态）──
+    const dRows = dBoxH - 2;
     const dNodes: FrameRow[] = [];
     if (results.length === 0) {
       dNodes.push('（尚无完成项）');
     } else {
-      results.slice(0, 6).forEach((r, i) => {
-        const sel = focus === 'right' && rightSub === 'list' && i === rightSel;
-        const loaded = detailIdx === i;
+      const rowsVisible = results.length > dRows ? dRows - 1 : dRows; // 溢出时末行给计数
+      const maxStart = Math.max(0, results.length - rowsVisible);
+      const start = Math.min(maxStart, Math.max(0, rightSel - (rowsVisible - 2)));
+      results.slice(start, start + rowsVisible).forEach((r, i) => {
+        const idx = start + i;
+        const sel = focus === 'right' && rightSub === 'list' && idx === rightSel;
+        const loaded = detailIdx === idx;
         const score = r.card?.framework.totalScore;
         const mark = loaded ? '▤' : r.restored ? '↺' : r.error ? '✗' : r.card?.framework.veto?.triggered ? '⛔' : '✓';
         const markColor = r.restored && !loaded ? 'gray' : r.error || r.card?.framework.veto?.triggered ? 'red' : 'green';
         const idW = Math.max(12, rightInnerW - 18);
-        const plain = `${sel ? '❯' : ' '}${mark} ${truncV(r.taskId, idW)} ${r.error ? truncV(r.error, Math.max(8, rightInnerW - 40)) : score != null ? `${(score * 10).toFixed(1)}` : ''}`;
         const tail = r.error != null
           ? <Text color="red">{truncV(r.error, Math.max(8, rightInnerW - 40))}</Text>
           : score != null ? <Text><Bar10 score={score} /> <Text color={scoreColor(score)}>{(score * 10).toFixed(1)}</Text></Text>
@@ -838,10 +861,11 @@ export function ScoreTui(props: ScoreTuiProps) {
         dNodes.push(row(sel, `${mark} ${truncV(r.taskId, idW)}`,
           <Text><Text color={markColor}>{mark}</Text> {truncV(r.taskId, idW)} {tail}</Text>));
       });
-      if (results.length > 6) dNodes.push(`… 共 ${results.length} 个`);
+      if (results.length > dRows) dNodes.push(`… 共 ${results.length} 个`);
     }
 
-    // ── 评分卡（完全手动：已完成中 Enter 载入；↑↓ 滚动）──
+    // ── ③ 评分卡（定高 cBoxH：完全手动载入；↑↓ 框内滚动）──
+    const cRows = cBoxH - 2;
     const cNodes: FrameRow[] = [];
     const loadedResult = detailIdx != null ? results[detailIdx] : null;
     if (loadedResult?.card) {
@@ -862,24 +886,27 @@ export function ScoreTui(props: ScoreTuiProps) {
       if (fw.coverageGap?.length) {
         cardLines.push(`未覆盖 ${fw.coverageGap.length} 项`);
       }
-      // ③滚动偏移：rightScroll 相对 cardLines 首行
-      const visible = rightSub === 'card' ? rightScroll : 0;
-      cardLines.slice(visible, visible + Math.max(4, rightH - 14)).forEach(n => cNodes.push(n));
+      // ③框内滚动：偏移相对 cardLines 首行，上界钉死在末屏（不再全局切片）
+      cardMaxRef.current = Math.max(0, cardLines.length - cRows);
+      const visible = rightSub === 'card' ? Math.min(rightScroll, cardMaxRef.current) : 0;
+      cardLines.slice(visible, visible + cRows).forEach(n => cNodes.push(n));
     } else {
+      cardMaxRef.current = 0;
       cNodes.push('在已完成列表中 ↑↓ 选择  [Enter] 载入评分卡');
     }
 
     // 三分区盒渲染（活动子块青色；待评分运行中黄色）
     rightLines.push(...rBox(runPhase === 'running'
       ? `待评分（${batchIndex + 1}/${queue.length}）` : runPhase === 'idle' ? '待评分' : '待评分（完成）',
-      runPhase === 'running' ? 'yellow' : 'gray', qNodes));
+      runPhase === 'running' ? 'yellow' : 'gray', qNodes, qBoxH));
     rightLines.push(...rBox(results.length > 0
       ? `已完成（${results.filter(r => r.card).length}/${results.length}）` : '已完成',
-      focus === 'right' && rightSub === 'list' ? 'cyan' : 'gray', dNodes));
+      focus === 'right' && rightSub === 'list' ? 'cyan' : 'gray', dNodes, dBoxH));
     rightLines.push(...rBox('评分卡',
-      focus === 'right' && rightSub === 'card' ? 'cyan' : 'gray', cNodes));
+      focus === 'right' && rightSub === 'card' ? 'cyan' : 'gray', cNodes, cBoxH));
   }
-  const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
+  // 定高后无全局切片：三框（或预览框）恒占 rightH 行；补齐循环仅作安全兜底
+  const rightWin = rightLines;
   while (rightWin.length < rightH) rightWin.push(<Text key={`rpad-${rightWin.length}`}> </Text>);
 
   const keybar = focus === 'right'
