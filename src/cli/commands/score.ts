@@ -16,13 +16,14 @@ import { Command } from 'commander';
 import { prisma } from '@/lib/db';
 import {
   runScorecard, loadRegistry, scorecardStore, deriveItemScores,
-  SCORER_VERSION, type ScorecardStore,
+  SCORER_VERSION, type ScorecardStore, type Scorecard, type DimensionResult, type SubItemResult,
 } from '@/lib/scoring';
 import { applyOverlays } from '@/lib/scoring/core/overlays';
 import { detectMateAgentTools, DIM_NAMES, type MateAgentTool } from '@/lib/scoring/mate-agent/runner';
 import { runMateAgentOrchestrated } from '@/lib/scoring/mate-agent/orchestrate';
 import { mergeMateCard } from '@/lib/scoring/mate-agent/coerce';
-import { formatHeader, formatDivider } from '../utils/colors';
+import { formatHeader, formatDivider, theme } from '../utils/colors';
+import { padEndVisual, truncateVisual } from '../utils/table';
 
 const noopStore: ScorecardStore = {
   get: async () => null,
@@ -83,9 +84,10 @@ export async function runScoreCli(opts: ScoreCliOptions, log: (s: string) => voi
 
   // 截断 → 整卡出局：与服务端路径同口径（不评、只出规则层卡）
   if (ruleCard.status === 'aborted') {
-    log(`会话已截断，整卡出局：仅输出规则层结果`);
     const card = deriveItemScores(await applyOverlays(ruleCard, registry.defs, registry.profile), registry.defs);
-    emit({ type: 'done', card, aborted: true, durationMs: Date.now() - t0 });
+    const durationMs = Date.now() - t0;
+    for (const line of renderScorecardCli(card, { tool, durationMs, aborted: true })) log(line);
+    emit({ type: 'done', card, aborted: true, durationMs });
     flush(events, opts.out);
     return 0;
   }
@@ -123,13 +125,16 @@ export async function runScoreCli(opts: ScoreCliOptions, log: (s: string) => voi
     log(`scorecard 已落盘（--no-store 可跳过）`);
   }
   const failedDims = Object.keys(r.failures);
+  const failureNote = failedDims.length ? failedDims.map(k => `${DIM_NAMES[k] ?? k}：${r.failures[k]}`).join('；') : null;
+  const finalCard = deriveItemScores(await applyOverlays(card, registry.defs, registry.profile), registry.defs);
+  for (const line of renderScorecardCli(finalCard, { tool, durationMs: Date.now() - t0, failureNote })) log(line);
   emit({
     type: 'done',
-    card: deriveItemScores(await applyOverlays(card, registry.defs, registry.profile), registry.defs),
+    card: finalCard,
     durationMs: Date.now() - t0,
-    ...(failedDims.length ? { failureNote: failedDims.map(k => `${DIM_NAMES[k] ?? k}：${r.failures[k]}`).join('；') } : {}),
+    ...(failureNote ? { failureNote } : {}),
   });
-  log(`完成：${Object.keys(r.failures).length ? `部分维度失败（${failedDims.join(',')}）` : '全部维度成功'} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  log(`完成：${failedDims.length ? `部分维度失败（${failedDims.join(',')}）` : '全部维度成功'} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   flush(events, opts.out);
   return 0;
 }
@@ -138,6 +143,88 @@ function flush(events: unknown[], out?: string): void {
   const ndjson = events.map(e => JSON.stringify(e)).join('\n') + '\n';
   if (out) writeFileSync(out, ndjson, 'utf-8');
   else process.stdout.write(ndjson);
+}
+
+// ── 友好展示（stderr；jsonl 走 --out/stdout，两路互不干扰）─────────────────────
+
+const scoreTheme = (score: number) =>
+  score >= 0.8 ? theme.success : score >= 0.6 ? theme.warning : theme.danger;
+
+function bar10(score: number): string {
+  const filled = Math.max(0, Math.min(10, Math.round(score * 10)));
+  return scoreTheme(score)('█'.repeat(filled) + '░'.repeat(10 - filled));
+}
+
+function itemStatusIcon(it: SubItemResult): string {
+  if (it.status === 'ok') return theme.success('✓');
+  if (it.status === 'not-applicable') return theme.muted('○');
+  return theme.danger('✗');
+}
+
+function itemValueText(it: SubItemResult): string {
+  const parts: string[] = [];
+  if (it.value !== undefined && it.value !== null) parts.push(String(it.value));
+  if (typeof it.score === 'number') parts.push(`${(it.score * 10).toFixed(1)}分`);
+  if (it.verdict) parts.push(it.verdict);
+  if (it.note) parts.push(truncateVisual(it.note, 40));
+  return parts.join(' · ') || '—';
+}
+
+function dimensionLine(dim: DimensionResult): string {
+  const head = `${theme.bold(dim.dimensionId)} ${padEndVisual(truncateVisual(dim.name, 8), 8)}`;
+  if (dim.status === 'not-applicable') return `${head}  ${theme.muted('不适用')}`;
+  if (dim.status === 'error') return `${head}  ${theme.danger('评算失败')}`;
+  if (typeof dim.score === 'number') {
+    const verdictTag = dim.verdict ? `  ${dim.verdict}` : '';
+    return `${head}  ${bar10(dim.score)}  ${scoreTheme(dim.score)((dim.score * 10).toFixed(1))}${verdictTag}`;
+  }
+  // 否决维三态（无分数）
+  const v = dim.verdict ?? '—';
+  const colored = v === 'clean' || v === '完成' ? theme.success(v) : v === 'violation' || v === '未完成' ? theme.danger(v) : theme.warning(v);
+  return `${head}  ${colored}${dim.disclose ? `  ${theme.muted(truncateVisual(dim.disclose, 30))}` : ''}`;
+}
+
+export interface ScorecardDisplayMeta {
+  tool: MateAgentTool;
+  durationMs: number;
+  failureNote?: string | null;
+  aborted?: boolean;
+}
+
+/** 评分卡终端友好展示（色条 + 逐维分数 + 逐子项明细），与 jsonl 输出并存 */
+export function renderScorecardCli(card: Scorecard, meta: ScorecardDisplayMeta): string[] {
+  const lines: string[] = [];
+  const fw = card.framework;
+  lines.push(formatHeader(`评分结果 · ${card.sessionId}`));
+  lines.push(`mate=${meta.tool} · ${(meta.durationMs / 1000).toFixed(1)}s · 覆盖率 ${(fw.coverage * 100).toFixed(0)}%${meta.aborted ? ' · 会话截断，仅规则层' : ''}`);
+  lines.push(formatDivider());
+
+  if (fw.veto?.triggered) {
+    lines.push(`${theme.danger('否决触发')}：总分归 0`);
+    for (const r of fw.veto.reasons) lines.push(`  ${theme.danger('•')} ${r}`);
+  } else if (typeof fw.totalScore === 'number') {
+    lines.push(`总分  ${bar10(fw.totalScore)}  ${theme.bold((fw.totalScore * 10).toFixed(1))} / 10`);
+  } else {
+    lines.push(`${theme.muted('总分不可算（维度覆盖不足 / 全部不适用）')}`);
+  }
+  lines.push('');
+
+  for (const dim of card.dimensions) {
+    lines.push(dimensionLine(dim));
+    for (const it of dim.items) {
+      lines.push(`  ${itemStatusIcon(it)} ${padEndVisual(truncateVisual(it.label, 24), 24)}  ${theme.muted(itemValueText(it))}`);
+    }
+  }
+
+  if (fw.coverageGap?.length) {
+    lines.push('');
+    lines.push(theme.warning(`未覆盖 ${fw.coverageGap.length} 项：${fw.coverageGap.map(g => truncateVisual(g, 30)).join('、')}`));
+  }
+  if (meta.failureNote) {
+    lines.push('');
+    lines.push(theme.warning(`部分维度失败：${meta.failureNote}`));
+  }
+  return lines;
 }
 
 export function scoreCommand(): Command {

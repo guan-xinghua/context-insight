@@ -9,13 +9,14 @@
 // 独立 mate 评分 CLI IT：jsonl 夹具 → importSession 入库 → PATH 上放假 claude
 // （回固定 items JSON）→ ctxi score 全流程 → NDJSON 事件流与落盘断言。
 // 验证「不依赖服务进程、不依赖 LLM API」的独立执行路径。
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import { importSession } from '../../src/lib/ingest/data-service';
-import { scoreCommand } from '../../src/cli/commands/score';
+import { scoreCommand, renderScorecardCli } from '../../src/cli/commands/score';
+import { SCORECARD_SCHEMA, type Scorecard } from '../../src/lib/scoring';
 
 const prisma = new PrismaClient();
 
@@ -106,11 +107,14 @@ function readNdjson(file: string): Array<Record<string, unknown>> {
 }
 
 describe('ctxi score（独立 mate 评分 CLI）', () => {
-  it('全流程：规则层 + fake mate 合卡 → NDJSON 事件流（meta/progress/done）+ 落盘', async () => {
+  it('全流程：规则层 + fake mate 合卡 → NDJSON 事件流（meta/progress/done）+ 落盘 + 终端友好展示', async () => {
     const out = path.join(TMP, 'out.jsonl');
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const cmd = scoreCommand();
     await cmd.parseAsync(['--session', SID, '--tool', 'claude', '--out', out,
       '--workdir', path.join(TMP, 'work'), '--concurrency', '2'], { from: 'user' });
+    const stderrOut = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+    stderrSpy.mockRestore();
 
     expect(process.exitCode ?? 0).toBe(0);
     const events = readNdjson(out);
@@ -144,6 +148,13 @@ describe('ctxi score（独立 mate 评分 CLI）', () => {
     for (const e of workEntries) {
       expect(fs.readdirSync(path.join(workRoot, e)).length).toBe(0);
     }
+
+    // 终端友好展示（stderr）：总分条 + 逐维分数 + 子项明细与 jsonl 并存
+    expect(stderrOut).toContain('评分结果');
+    expect(stderrOut).toContain('总分');
+    expect(stderrOut).toContain('█');
+    expect(stderrOut).toContain('D3');
+    expect(stderrOut).toContain('fake-correct');
   }, 120_000);
 
   it('会话不存在 → error 事件 + 退出码 1，不写半截产物', async () => {
@@ -167,4 +178,53 @@ describe('ctxi score（独立 mate 评分 CLI）', () => {
     expect(process.exitCode ?? 0).toBe(0);
     expect(fs.readdirSync(storeDir).length).toBe(before);
   }, 120_000);
+
+  it('友好展示渲染器：否决触发 / 三态无分维 / 不适用 / 覆盖缺口 / 失败备注分支', () => {
+    const card: Scorecard = {
+      schemaVersion: SCORECARD_SCHEMA,
+      sessionId: 'render-it',
+      taskType: 'general',
+      computedAt: '2026-11-03T00:00:00.000Z',
+      status: 'completed',
+      framework: {
+        totalScore: 0,
+        veto: { triggered: true, reasons: ['行为可信（行为违规） · 越权删除'] },
+        coverage: 0.5,
+        coverageGap: ['D3.correctness 正确性', 'D5.proficiency 熟练度'],
+        weightsUsed: {},
+      },
+      dimensions: [
+        {
+          dimensionId: 'D2', name: '行为可信', english: 'Trust', role: 'veto',
+          status: 'scored', verdict: 'violation', disclose: '越权删除',
+          items: [{ itemId: 'D2.redlines', label: '红线', status: 'ok', verdict: 'violation', evidence: [] }],
+        },
+        {
+          dimensionId: 'D3', name: '完成质量', english: 'Quality', role: 'weighted',
+          status: 'not-applicable',
+          items: [],
+        },
+        {
+          dimensionId: 'D6', name: '自主性', english: 'Autonomy', role: 'weighted',
+          status: 'scored', score: 0.75,
+          items: [
+            { itemId: 'D6.classification', label: '任务分类', status: 'ok', score: 0.75, note: '样例备注', evidence: [] },
+            { itemId: 'D6.other', label: '其他', status: 'error', evidence: [] },
+          ],
+        },
+      ],
+      judgeCost: null,
+    };
+    const text = renderScorecardCli(card, { tool: 'claude', durationMs: 1500, failureNote: 'D6：agent 超时' }).join('\n');
+
+    expect(text).toContain('否决触发');
+    expect(text).toContain('越权删除');
+    expect(text).toContain('violation');
+    expect(text).toContain('不适用');
+    expect(text).toContain('未覆盖 2 项');
+    expect(text).toContain('部分维度失败：D6：agent 超时');
+    expect(text).toContain('7.5');
+    expect(text).toContain('█');
+    expect(text).toContain('样例备注');
+  });
 });
