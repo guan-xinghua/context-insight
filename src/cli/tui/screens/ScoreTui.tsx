@@ -554,30 +554,40 @@ export function ScoreTui(props: ScoreTuiProps) {
   };
   const isActiveRow = (r: FlatRow) => flatIndexOf(r) === cursor;
 
-  const leftLines: React.ReactNode[] = [];
+  // 左栏 = 真分区：每区独立边框盒（光标所在区边框高亮青色，其余灰）
+  const curSection = curRow ? (curRow.k === 'source' ? 0 : curRow.k === 'dirQuick' ? 1 : curRow.k === 'session' ? 2 : curRow.k === 'tool' ? 3 : 4) : -1;
+  let lineKey = 0;
   const rowNode = (active: boolean, node: React.ReactNode) => (
-    <Box key={leftLines.length}>
+    <Box key={lineKey++}>
       {active ? <Text color="cyan">❯ </Text> : <Text>  </Text>}
       {node}
     </Box>
   );
-  const sect = (label: string) => <Text key={leftLines.length} bold color="gray">── {label} ──────</Text>;
+  const mkBox = (title: string, secIdx: number, children: React.ReactNode[]) => (
+    <Box key={`sec-${title}`} flexDirection="column" borderStyle="round" borderColor={curSection === secIdx ? 'cyan' : 'gray'}>
+      <Text bold color={curSection === secIdx ? 'cyan' : 'gray'}>{title}</Text>
+      {children}
+    </Box>
+  );
 
-  leftLines.push(sect('来源'));
+  // ── 来源 ──
+  const srcNodes: React.ReactNode[] = [];
   for (const v of ['db', 'dir'] as const) {
     const on = sourceMode === v;
-    leftLines.push(rowNode(isActiveRow({ k: 'source', v }),
+    srcNodes.push(rowNode(isActiveRow({ k: 'source', v }),
       <Text color={on ? 'green' : undefined}>{on ? '●' : '○'} {v === 'db' ? '本机库已导入会话' : '从目录选择（批量）'}</Text>));
   }
+
+  // ── 目录（dir 模式）──
+  const dirNodes: React.ReactNode[] = [];
   if (sourceMode === 'dir') {
-    leftLines.push(sect('目录'));
     quicks.forEach((q, i) => {
-      leftLines.push(rowNode(isActiveRow({ k: 'dirQuick', idx: i }),
-        <Text>{truncV(q.label, 14)} <Text color="gray">{truncV(q.dir || 'Enter 输入', 22)}</Text></Text>));
+      dirNodes.push(rowNode(isActiveRow({ k: 'dirQuick', idx: i }),
+        <Text>{truncV(q.label, 14)} <Text color="gray">{truncV(q.dir || 'Enter 输入', 20)}</Text></Text>));
     });
     if (dirFocus) {
-      leftLines.push(
-        <Box key={leftLines.length} marginLeft={2}>
+      dirNodes.push(
+        <Box key="dir-input" marginLeft={2}>
           <TextInput
             value={dirInput}
             onChange={setDirInputLed}
@@ -589,16 +599,17 @@ export function ScoreTui(props: ScoreTuiProps) {
         </Box>,
       );
     }
-    if (scanning) leftLines.push(<Spinner key={leftLines.length} label="扫描目录中…" />);
+    if (scanning) dirNodes.push(<Spinner key="dir-scan" label="扫描目录中…" />);
   }
 
+  // ── 会话 ──
   const sessLabel = sourceMode === 'db'
     ? `会话 ${filteredSessions.length}/${sessions.length}${loadingSessions ? '（加载中…）' : ''}`
     : dirSessions == null ? '会话（未扫描）' : `会话 ${filteredDirSessions.length}/${dirSessions.length}`;
-  leftLines.push(sect(sessLabel));
+  const sessNodes: React.ReactNode[] = [];
   if (filterFocus) {
-    leftLines.push(
-      <Box key={leftLines.length} marginLeft={2}>
+    sessNodes.push(
+      <Box key="filter" marginLeft={1}>
         <Text color="cyan">过滤: </Text>
         <TextInput
           value={filterText}
@@ -611,47 +622,55 @@ export function ScoreTui(props: ScoreTuiProps) {
       </Box>,
     );
   }
-  // 会话窗口跟随光标滚动
   const curSessIdx = curRow?.k === 'session' ? (curRow as { idx: number }).idx : 0;
-  const sessWinStart = Math.max(0, Math.min(curSessIdx - 4, Math.max(0, activeSessions.length - 9)));
-  activeSessions.slice(sessWinStart, sessWinStart + 9).forEach((s, i) => {
+  const sessWinSize = sourceMode === 'dir' ? 5 : 7; // dir 模式多一框，会话窗口收窄
+  const sessWinStart = Math.max(0, Math.min(curSessIdx - 3, Math.max(0, activeSessions.length - sessWinSize)));
+  activeSessions.slice(sessWinStart, sessWinStart + sessWinSize).forEach((s, i) => {
     const gIdx = sessWinStart + i;
     const id = 'taskId' in s ? s.taskId : s.id;
     const time = 'taskId' in s ? fmtTime(s.startTime) : fmtTime(s.createdAt);
     const sub = 'taskId' in s
       ? `${fmtTokens(s.totalTokens)}·${s.totalSubagentCount}ag`
       : `${s.turnCount}轮 ${truncV(s.modelName ?? '', 10)}`;
-    leftLines.push(rowNode(isActiveRow({ k: 'session', idx: gIdx }),
+    sessNodes.push(rowNode(isActiveRow({ k: 'session', idx: gIdx }),
       <Text>
         {activeSelected.has(sessionKey(s)) ? <Text color="green">[x]</Text> : <Text color="gray">[ ]</Text>}{' '}
-        {padEndV(truncV(id, Math.max(18, leftW - 24)), Math.max(19, leftW - 23))} <Text color="gray">{time} {sub}</Text>
+        {padEndV(truncV(id, Math.max(18, leftW - 28)), Math.max(19, leftW - 27))} <Text color="gray">{time} {sub}</Text>
       </Text>));
   });
   if (sourceMode === 'dir' && dirSessions == null) {
-    leftLines.push(<Text key={leftLines.length} color="gray">  选择上方目录项开始扫描</Text>);
+    sessNodes.push(<Text key="sess-hint" color="gray"> 选上方目录项开始扫描</Text>);
   } else if (activeSessions.length === 0 && (sourceMode === 'db' ? !loadingSessions : true)) {
-    leftLines.push(<Text key={leftLines.length} color="gray">  {filterText ? '无匹配（Esc 清除过滤）' : sourceMode === 'db' ? '本机库暂无会话' : '目录内未发现会话'}</Text>);
+    sessNodes.push(<Text key="sess-empty" color="gray"> {filterText ? '无匹配（Esc 清除过滤）' : sourceMode === 'db' ? '本机库暂无会话' : '目录内未发现会话'}</Text>);
   }
-  leftLines.push(<Text key={leftLines.length} color="gray">  [Space] 勾选 · [t] 全选/清空 · [/] 过滤</Text>);
+  sessNodes.push(<Text key="sess-keys" color="gray"> [Space] 勾选 · [t] 全选 · [/] 过滤</Text>);
 
-  leftLines.push(sect('Agent 工具'));
+  // ── Agent 工具 ──
+  const toolNodes: React.ReactNode[] = [];
   tools.forEach(t => {
     const on = tools[toolIdx] === t;
-    leftLines.push(rowNode(isActiveRow({ k: 'tool', v: t }),
+    toolNodes.push(rowNode(isActiveRow({ k: 'tool', v: t }),
       <Text color={on ? 'green' : undefined}>{on ? '●' : '○'} {t}</Text>));
   });
-  if (tools.length === 0) leftLines.push(<Text key={leftLines.length} color="red">  未探测到 claude / opencode</Text>);
+  if (tools.length === 0) toolNodes.push(<Text key="no-tool" color="red"> 未探测到 claude / opencode</Text>);
 
-  leftLines.push(sect('运行'));
+  // ── 运行 ──
   const selCount = sourceMode === 'db' ? dbSelected.size : dirSelected.size;
-  leftLines.push(rowNode(isActiveRow({ k: 'run' }),
+  const runNodes: React.ReactNode[] = [rowNode(isActiveRow({ k: 'run' }),
     <Text bold color={runPhase === 'running' ? 'yellow' : 'green'}>
       {runPhase === 'running' ? '⏳ 评分中…（右栏看进度）'
         : runPhase === 'done' ? '↻ [Enter] 再评一轮'
         : `▶ [Enter] 开始评分${selCount > 0 ? `（已选 ${selCount}）` : sourceMode === 'db' ? '（光标会话）' : '（需勾选）'}`}
-    </Text>));
+    </Text>)];
 
-  // ── 右栏渲染（预览 / 进度 / 结果三态）──────────────────────────────────────
+  const leftSections: React.ReactNode[] = [
+    mkBox('来源', 0, srcNodes),
+    ...(sourceMode === 'dir' ? [mkBox('目录', 1, dirNodes)] : []),
+    mkBox(sessLabel, 2, sessNodes),
+    mkBox('Agent 工具', 3, toolNodes),
+    mkBox('运行', 4, runNodes),
+  ];
+
   // ── 右栏渲染：idle = 预览；运行/完成 = 三段式（①待评分 ②已完成 ③评分卡）──
   // 单框内分节（分隔线代嵌套边框）：Ink 对结构性嵌套定高 Box 有布局缓存缺陷
   const rightLines: React.ReactNode[] = [];
@@ -678,8 +697,8 @@ export function ScoreTui(props: ScoreTuiProps) {
   } else {
     // ── ① 待评分（当前处理中内联进度 + 剩余队列）──
     rightLines.push(sectLine(runPhase === 'running'
-      ? `① 待评分（${batchIndex + 1}/${queue.length}）`
-      : '① 待评分（完成）', false));
+      ? `待评分（${batchIndex + 1}/${queue.length}）`
+      : '待评分（完成）', false));
     if (runPhase === 'running') {
       const cur = queue[batchIndex];
       const progText = phase === 'mate' && progress
@@ -708,7 +727,7 @@ export function ScoreTui(props: ScoreTuiProps) {
 
     // ── ② 已完成（↑↓ 选行 · Enter 载入③）──
     rightLines.push(sectLine(results.length > 0
-      ? `② 已完成（${results.filter(r => r.card).length}/${results.length}）` : '② 已完成', rightSub === 'list'));
+      ? `已完成（${results.filter(r => r.card).length}/${results.length}）` : '已完成', rightSub === 'list'));
     if (results.length === 0) {
       rightLines.push(<Text key="d-empty" color="gray">（尚无完成项）</Text>);
     } else {
@@ -730,7 +749,7 @@ export function ScoreTui(props: ScoreTuiProps) {
     }
 
     // ── ③ 评分卡（完全手动：②中 Enter 载入；↑↓ 滚动）──
-    rightLines.push(sectLine('③ 评分卡', rightSub === 'card'));
+    rightLines.push(sectLine('评分卡', rightSub === 'card'));
     const loadedResult = detailIdx != null ? results[detailIdx] : null;
     if (loadedResult?.card) {
       const card = loadedResult.card;
@@ -751,13 +770,13 @@ export function ScoreTui(props: ScoreTuiProps) {
       const visible = rightSub === 'card' ? rightScroll : 0;
       cardLines.slice(visible, visible + Math.max(4, rightH - 12)).forEach(n => rightLines.push(n));
     } else {
-      rightLines.push(<Text key="c-ph" color="gray">在②中 ↑↓ 选择 · [Enter] 载入评分卡 · [W/S] 切换②/③焦点</Text>);
+      rightLines.push(<Text key="c-ph" color="gray">在已完成列表中 ↑↓ 选择 · [Enter] 载入评分卡 · [W/S] 切换列表/评分卡焦点</Text>);
     }
   }
   const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
 
   const keybar = focus === 'right'
-    ? '[W/S] 切换②/③ · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [b] 保存 · [o] 页面 · [q] 退出'
+    ? '[W/S] 切换列表/评分卡 · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [b] 保存 · [o] 页面 · [q] 退出'
     : '[W/S] 切分区 · [A/D] 左右栏 · [↑↓] 行移动 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [b] 保存 · [o] 页面 · [q] 退出';
 
   // 顶栏单行纯文本：块字符 logo（█▀▄）在 CJK 字体终端是歧义宽度（每字符占 2 格），
@@ -776,7 +795,7 @@ export function ScoreTui(props: ScoreTuiProps) {
       </Box>
       <Box flexDirection="row" gap={1} height={bodyH}>
         <Box flexDirection="column" width={leftW} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'left' ? 'cyan' : 'gray'}>
-          {leftLines}
+          {leftSections}
         </Box>
         <Box flexDirection="column" flexGrow={1} height={bodyH} overflow="hidden" borderStyle="round" borderColor={focus === 'right' ? 'cyan' : 'gray'}>
           {rightWin.length > 0 ? rightWin : <Text color="gray"> </Text>}
