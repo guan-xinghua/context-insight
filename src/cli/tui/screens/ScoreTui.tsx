@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { render, Box, Text, useApp, useInput, useStdout } from 'ink';
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -55,6 +55,37 @@ interface BatchResult {
   card: Scorecard | null;
   error: string | null;
   durationMs: number;
+  /** 重开回载的历史结果（②列表 ↺ 标记） */
+  restored?: boolean;
+}
+
+/** 结果默认落盘目录：跨启动稳定（重开 TUI 回看历史靠它），不随 cwd 漂移 */
+const defaultSaveDir = (): string => path.join(CONTEXT_HOME, 'score-results');
+/** 结果文件名：<原会话名>.score.jsonl */
+const scoreFileOf = (saveDir: string, taskId: string): string =>
+  path.join(saveDir, `${taskId.replace(/[^\w.-]/g, '_')}.score.jsonl`);
+/** 载入历史结果：meta(taskId/framework) + done(card/durationMs) → BatchResult（按落盘时间新→旧） */
+function loadSavedResults(saveDir: string): BatchResult[] {
+  let files: string[] = [];
+  try { files = readdirSync(saveDir).filter(f => f.endsWith('.score.jsonl')); } catch { return []; }
+  const out: Array<{ r: BatchResult; mtime: number }> = [];
+  for (const f of files) {
+    try {
+      const evs = readFileSync(path.join(saveDir, f), 'utf-8').trim().split('\n')
+        .filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>);
+      const meta = evs.find(e => e.type === 'meta') as { taskId?: string; framework?: string | null } | undefined;
+      const done = evs.find(e => e.type === 'done') as { card?: Scorecard; durationMs?: number } | undefined;
+      if (!meta?.taskId || !done?.card) continue;
+      out.push({
+        r: {
+          taskId: meta.taskId, framework: meta.framework ?? null, card: done.card, error: null,
+          durationMs: typeof done.durationMs === 'number' ? done.durationMs : 0, restored: true,
+        },
+        mtime: statSync(path.join(saveDir, f)).mtimeMs,
+      });
+    } catch { /* 单文件损坏跳过，不炸回载 */ }
+  }
+  return out.sort((a, b) => b.mtime - a.mtime).map(x => x.r);
 }
 
 export interface ScoreTuiProps {
@@ -62,7 +93,7 @@ export interface ScoreTuiProps {
   concurrency?: number;
   timeoutMs?: number;
   workdir?: string;
-  /** jsonl 保存目录（缺省当前目录） */
+  /** jsonl 保存目录（缺省 ~/.context-insight/score-results，重开可回看历史） */
   saveDir?: string;
 }
 
@@ -334,7 +365,9 @@ export function ScoreTui(props: ScoreTuiProps) {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [queue, setQueue] = useState<Array<{ id: string; framework: string | null; filePath: string; source: string }>>([]);
   const [events, setEvents] = useState<ScoreEvent[]>([]);
-  const [results, setResults] = useState<BatchResult[]>([]);
+  const saveDir = props.saveDir ?? defaultSaveDir();
+  // 重开回看：启动即载入历史落盘结果（②已完成区 ↺ 行，Enter 可载入评分卡）
+  const [results, setResults] = useState<BatchResult[]>(() => loadSavedResults(saveDir));
   const [savedTo, setSavedTo] = useState<string | null>(null);
   const [jumpUrl, setJumpUrl] = useState<string | null>(null);
   const dirInputRef = useRef('');
@@ -439,7 +472,8 @@ export function ScoreTui(props: ScoreTuiProps) {
     if (chosen.length === 0) return;
     setQueue(chosen);
     setRunPhase('running');
-    setResults([]);
+    // 历史保留：只摘除本轮重评的会话（完成后新结果补位），其余 ↺ 历史行不动
+    setResults(prev => prev.filter(r => !chosen.some(c => c.id === r.taskId)));
     setEvents([]);
     setSavedTo(null);
     setDetailIdx(null);
@@ -452,6 +486,7 @@ export function ScoreTui(props: ScoreTuiProps) {
     if (runPhase !== 'running' || queue.length === 0) return;
     let alive = true;
     const tool = tools[toolIdx];
+    const queueIds = new Set(queue.map(q => q.id));
     (async () => {
       const collected: ScoreEvent[] = [];
       const outcomes: BatchResult[] = [];
@@ -463,6 +498,7 @@ export function ScoreTui(props: ScoreTuiProps) {
         setPhase('rule');
         setProgress(null);
         const t0 = Date.now();
+        const sessionStart = collected.length; // 本会话事件切片起点（默认落盘用）
         try {
           let fw = item.framework ?? undefined;
           if (item.filePath) {
@@ -481,11 +517,19 @@ export function ScoreTui(props: ScoreTuiProps) {
           );
           const done = collected.slice().reverse().find(e => e.type === 'done') as { card?: Scorecard } | undefined;
           const errEv = collected.slice().reverse().find(e => e.type === 'error') as { message?: string } | undefined;
-          outcomes.push({ taskId: item.id, framework: fw ?? null, card: code === 0 && done?.card ? done.card : null, error: code !== 0 ? (errEv?.message ?? '评分失败') : null, durationMs: Date.now() - t0 });
+          const outcome: BatchResult = { taskId: item.id, framework: fw ?? null, card: code === 0 && done?.card ? done.card : null, error: code !== 0 ? (errEv?.message ?? '评分失败') : null, durationMs: Date.now() - t0 };
+          outcomes.push(outcome);
+          // 默认落盘：出卡即写 <taskId>.score.jsonl（重开可回看；失败不写，保留上次历史）
+          if (outcome.card) {
+            try {
+              mkdirSync(saveDir, { recursive: true });
+              writeFileSync(scoreFileOf(saveDir, item.id), collected.slice(sessionStart).map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+            } catch { /* 落盘失败不影响评分流程 */ }
+          }
         } catch (err) {
           outcomes.push({ taskId: item.id, framework: item.framework ?? null, card: null, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - t0 });
         }
-        setResults([...outcomes]);
+        setResults(prev => [...prev.filter(r => !queueIds.has(r.taskId)), ...outcomes]);
       }
       if (!alive) return;
       setRunPhase('done');
@@ -497,13 +541,12 @@ export function ScoreTui(props: ScoreTuiProps) {
   const saveJsonl = useCallback(() => {
     if (!events.length) return;
     const name = events.filter(e => e.type === 'meta').length > 1
-      ? 'score-batch.jsonl'
-      : `${String((events[0] as { taskId?: string })?.taskId ?? 'score').replace(/[^\w.-]/g, '_')}.score.jsonl`;
-    const file = path.join(props.saveDir ?? process.cwd(), name);
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
-    setSavedTo(file);
-  }, [events, props.saveDir]);
+      ? path.join(saveDir, 'score-batch.jsonl')
+      : scoreFileOf(saveDir, String((events[0] as { taskId?: string })?.taskId ?? 'score'));
+    mkdirSync(path.dirname(name), { recursive: true });
+    writeFileSync(name, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+    setSavedTo(name);
+  }, [events, saveDir]);
 
   const jump = useCallback(() => {
     const one = detailIdx != null && results[detailIdx]
@@ -732,7 +775,7 @@ export function ScoreTui(props: ScoreTuiProps) {
   const rBox = (title: string, color: string, children: FrameRow[]): React.ReactNode[] =>
     drawFrame(title, color, children, rightInnerW, `rsec-${title}`);
 
-  if (runPhase === 'idle') {
+  if (runPhase === 'idle' && results.length === 0) {
     const pvNodes: FrameRow[] = [];
     const preview = sourceMode === 'db'
       ? sessions.filter(s => dbSelected.has(sessionKey(s)))
@@ -769,6 +812,8 @@ export function ScoreTui(props: ScoreTuiProps) {
       if (queue.length - batchIndex - 1 > 4) {
         qNodes.push(`- ..共剩 ${queue.length - batchIndex - 1} 个`);
       }
+    } else if (runPhase === 'idle') {
+      qNodes.push('待评分 · 左栏勾选/选会话后 [Enter] 开始');
     } else {
       qNodes.push('— 队列已完成 —');
     }
@@ -782,8 +827,8 @@ export function ScoreTui(props: ScoreTuiProps) {
         const sel = focus === 'right' && rightSub === 'list' && i === rightSel;
         const loaded = detailIdx === i;
         const score = r.card?.framework.totalScore;
-        const mark = loaded ? '▤' : r.error ? '✗' : r.card?.framework.veto?.triggered ? '⛔' : '✓';
-        const markColor = r.error || r.card?.framework.veto?.triggered ? 'red' : 'green';
+        const mark = loaded ? '▤' : r.restored ? '↺' : r.error ? '✗' : r.card?.framework.veto?.triggered ? '⛔' : '✓';
+        const markColor = r.restored && !loaded ? 'gray' : r.error || r.card?.framework.veto?.triggered ? 'red' : 'green';
         const idW = Math.max(12, rightInnerW - 18);
         const plain = `${sel ? '❯' : ' '}${mark} ${truncV(r.taskId, idW)} ${r.error ? truncV(r.error, Math.max(8, rightInnerW - 40)) : score != null ? `${(score * 10).toFixed(1)}` : ''}`;
         const tail = r.error != null
@@ -826,7 +871,7 @@ export function ScoreTui(props: ScoreTuiProps) {
 
     // 三分区盒渲染（活动子块青色；待评分运行中黄色）
     rightLines.push(...rBox(runPhase === 'running'
-      ? `待评分（${batchIndex + 1}/${queue.length}）` : '待评分（完成）',
+      ? `待评分（${batchIndex + 1}/${queue.length}）` : runPhase === 'idle' ? '待评分' : '待评分（完成）',
       runPhase === 'running' ? 'yellow' : 'gray', qNodes));
     rightLines.push(...rBox(results.length > 0
       ? `已完成（${results.filter(r => r.card).length}/${results.length}）` : '已完成',

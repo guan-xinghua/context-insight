@@ -78,7 +78,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  await prisma.session.deleteMany({ where: { taskId: { in: [SID, `${SID}-a`, `${SID}-b`] } } }).catch(() => {});
+  await prisma.session.deleteMany({ where: { taskId: { in: [SID, `${SID}-a`, `${SID}-b`, `${SID}-p`] } } }).catch(() => {});
   await prisma.$disconnect();
   for (const [k, v] of Object.entries(OLD_ENV)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
@@ -126,7 +126,9 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     await vi.waitFor(() => expect(plain()).toContain('⏳'), { timeout: 20_000 });
     // 完成：①队列显示已完成，②有结果行（评分卡③为手动载入）
     await vi.waitFor(() => expect(plain()).toContain('队列已完成'), { timeout: 150_000 });
-    await vi.waitFor(() => expect(plain()).toContain('1/1'), { timeout: 10_000 }); // ②列表头（成功/总数）
+    await vi.waitFor(() => expect(plain()).toContain('1/1'), { timeout: 10_000 }); // ②列表头（成功/总分）
+    // 默认落盘：完成即写 <taskId>.score.jsonl（未按 [b] 先存在）
+    await vi.waitFor(() => expect(fs.existsSync(path.join(TMP, 'save', `${SID}.score.jsonl`))).toBe(true), { timeout: 10_000 });
     // ②中 Enter 载入③评分卡（帧渲染在测试环境有伪影，评分卡内容走文件断言）
     tui.pressEnter();
     await new Promise(r => setTimeout(r, 100));
@@ -184,6 +186,9 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     tui.pressEnter();
     await vi.waitFor(() => expect(plain()).toContain('队列已完成'), { timeout: 200_000 });
     await new Promise(r => setTimeout(r, 200));
+    // 批量默认落盘：每个会话各自写 <taskId>.score.jsonl（含卡可回载）
+    await vi.waitFor(() => expect(fs.existsSync(path.join(TMP, 'save', `${SID}-a.score.jsonl`))).toBe(true), { timeout: 10_000 });
+    expect(fs.existsSync(path.join(TMP, 'save', `${SID}-b.score.jsonl`))).toBe(true);
     // [b] 批量事件流：两个会话的 meta/done 各就位（帧断言在测试环境有伪影，走文件）
     tui.pressKey('b');
     const batchFile = path.join(TMP, 'save', 'score-batch.jsonl');
@@ -195,5 +200,44 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
 
     tui.unmount();
     await prisma.session.deleteMany({ where: { taskId: { in: [`${SID}-a`, `${SID}-b`] } } });
+  });
+
+  it('结果持久化：完成即默认落盘 → 重开 TUI 回载历史（↺ 行 → Enter 评分卡 → [o] 带 framework）', { timeout: 240_000 }, async () => {
+    const sid = `${SID}-p`;
+    const saveP = path.join(TMP, 'save-p');
+    fs.rmSync(saveP, { recursive: true, force: true });
+    const fixture = path.join(TMP, `${sid}.jsonl`);
+    fs.writeFileSync(fixture, LINES.map(l => JSON.stringify(l)).join('\n') + '\n');
+    await importSession(fixture, sid, prisma, fixture, 'claude-jsonl');
+
+    // 第一次：评分 → 自动落盘
+    const t1 = renderTui(<ScoreTui saveDir={saveP} workdir={path.join(TMP, 'work3')} />);
+    const p1 = () => t1.getPlainText();
+    await vi.waitFor(() => expect(p1()).toContain('本机库已导入会话'), { timeout: 20_000 });
+    expect(await moveCursorTo(t1, p1, sid)).toBe(true);
+    t1.pressEnter();
+    await new Promise(r => setTimeout(r, 300));
+    expect(await moveCursorTo(t1, p1, '开始评分')).toBe(true);
+    t1.pressEnter();
+    await vi.waitFor(() => expect(p1()).toContain('队列已完成'), { timeout: 200_000 });
+    await vi.waitFor(() => expect(fs.existsSync(path.join(saveP, `${sid}.score.jsonl`))).toBe(true), { timeout: 10_000 });
+    t1.unmount();
+
+    // 第二次打开：②已完成直接可见 ↺ 历史行（idle 态也呈现三段式）
+    const t2 = renderTui(<ScoreTui saveDir={saveP} workdir={path.join(TMP, 'work4')} />);
+    const p2 = () => t2.getPlainText();
+    await vi.waitFor(() => expect(p2().split('\n').some(l => l.includes('↺') && l.includes(sid))).toBe(true), { timeout: 10_000 });
+    expect(p2()).toContain('已完成（1/1）');
+    // 聚焦右栏 → Enter 载入评分卡 → 总分行可见
+    t2.pressKey('d');
+    await new Promise(r => setTimeout(r, 100));
+    t2.pressEnter();
+    await vi.waitFor(() => expect(p2()).toContain('总分'), { timeout: 10_000 });
+    // [o] 跳转 URL：framework 取自落盘 meta
+    t2.pressKey('o');
+    await vi.waitFor(() => expect(p2()).toContain('framework='), { timeout: 5_000 });
+
+    t2.unmount();
+    await prisma.session.deleteMany({ where: { taskId: sid } });
   });
 });
