@@ -133,8 +133,8 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     await vi.waitFor(() => expect(plain()).toContain('/scoring/'), { timeout: 5_000 });
     expect(plain()).toContain('127.0.0.1');
 
-    // [s] 保存事件流
-    tui.pressKey('s');
+    // [S] 保存事件流（小写 s 已让位给 WASD 下移）
+    tui.pressKey('S');
     await vi.waitFor(() => expect(plain()).toContain('jsonl：'), { timeout: 5_000 });
     const saved = fs.readdirSync(path.join(TMP, 'save'));
     expect(saved.some(f => f.endsWith('.score.jsonl'))).toBe(true);
@@ -168,8 +168,8 @@ describe('Insight Score TUI（左配置 / 右输出）', () => {
     await vi.waitFor(() => expect(plain()).toContain(`${SID}-a`), { timeout: 30_000 });
     expect(plain()).toContain(`${SID}-b`);
 
-    // [a] 全选 → 运行行 → Enter
-    tui.pressKey('a');
+    // [A] 全选 → 运行行 → Enter（小写 a 已让位给 WASD 左栏）
+    tui.pressKey('A');
     await vi.waitFor(() => expect(plain()).toContain('已选 2'), { timeout: 5_000 });
     expect(await moveCursorTo(tui, plain, '开始评分')).toBe(true);
     tui.pressEnter();
