@@ -459,14 +459,16 @@ export function ScoreTui(props: ScoreTuiProps) {
     if (dirFocus || filterFocus) return; // 输入模式由 TextInput 处理
     if (input === 'q' || (key.ctrl && input === 'c')) { exit(); return; }
     if (input === 'o') { jump(); return; }
-    if (input === 'S' && events.length) { saveJsonl(); return; }
-    // WASD 导航（与 ↑↓/Tab 等效；A/D 左右栏）
-    const wasdUD = input === 'w' ? 'up' : input === 's' ? 'down' : null;
-    if (input === 'a' || input === 'd' || key.tab) {
+    if (input === 'b' && events.length) { saveJsonl(); return; }
+    // WASD 导航（不分大小写；与 ↑↓/Tab 等效；A/D 左右栏）。导航优先级最高，
+    // 冲突功能让位：全选 t、保存 b
+    const k = input.toLowerCase();
+    const wasdUD = k === 'w' ? 'up' : k === 's' ? 'down' : null;
+    if (k === 'a' || k === 'd' || key.tab) {
       setFocus(f => {
         const canRight = f === 'left' && (events.length > 0 || results.length > 0);
-        if (input === 'a') return 'left';
-        if (input === 'd') return canRight ? 'right' : f;
+        if (k === 'a') return 'left';
+        if (k === 'd') return canRight ? 'right' : f;
         return canRight ? 'right' : 'left'; // Tab 保持原切换语义
       });
       return;
@@ -500,10 +502,10 @@ export function ScoreTui(props: ScoreTuiProps) {
       rows.forEach((r, i) => { const sec = sectionOf(r); if (sec !== last) { starts.push(i); last = sec; } });
       return starts;
     })();
-    if (input === 'J' || input === 'K') {
+    if (k === 'j' || k === 'k') {
       const curSecIdx = sectionStarts.findIndex((start, i) =>
         cursor >= start && (i === sectionStarts.length - 1 || cursor < sectionStarts[i + 1]));
-      const nextIdx = input === 'J' ? Math.min(sectionStarts.length - 1, curSecIdx + 1) : Math.max(0, curSecIdx - 1);
+      const nextIdx = k === 'j' ? Math.min(sectionStarts.length - 1, curSecIdx + 1) : Math.max(0, curSecIdx - 1);
       if (curSecIdx >= 0 && nextIdx !== curSecIdx) setCursor(sectionStarts[nextIdx]);
       return;
     }
@@ -516,7 +518,7 @@ export function ScoreTui(props: ScoreTuiProps) {
     if (key.upArrow) setCursor(c => Math.max(0, c - 1));
     else if (key.downArrow) setCursor(c => Math.min(rows.length - 1, c + 1));
     else if (input === '/') { setFilterText(''); setFilterFocus(true); return; }
-    else if (input === 'A') {
+    else if (input === 't') {
       const setter = sourceMode === 'db' ? setDbSelected : setDirSelected;
       setter(prev => prev.size === activeSessions.length ? new Set() : new Set(activeSessions.map(sessionKey)));
       return;
@@ -628,7 +630,7 @@ export function ScoreTui(props: ScoreTuiProps) {
   } else if (activeSessions.length === 0 && (sourceMode === 'db' ? !loadingSessions : true)) {
     leftLines.push(<Text key={leftLines.length} color="gray">  {filterText ? '无匹配（Esc 清除过滤）' : sourceMode === 'db' ? '本机库暂无会话' : '目录内未发现会话'}</Text>);
   }
-  leftLines.push(<Text key={leftLines.length} color="gray">  [Space] 勾选 · [A] 全选 · [/] 过滤</Text>);
+  leftLines.push(<Text key={leftLines.length} color="gray">  [Space] 勾选 · [t] 全选/清空 · [/] 过滤</Text>);
 
   leftLines.push(sect('Agent 工具'));
   tools.forEach(t => {
@@ -710,8 +712,8 @@ export function ScoreTui(props: ScoreTuiProps) {
   const rightWin = rightLines.slice(rightScroll, rightScroll + rightH);
 
   const keybar = focus === 'right'
-    ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A 或 Tab] 回配置 · [S] 保存 · [o] 页面 · [q] 退出'
-    : '[W/S 或 ↑↓] 移动 · [J/K] 分区跳转 · [Space] 勾选 · [A] 全选 · [/] 过滤 · [Enter] 激活 · [D 或 Tab] 看结果 · [S] 保存 · [o] 页面 · [q] 退出';
+    ? '[W/S 或 ↑↓] 滚动/选择 · [Enter] 详情/返回 · [A 或 Tab] 回配置 · [b] 保存 · [o] 页面 · [q] 退出'
+    : '[W/S 或 ↑↓] 移动 · [J/K] 分区跳转 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [D 或 Tab] 看结果 · [b] 保存 · [o] 页面 · [q] 退出';
 
   // 顶栏单行：左段按剩余宽度截断，中段空隙按 termW 精确计算——任何终端宽度下都完整
   const leftTitle = `${LOGO_LINE}  Insight Score`;
