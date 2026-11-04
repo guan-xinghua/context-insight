@@ -83,6 +83,20 @@ describe('opencode v2 schema 嗅探', () => {
 });
 
 describe('opencode v2 listSessions', () => {
+  it('目录容错：传数据根目录（含 opencode.db）与直接传库文件同结果', () => {
+    const viaDir = listSessions(TMP);
+    expect(viaDir.map(s => s.id)).toEqual(v2Sessions.map(s => s.id));
+  });
+
+  it('目录容错：目录内无 opencode.db → 空结果不抛错', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-empty-'));
+    try {
+      expect(listSessions(empty)).toEqual([]);
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
   it('顶层会话两条（子代理被 parent_id 过滤），按活跃度排序', () => {
     expect(v2Sessions.map(s => s.id)).toEqual([FAIL_ID, MAIN_ID]);
   });

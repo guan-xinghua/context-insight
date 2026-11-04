@@ -134,7 +134,7 @@ function quickDirs(): Array<{ label: string; dir: string }> {
   const candidates = [
     { label: '手动输入路径…', dir: '' },
     { label: 'Claude Code', dir: path.join(home, '.claude', 'projects') },
-    { label: 'opencode', dir: path.join(home, '.config', 'opencode') },
+    { label: 'opencode', dir: path.join(home, '.local', 'share', 'opencode') }, // 数据根（opencode.db 所在；.config 只有配置）
     { label: 'Codex', dir: path.join(home, '.codex', 'sessions') },
     { label: '用户主目录', dir: home },
     { label: '当前目录', dir: process.cwd() },

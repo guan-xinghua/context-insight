@@ -7,6 +7,8 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import Database from 'better-sqlite3';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { peekSqliteTables } from '../sqlite-detect';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
 import { normalizeToolResultPayload } from '../../tool-conventions';
@@ -101,9 +103,17 @@ export function opencodeReaderGeneration(db: Database.Database, sessionId: strin
 }
 
 export function listSessions(dbPath: string): SessionListItem[] {
+  // 目录容错：opencode 数据根目录（~/.local/share/opencode）直接可扫——库文件
+  // 固定名 opencode.db；此前传目录必然空结果（TUI 快捷目录/伞形目录扫描踩坑）
+  let target = dbPath;
+  try {
+    if (statSync(dbPath).isDirectory()) target = path.join(dbPath, 'opencode.db');
+  } catch {
+    return [];
+  }
   let db: Database.Database | null = null;
   try {
-    db = new Database(dbPath, { readonly: true });
+    db = new Database(target, { readonly: true });
   } catch {
     return [];
   }

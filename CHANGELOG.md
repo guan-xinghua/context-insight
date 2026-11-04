@@ -9,6 +9,7 @@
 - 【评分 TUI 重写（pi-tui 渲染）】Score TUI 从 Ink 迁到 `@earendil-works/pi-tui`（`render(width)→string[]` 行契约 + 差分渲染，全屏备用屏、退出恢复主屏并回显最终画面）：Agent 工具区 **Enter/Space 可选**（claude/opencode 切换）；评分卡分数列**右锚定对齐**（总分行与各维度行的条形图与分数固定同列，不再随前缀宽度参差）；交互与布局不变
 
 ### Fixed
+- 【opencode 目录扫描空结果】opencode 快捷目录误指配置目录（`~/.config/opencode`，只有配置文件），改为数据根 `~/.local/share/opencode`；`opencode-db` 适配器 `listSessions` 增加目录容错（传目录自动定位库文件 `opencode.db`）——此前任何调用方传目录必然 0 会话（TUI 目录扫描 / API 伞形 sqlite 族目录扫描）
 - 【Turns 角色筛选对子代理失效】Turns 时间线左上角的角色筛选此前只过滤主链轮次，子代理泳道内的轮次（如 `<total_tokens>` system 轮）不跟着过滤——选了 assistant 仍混着子代理的 system 轮；现泳道内轮次（含嵌套子代理）跟着筛选隐藏不匹配轮次，筛选时泳道与并行组（chip 与组头汇总）计数显示「可见/总数」（如 1/3 turns；主链专属的 command/compact 等增强角色不会匹配子代理轮次，选中即如实显示 0/N）。筛选角标的计数也改为「筛选后会看到的行数」口径（主链 + 子代理）——此前只数主链，「user (1)」贴在几十行 user 的列表上像没认出子代理的 user；派发锚点轮被滤掉时降级为占位行保住泳道（不再整组消失），选 user 也能看到子代理的任务提示等 user 轮
 
 ## [0.2.41] - 2026-10-27
