@@ -10,6 +10,7 @@
 // 组件契约 render(width)→string[]：行宽/行数违规在契约层暴露；宽度测量 ANSI 感知。
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { matchesKey, visibleWidth, type Component } from '@earendil-works/pi-tui';
@@ -295,6 +296,7 @@ export class ScoreApp implements Component {
   private results: BatchResult[];
   private savedTo: string | null = null;
   private jumpUrl: string | null = null;
+  private jumpNote: string | null = null; // 跳转附注（服务未启动等）
   private cardMax = 0;
 
   constructor(opts: ScoreAppOptions) {
@@ -531,7 +533,30 @@ export class ScoreApp implements Component {
     if (!taskId) return;
     const url = `http://127.0.0.1:${insightPort()}/scoring/${encodeURIComponent(taskId)}${fw ? `?framework=${encodeURIComponent(fw)}` : ''}`;
     this.jumpUrl = url;
-    openInBrowser(url);
+    this.jumpNote = null;
+    this.rq();
+    // 先探测 insight 服务端口再开浏览器：TUI 不启服务（独立执行定位），服务没跑
+    // 就不开死链——只回显 URL + 提示
+    let settled = false;
+    const fail = (): void => {
+      if (settled) return;
+      settled = true;
+      this.jumpNote = 'insight 服务未启动 · ./start.sh 后可跳转';
+      this.rq();
+    };
+    try {
+      const probe = net.connect({ host: '127.0.0.1', port: Number(insightPort()) });
+      probe.setTimeout(400);
+      probe.on('connect', () => {
+        if (settled) { probe.destroy(); return; }
+        settled = true;
+        probe.destroy();
+        openInBrowser(url);
+        this.rq();
+      });
+      probe.on('timeout', () => { probe.destroy(); fail(); });
+      probe.on('error', () => fail());
+    } catch { fail(); }
   }
 
   // ── 键盘 ───────────────────────────────────────────────────────────────────
@@ -675,7 +700,7 @@ export class ScoreApp implements Component {
     const shownFile = this.detailIdx != null && this.results[this.detailIdx]
       ? scoreFileOf(this.saveDir, this.results[this.detailIdx].taskId)
       : this.savedTo;
-    out.push(truncW(gray([shownFile ? `jsonl：${shownFile}` : null, this.jumpUrl ? `↗ ${this.jumpUrl}` : null]
+    out.push(truncW(gray([shownFile ? `jsonl：${shownFile}` : null, this.jumpUrl ? `↗ ${this.jumpUrl}${this.jumpNote ? gray(` · ${this.jumpNote}`) : ''}` : null]
       .filter(Boolean).join(' · ') || ' '), termW));
     return out;
   }
