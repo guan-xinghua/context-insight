@@ -308,6 +308,23 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     }
   });
 
+  it('③↔② 行级跨界：卡内滚到顶再 ↑ 回列表（❯ 复现），列表末行再 ↓ 进卡', { timeout: 60_000 }, async () => {
+    const app = mkApp(path.join(TMP, 'save-p'), path.join(TMP, 'work-bd'));
+    await vi.waitFor(() => expect(plainOf(app).split('\n').some(l => l.includes('↺'))), { timeout: 10_000 });
+    app.handleInput('d');
+    app.handleInput('\r');
+    await vi.waitFor(() => expect(plainOf(app)).toContain('总分'), { timeout: 5_000 });
+    // 卡模式下 ②列表无 ❯（选中标记只在列表态出现）
+    expect(plainOf(app).split('\n').some(l => l.includes('❯') && /[↺▤]/.test(l))).toBe(false);
+    // ↑（scroll=0）→ 回②列表：❯ 出现在结果行上
+    app.handleInput('\x1b[A');
+    await vi.waitFor(() => expect(plainOf(app).split('\n').some(l => l.includes('❯') && /[↺▤]/.test(l))).toBe(true), { timeout: 5_000 });
+    // 末行再 ↓ → 回③卡：❯ 消失、总分仍在
+    app.handleInput('\x1b[B');
+    await vi.waitFor(() => expect(plainOf(app).split('\n').some(l => l.includes('❯') && /[↺▤]/.test(l))).toBe(false), { timeout: 5_000 });
+    expect(plainOf(app)).toContain('总分');
+  });
+
   it('窄终端不越框：任意宽度零超宽、零断裂 SGR（截断不落在色码内部）', { timeout: 60_000 }, async () => {
     const saveP = path.join(TMP, 'save-p');
     const app = mkApp(saveP, path.join(TMP, 'work6'));

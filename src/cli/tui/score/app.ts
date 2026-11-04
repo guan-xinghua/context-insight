@@ -617,12 +617,25 @@ export class ScoreApp implements Component {
     if (this.focus === 'right') {
       if (this.rightSub === 'card' && this.detailIdx != null) {
         if (matchesKey(data, 'enter')) { this.rightSub = 'list'; this.rq(); return; }
-        if (matchesKey(data, 'up')) { this.cardScroll = Math.max(0, this.cardScroll - 1); this.rq(); return; }
+        if (matchesKey(data, 'up')) {
+          // 滚到顶再 ↑ → 回②列表（行级跨界续走，与左栏同则）
+          if (this.cardScroll > 0) this.cardScroll -= 1;
+          else this.rightSub = 'list';
+          this.rq(); return;
+        }
         if (matchesKey(data, 'down')) { this.cardScroll = Math.min(this.cardMax, this.cardScroll + 1); this.rq(); return; }
         return;
       }
       if (matchesKey(data, 'up')) { this.rightSel = Math.max(0, this.rightSel - 1); this.rq(); return; }
-      if (matchesKey(data, 'down')) { this.rightSel = Math.min(Math.max(0, this.results.length - 1), this.rightSel + 1); this.rq(); return; }
+      if (matchesKey(data, 'down')) {
+        // ②选到末行再 ↓ → 进③已载入的评分卡（对称跨界）
+        if (this.results.length > 0 && this.rightSel >= this.results.length - 1 && this.detailIdx != null) {
+          this.rightSub = 'card';
+        } else {
+          this.rightSel = Math.min(Math.max(0, this.results.length - 1), this.rightSel + 1);
+        }
+        this.rq(); return;
+      }
       if (matchesKey(data, 'enter') && this.results[this.rightSel]?.card) {
         this.detailIdx = this.rightSel; this.cardScroll = 0; this.rightSub = 'card';
       }
