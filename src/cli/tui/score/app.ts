@@ -117,9 +117,18 @@ function fmtCost(cost: number): string {
 
 
 /** 双色条：分数色填充 + 品红余量（宽 width 格）*/
+/** 分段竖棒条（仪表盘样式）：▮ 填充 / ▯ 余量，段间留空隙——连续半块条上下行粘连 */
+function barSegments(segs: number, isFilled: (i: number) => boolean, fillColor: (s: string) => string): string {
+  const parts: string[] = [];
+  for (let i = 0; i < segs; i++) {
+    parts.push(isFilled(i) ? fillColor('▮') : magenta('▯'));
+    if (i < segs - 1) parts.push(' ');
+  }
+  return parts.join('');
+}
 function bar(score: number, width: number): string {
-  const filled = Math.max(0, Math.min(width, Math.round(score * width)));
-  return scoreColor(score)('▌'.repeat(filled)) + magenta('▏'.repeat(width - filled));
+  const segs = Math.max(3, Math.floor((width + 1) / 2)); // 段+空隙 ≤ width 格
+  return barSegments(segs, i => i < Math.round(score * segs), scoreColor(score));
 }
 
 // ── 结果持久化：默认落盘 + 重开回载 ──────────────────────────────────────────
@@ -954,20 +963,23 @@ export class ScoreApp implements Component {
       if (this.phase === 'mate' && this.progress) {
         qRows.push(`[${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, Math.max(6, w - 18))} · ${elapsed}s`);
         const fill = this.progress.total > 0 ? Math.min(barW, Math.round((this.progress.done / this.progress.total) * barW)) : 0;
-        qRows.push(green('▌'.repeat(fill)) + magenta('▏'.repeat(barW - fill)));
+        qRows.push(barSegments(Math.max(6, Math.floor((barW + 1) / 2)), i => i < Math.round((this.progress!.done / Math.max(1, this.progress!.total)) * Math.max(6, Math.floor((barW + 1) / 2))), green));
       } else {
         qRows.push(gray(`规则层计算中… ${elapsed}s`));
         // 不确定进度活动条：规则层无里程碑事件，滑段随每秒走钟移动（活度反馈）
-        const seg = Math.max(4, Math.floor(barW / 6));
-        const pos = elapsed % Math.max(1, barW - seg);
-        qRows.push(' '.repeat(pos) + green('▌'.repeat(seg)) + magenta('▏'.repeat(barW - seg - pos)));
+        const segs = Math.max(6, Math.floor((barW + 1) / 2));
+        const run = Math.max(2, Math.floor(segs / 6));
+        const pos = elapsed % Math.max(1, segs - run);
+        qRows.push(barSegments(segs, i => i >= pos && i < pos + run, green));
       }
       if (this.queue.length > 1) {
         // 队列总进度：已完成会话数 + 当前会话内进度 折算
         const innerFrac = this.phase === 'mate' && this.progress && this.progress.total > 0 ? this.progress.done / this.progress.total : 0;
         const overall = Math.min(1, (this.batchIndex + innerFrac) / this.queue.length);
         const fill = Math.round(overall * barW);
-        qRows.push(gray(`队列 ${Math.min(this.batchIndex + 1, this.queue.length)}/${this.queue.length} `) + green('▌'.repeat(fill)) + magenta('▏'.repeat(barW - fill)));
+        const qsegs = Math.max(6, Math.floor((barW + 1) / 2));
+        qRows.push(gray(`队列 ${Math.min(this.batchIndex + 1, this.queue.length)}/${this.queue.length} `)
+          + barSegments(qsegs, i => i < Math.round(overall * qsegs), green));
       }
       const pendSlots = Math.max(0, qBoxH - 2 - 4 - (this.queue.length > 1 ? 1 : 0)); // 预留 id/状态/条/队列条/计数
       this.queue.slice(this.batchIndex + 1, this.batchIndex + 1 + pendSlots).forEach(item => {
