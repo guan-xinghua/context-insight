@@ -251,6 +251,8 @@ export class ScoreApp implements Component {
   private phase: 'rule' | 'mate' = 'rule';
   private progress: { done: number; total: number; current: string } | null = null;
   private batchIndex = 0;
+  private sessionT0: number | null = null; // 当前会话起点（①区已用秒数）
+  private livenessTimer: ReturnType<typeof setInterval> | null = null; // 每秒重绘（走钟）
   private currentId: string | null = null;
   private queue: QueueItem[] = [];
   private results: BatchResult[];
@@ -395,6 +397,7 @@ export class ScoreApp implements Component {
     if (chosen.length === 0) return;
     this.queue = chosen;
     this.runPhase = 'running';
+    this.startLiveness();
     // 历史保留：只摘除本轮重评的会话（完成后新结果补位），其余 ↺ 历史行不动
     const chosenIds = new Set(chosen.map(c => c.id));
     this.results = this.results.filter(r => !chosenIds.has(r.taskId));
@@ -421,6 +424,7 @@ export class ScoreApp implements Component {
       this.progress = null;
       this.rq();
       const t0 = Date.now();
+      this.sessionT0 = t0;
       const sessionStart = collected.length;
       try {
         let fw = item.framework ?? undefined;
@@ -465,7 +469,17 @@ export class ScoreApp implements Component {
       this.rq();
     }
     this.runPhase = 'done';
+    this.stopLiveness();
     this.rq();
+  }
+
+  /** 每秒重绘：规则层长耗时无事件时段，①区已用秒数持续走动 */
+  private startLiveness(): void {
+    this.stopLiveness();
+    this.livenessTimer = setInterval(() => this.rq(), 1000);
+  }
+  private stopLiveness(): void {
+    if (this.livenessTimer) { clearInterval(this.livenessTimer); this.livenessTimer = null; }
   }
 
   private jump(): void {
@@ -740,7 +754,7 @@ export class ScoreApp implements Component {
       return frame('预览', false, pv, contentH);
     }
 
-    let qBoxH = 7, dBoxH = 8;
+    let qBoxH = 8, dBoxH = 8;
     let cBoxH = contentH - qBoxH - dBoxH;
     if (cBoxH < 6) {
       cBoxH = Math.max(4, Math.floor(contentH * 0.4));
@@ -749,20 +763,21 @@ export class ScoreApp implements Component {
       qBoxH = Math.max(3, rest - dBoxH);
     }
 
-    // ① 待评分
+    // ① 待评分：当前会话 id 独占一行（完整显示），状态/进度独立成行不被挤掉
     const qRows: string[] = [];
     if (this.runPhase === 'running') {
       const curId = this.queue[this.batchIndex]?.id ?? this.currentId ?? '';
-      const progTxt = this.phase === 'mate' && this.progress
-        ? ` [${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, 12)}`
-        : this.phase === 'rule' ? ' 规则层…' : '';
-      qRows.push(yellow(`⏳ ${truncV(curId, Math.max(10, w - 26))}${progTxt}`));
+      const elapsed = this.sessionT0 ? Math.floor((Date.now() - this.sessionT0) / 1000) : 0;
+      qRows.push(yellow(`⏳ ${truncV(curId, Math.max(10, w - 6))}`));
       if (this.phase === 'mate' && this.progress) {
+        qRows.push(`[${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, Math.max(6, w - 12))}`);
         const barW = Math.max(12, w - 4);
         const fill = this.progress.total > 0 ? Math.min(barW, Math.round((this.progress.done / this.progress.total) * barW)) : 0;
         qRows.push(green('█'.repeat(fill)) + magenta('░'.repeat(barW - fill)));
+      } else {
+        qRows.push(gray(`规则层计算中… ${elapsed}s`)); // 长会话规则层耗时段的活度反馈
       }
-      const pendSlots = Math.max(0, qBoxH - 2 - 3);
+      const pendSlots = Math.max(0, qBoxH - 2 - 4); // 预留 id/状态/条/计数
       this.queue.slice(this.batchIndex + 1, this.batchIndex + 1 + pendSlots).forEach(item => {
         qRows.push(`- ${truncV(item.id, w - 6)}`);
       });
