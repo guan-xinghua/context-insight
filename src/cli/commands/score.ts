@@ -271,7 +271,7 @@ export function scoreCommand(): Command {
     .option('--tui', 'Force the interactive TUI even when --session is given')
     .action(async (opts: ScoreCliOptions & { tui?: boolean }) => {
       if (scoreMode(opts) === 'tui') {
-        const { runScoreTui } = await import('../tui/screens/ScoreTui');
+        const { runScoreTui } = await import('../tui/score/run');
         process.exitCode = await runScoreTui({
           initialSession: opts.session ? { taskId: opts.session, framework: opts.framework ?? null } : undefined,
           concurrency: opts.concurrency ? +opts.concurrency : undefined,

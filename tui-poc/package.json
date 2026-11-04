@@ -10,5 +10,8 @@
     "@earendil-works/pi-tui": "^1.5.0",
     "tsx": "^4.23.15",
     "vitest": "^5.1.0"
+  },
+  "devDependencies": {
+    "@xterm/headless": "^6.0.0"
   }
 }
