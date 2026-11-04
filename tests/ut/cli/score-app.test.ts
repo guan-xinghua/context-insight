@@ -273,18 +273,18 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     await vi.waitFor(() => expect(plainOf(app)).toContain('总分'), { timeout: 5_000 });
     const lines = plainOf(app).split('\n');
     // 评分卡行（总分 + 维度 D*）：分数区右锚定 → 最后一个 ░ 后同列
-    const cardLines = lines.filter(l => /│\s*(总分|D\d)/.test(l) && l.includes('▮'));
+    const cardLines = lines.filter(l => /│\s*(总分|D\d)/.test(l) && l.includes('▎'));
     expect(cardLines.length).toBeGreaterThanOrEqual(2);
     // 单元格列（终端真实列）：CJK 头宽度不同时字符列会差 1，单元格列才是对齐口径
     const barEndCell = (l: string): number => {
       let col = 0, last = -1;
-      for (const ch of l) { if (ch === '▮' || ch === '▯') last = col; col += visibleWidth(ch); }
+      for (const ch of l) { if (ch === '▎' || ch === '┊') last = col; col += visibleWidth(ch); }
       return last;
     };
     const cols = cardLines.map(barEndCell);
     expect(new Set(cols).size).toBe(1);
     // ②已完成行：分数紧跟 10 格条 → 同口径存在
-    const listLines = lines.filter(l => /[✓↺▤]/.test(l) && l.includes('▯'));
+    const listLines = lines.filter(l => /[✓↺▤]/.test(l) && l.includes('┊'));
     expect(listLines.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -325,12 +325,12 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     // 窄宽下分数列仍对齐（条宽自适应收缩，分数列固定）
     const cellCol = (l: string): number => {
       let col = 0, last = -1;
-      for (const ch of strip(l)) { if (ch === '▮' || ch === '▯') last = col; col += visibleWidth(ch); }
+      for (const ch of strip(l)) { if (ch === '▎' || ch === '┊') last = col; col += visibleWidth(ch); }
       return last;
     };
     for (const w of [90, 120]) {
       const cols = new Set(app.render(w)
-        .filter(l => /(总分|D\d)/.test(strip(l)) && strip(l).includes('▮'))
+        .filter(l => /(总分|D\d)/.test(strip(l)) && strip(l).includes('▎'))
         .map(cellCol));
       expect(cols.size).toBe(1);
     }

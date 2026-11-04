@@ -117,11 +117,11 @@ function fmtCost(cost: number): string {
 
 
 /** 双色条：分数色填充 + 品红余量（宽 width 格）*/
-/** 分段竖棒条（仪表盘样式）：▮ 填充 / ▯ 余量，段间留空隙——连续半块条上下行粘连 */
+/** 分段竖棒条（仪表盘样式）：▎ 细棒填充 / ┊ 虚线余量，段间留隙——细长不粘连 */
 function barSegments(segs: number, isFilled: (i: number) => boolean, fillColor: (s: string) => string): string {
   const parts: string[] = [];
   for (let i = 0; i < segs; i++) {
-    parts.push(isFilled(i) ? fillColor('▮') : magenta('▯'));
+    parts.push(isFilled(i) ? fillColor('▎') : magenta('┊'));
     if (i < segs - 1) parts.push(' ');
   }
   return parts.join('');
@@ -1016,10 +1016,10 @@ export class ScoreApp implements Component {
         const score = r.card?.framework.totalScore;
         const mark = loaded ? '▤' : r.restored ? '↺' : r.error ? '✗' : r.card?.framework.veto?.triggered ? '⛔' : '✓';
         const markColor = r.restored && !loaded ? gray : r.error || r.card?.framework.veto?.triggered ? red : green;
-        const idW = Math.max(12, w - 30);
+        const idW = Math.max(12, w - 36);
         const tail = r.error != null
           ? red(truncV(r.error, Math.max(8, w - idW - 22)))
-          : score != null ? `${bar(score, 10)} ${scoreColor(score)((score * 10).toFixed(1).padStart(4))}`
+          : score != null ? `${bar(score, 15)} ${scoreColor(score)((score * 10).toFixed(1).padStart(4))}`
           : '';
         dRowsArr.push(`${sel ? '❯ ' : '  '}${markColor(mark)} ${padEndV(truncV(r.taskId, idW), idW)} ${tail}`);
       });
@@ -1087,7 +1087,7 @@ export class ScoreApp implements Component {
     const scoreStart = inner - 16;
     const barSpace = scoreStart - 1 - headW; // 头之后到条区的可用宽（条 + 间隔）
     if (barSpace - 1 >= 4) {
-      const barW = Math.min(16, barSpace - 1);
+      const barW = Math.min(26, barSpace - 1);
       const barStart = scoreStart - 1 - barW;
       return `${prefix}${' '.repeat(Math.max(0, barStart - headW))}${bar(score, barW)} ${s}${tail}`;
     }
