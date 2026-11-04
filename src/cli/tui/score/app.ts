@@ -785,7 +785,7 @@ export class ScoreApp implements Component {
       rest = rest.slice(cut);
       if (i === 2 && rest) rows[rows.length - 1] = truncV(line + '…', Math.max(8, w - 8));
     }
-    rows.push(gray('─'.repeat(Math.max(8, w - 8))));
+    rows.push(''); // 首问与详情间以空行分区（不画横线——不连边框的横线看起来像框断裂）
   }
   const id = 'taskId' in sess ? sess.taskId : sess.id;
   rows.push(kv('id', truncV(id, Math.max(10, w - 12))));
