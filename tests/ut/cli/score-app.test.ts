@@ -105,10 +105,16 @@ function mkApp(saveDir: string, workdir: string): ScoreApp {
 const plainOf = (app: ScoreApp) => strip(app.render(160).join('\n'));
 const down = (app: ScoreApp) => app.handleInput('\x1b[B');
 
-/** 光标移到左栏某行（按 ❯ 落位）*/
+/** 光标移到左栏某行（按 ❯ 落位；会话行的 id 在其下挂详情行，一并匹配。
+ * 详情行规则仅对会话行生效（含 [ ]/[x]），避免工具区相邻行误匹配）*/
 async function moveCursorTo(app: ScoreApp, rowText: string, maxSteps = 30): Promise<boolean> {
   for (let i = 0; i < maxSteps; i++) {
-    if (plainOf(app).split('\n').some(l => l.includes('❯') && l.includes(rowText))) return true;
+    const lines = plainOf(app).split('\n');
+    for (let j = 0; j < lines.length; j++) {
+      if (!lines[j].includes('❯')) continue;
+      if (lines[j].includes(rowText)) return true;
+      if (/\[[ x]\]/.test(lines[j]) && lines[j + 1]?.includes(rowText)) return true;
+    }
     down(app);
     await new Promise(r => setTimeout(r, 20));
   }
@@ -125,7 +131,7 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     expect(p0).toContain('Insight Score');
 
     // Agent 工具可选（用户报障修复点）：↓ 到 opencode 行 → Enter → ● 切换
-    expect(await moveCursorTo(app, 'opencode')).toBe(true);
+    expect(await moveCursorTo(app, '○ opencode')).toBe(true); // 带 ○ 前缀定位工具行（会话详情行的来源名不含 ○）
     app.handleInput('\r');
     const pTool = plainOf(app);
     expect(pTool.split('\n').some(l => l.includes('● opencode'))).toBe(true);
@@ -199,8 +205,9 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     await vi.waitFor(() => expect(plainOf(app)).toContain('路径:'), { timeout: 5_000 });
     for (const ch of dir) app.handleInput(ch);
     app.handleInput('\r');
-    await vi.waitFor(() => expect(plainOf(app)).toContain('sid-a'), { timeout: 30_000 });
-    expect(plainOf(app)).toContain('sid-b');
+    // 行主标签 = 首问；扫描发现两个夹具会话（共享同一条首问文本）
+    await vi.waitFor(() => expect(plainOf(app)).toContain('会话 2/2'), { timeout: 30_000 });
+    expect(plainOf(app).split('\n').filter(l => l.includes('乘法函数')).length).toBe(2);
 
     // [t] 全选 → 运行
     app.handleInput('t');

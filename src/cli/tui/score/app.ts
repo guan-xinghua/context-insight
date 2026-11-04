@@ -95,6 +95,11 @@ function fmtTime(iso: string | Date): string {
   return `${y}${md} ${hm}`;
 }
 
+/** 目录扫描来源短名（多来源混列时的人工标记）：codex-jsonl → codex 等 */
+function shortSource(source: string): string {
+  return source.replace(/-(jsonl|db|native)$/, '').replace('context-insight', 'insight');
+}
+
 /** 双色条：分数色填充 + 品红余量（宽 width 格）*/
 function bar(score: number, width: number): string {
   const filled = Math.max(0, Math.min(width, Math.round(score * width)));
@@ -676,7 +681,7 @@ export class ScoreApp implements Component {
       mkBox(1, '目录', dirRows);
     }
 
-    // 会话（窗口视口 + 光标跟随）
+    // 会话（窗口视口 + 光标跟随；行 = 首问 + 时间，光标行下挂详情行补全选择依据）
     const sessLabel = this.sourceMode === 'db'
       ? `会话 ${this.filteredSessions.length}/${this.sessions.length}${this.loadingSessions ? '（加载中…）' : ''}`
       : this.dirSessions == null ? '会话（未扫描）' : `会话 ${this.filteredDirSessions.length}/${this.dirSessions.length}`;
@@ -692,13 +697,19 @@ export class ScoreApp implements Component {
       const check = this.activeSelected.has(this.sessionKey(s)) ? '[x]' : '[ ]';
       const budget = w - 2 - 3 - 1;
       const timeS = fmtTime('taskId' in s ? s.startTime : s.createdAt);
-      const subS = 'taskId' in s ? `${fmtTokens(s.totalTokens)} ${s.totalSubagentCount}ag` : `${s.turnCount}轮`;
-      let idW = budget - timeS.length - 1 - Math.min(visibleWidth(subS), 10) - 1;
-      let sub2 = truncV(subS, 10);
-      if (idW < 10) { sub2 = ''; idW = budget - timeS.length - 1; }
-      idW = Math.max(8, idW);
+      // 主标签 = 会话内容（首问），空则退回 id——id 是机器名，不足以人肉挑选
+      const q = (('taskId' in s ? s.query : s.firstQuery) ?? '').trim();
+      const labelW = Math.max(8, budget - timeS.length - 1);
+      const label = q ? truncV(q, labelW) : truncV(id, labelW);
       const active2 = isActive({ k: 'session', idx: gIdx });
-      sessRows.push(`${active2 ? '❯ ' : '  '}${check} ${padEndV(truncV(id, idW), idW)} ${gray(timeS)}${sub2 ? ` ${gray(sub2)}` : ''}`);
+      sessRows.push(`${active2 ? '❯ ' : '  '}${check} ${padEndV(label, labelW)} ${gray(timeS)}`);
+      if (active2) {
+        // 光标行详情：id · 来源 · 规模 · 模型（目录模式混多来源，来源标记必选）
+        const src = 'taskId' in s ? s.framework : shortSource(s.source);
+        const size = 'taskId' in s ? `${fmtTokens(s.totalTokens)} · ${s.totalSubagentCount}ag` : `${s.turnCount}轮`;
+        const model = !('taskId' in s) && s.modelName ? ` · ${truncV(s.modelName, 14)}` : '';
+        sessRows.push(gray(`     ${truncV(id, Math.max(12, w - 26))} · ${src} · ${size}${model}`));
+      }
     });
     if (this.sourceMode === 'dir' && this.dirSessions == null) {
       sessRows.push(' 选上方目录项开始扫描');
