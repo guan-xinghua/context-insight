@@ -766,7 +766,7 @@ export class ScoreApp implements Component {
       mkBox(1, '目录', dirRows);
     }
 
-    // 会话（窗口视口 + 光标跟随；行 = 首问 + 时间，光标行下挂详情行补全选择依据）
+    // 会话（窗口视口 + 光标跟随；行 = 首问 + 时间——id/来源/规模等详情收拢右栏概览，不在行下重复）
     const sessLabel = this.sourceMode === 'db'
       ? `会话 ${this.filteredSessions.length}/${this.sessions.length}${this.loadingSessions ? '（加载中…）' : ''}`
       : this.dirSessions == null ? '会话（未扫描）' : `会话 ${this.filteredDirSessions.length}/${this.dirSessions.length}`;
@@ -776,7 +776,7 @@ export class ScoreApp implements Component {
     // 会话窗口吃满剩余空间：其余区（来源/目录/工具/运行 + 会话框自身开销）高度先估算
     const dirBoxH = this.sourceMode === 'dir' ? this.quicks.length + (this.dirFocus ? 1 : 0) + (this.scanning ? 1 : 0) + 2 : 0;
     const toolBoxH = Math.max(1, this.tools.length) + 2;
-    const sessOverhead = 2 + 1 + 1 + (this.filterFocus ? 1 : 0); // 边框 + 提示行 + 光标详情行 + 过滤行
+    const sessOverhead = 2 + 1 + (this.filterFocus ? 1 : 0); // 边框 + 提示行 + 过滤行
     const winSize = Math.max(7, budget - (4 + dirBoxH + toolBoxH + 3 + sessOverhead));
     const active = this.activeSessions;
     const winStart = Math.max(0, Math.min(curIdx - 3, Math.max(0, active.length - winSize)));
@@ -792,13 +792,6 @@ export class ScoreApp implements Component {
       const label = q ? truncV(q, labelW) : truncV(id, labelW);
       const active2 = isActive({ k: 'session', idx: gIdx });
       sessRows.push(`${active2 ? '❯ ' : '  '}${check} ${padEndV(label, labelW)} ${gray(timeS)}`);
-      if (active2) {
-        // 光标行详情：id · 来源 · 规模 · 模型（目录模式混多来源，来源标记必选）
-        const src = 'taskId' in s ? s.framework : shortSource(s.source);
-        const size = 'taskId' in s ? `${fmtTokens(s.totalTokens)} · ${s.totalSubagentCount}ag` : `${s.turnCount}轮`;
-        const model = !('taskId' in s) && s.modelName ? ` · ${truncV(s.modelName, 14)}` : '';
-        sessRows.push(gray(`     ${truncV(id, Math.max(12, w - 26))} · ${src} · ${size}${model}`));
-      }
     });
     if (this.sourceMode === 'dir' && this.dirSessions == null) {
       sessRows.push(' 选上方目录项开始扫描');

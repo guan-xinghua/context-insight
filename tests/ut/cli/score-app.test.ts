@@ -105,20 +105,27 @@ function mkApp(saveDir: string, workdir: string): ScoreApp {
 const plainOf = (app: ScoreApp) => strip(app.render(160).join('\n'));
 const down = (app: ScoreApp) => app.handleInput('\x1b[B');
 
-/** 光标移到左栏某行（按 ❯ 落位；会话行的 id 在其下挂详情行，一并匹配。
- * 详情行规则仅对会话行生效（含 [ ]/[x]），避免工具区相邻行误匹配）*/
+/** 光标移到左栏某行（按 ❯ 落位）。只匹配左栏片段（160 列下左栏 = 前 57 列）：
+ * 整行是左右拼栏，光标行右半边（①待办/概览内容）会出现目标文本造成假命中 */
 async function moveCursorTo(app: ScoreApp, rowText: string, maxSteps = 30): Promise<boolean> {
-  // 只匹配左栏片段（测试渲染 160 列，左栏 ≤56 + 间隔 = 前 57 列）：整行是左右拼栏，
-  // 光标行的右半边可能恰好出现目标文本（①待办列表/概览 id），整行匹配会假命中
   const LEFT = 57;
   for (let i = 0; i < maxSteps; i++) {
     const lines = plainOf(app).split('\n');
-    for (let j = 0; j < lines.length; j++) {
-      const cur = lines[j]?.slice(0, LEFT) ?? '';
-      if (!cur.includes('❯')) continue;
-      if (cur.includes(rowText)) return true;
-      if (/\[[ x]\]/.test(cur) && (lines[j + 1] ?? '').slice(0, LEFT).includes(rowText)) return true;
+    for (const l of lines) {
+      const cur = l.slice(0, LEFT);
+      if (cur.includes('❯') && cur.includes(rowText)) return true;
     }
+    down(app);
+    await new Promise(r => setTimeout(r, 20));
+  }
+  return false;
+}
+
+/** 会话行定位（左栏行上无 id）：逐行走，看右栏概览的 id 行是否命中片段 */
+async function moveCursorToSession(app: ScoreApp, frag: string, maxSteps = 15): Promise<boolean> {
+  const overviewId = (): boolean => plainOf(app).split('\n').some(l => new RegExp(`id\\s+\\S*${frag}`).test(l));
+  for (let i = 0; i < maxSteps; i++) {
+    if (overviewId()) return true;
     down(app);
     await new Promise(r => setTimeout(r, 20));
   }
@@ -144,9 +151,9 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     app.handleInput('\r');
     expect(plainOf(app).split('\n').some(l => l.includes('● claude'))).toBe(true);
 
-    // 勾选目标会话 → 运行（W 跳回会话区，向下走到夹具行——库内可能有他序会话）
+    // 勾选目标会话 → 运行（W 跳回会话区；左栏行上无 id，按右栏概览 id 行定位）
     app.handleInput('w');
-    expect(await moveCursorTo(app, SID)).toBe(true);
+    expect(await moveCursorToSession(app, `${SID} `)).toBe(true);
     app.handleInput('\r');
     await vi.waitFor(() => expect(plainOf(app)).toContain('[x]'), { timeout: 5_000 });
     expect(await moveCursorTo(app, '开始评分')).toBe(true);
@@ -243,7 +250,7 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
 
     const t1 = mkApp(saveP, path.join(TMP, 'work3'));
     await vi.waitFor(() => expect(plainOf(t1)).toContain('本机库已导入会话'), { timeout: 20_000 });
-    expect(await moveCursorTo(t1, sid)).toBe(true);
+    expect(await moveCursorToSession(t1, sid)).toBe(true);
     t1.handleInput('\r');
     await new Promise(r => setTimeout(r, 200));
     expect(await moveCursorTo(t1, '开始评分')).toBe(true);
@@ -378,7 +385,7 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
       // 回左栏浏览第二个排队会话 → ③概览 + 排队中标记（W×2 跳回会话区——启动后光标在运行行）
       app.handleInput('a');
       app.handleInput('w'); app.handleInput('w');
-      expect(await moveCursorTo(app, 'sid-x2')).toBe(true);
+      expect(await moveCursorToSession(app, 'sid-x2')).toBe(true);
       await vi.waitFor(() => expect(plainOf(app)).toContain('概览（光标会话）'), { timeout: 5_000 });
       expect(plainOf(app)).toContain('排队中');
       expect(plainOf(app)).toContain('[X] 取消');
