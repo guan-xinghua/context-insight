@@ -606,9 +606,11 @@ export class ScoreApp implements Component {
       out.push(truncW((leftFrame[i] ?? '') + ' '.repeat(gap) + (rightFrame[i] ?? ''), termW));
     }
 
+    // 键位提示：WSAD=分块移动（上下分区/子块、左右切栏），↑↓=行级移动——单一心智
+    // 模型；全局键进 keybar，上下文键（勾选/全选/过滤/路径输入）留在分区行内就地提示
     const keybar = this.focus === 'right'
-      ? '[W/S] 切换列表/评分卡 · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [O] 页面 · [Q] 退出'
-      : '[W/S] 切分区 · [A/D] 左右栏 · [↑↓] 行移动 · [Space] 勾选 · [T] 全选 · [/] 过滤 · [Enter] 激活 · [O] 页面 · [Q] 退出';
+      ? 'WSAD 分块移动 · ↑↓ 行移动 · [Enter] 载入/返回 · [O] 评分页 · [Q] 退出'
+      : 'WSAD 分块移动 · ↑↓ 行移动 · [Enter] 激活 · [O] 评分页 · [Q] 退出';
     out.push(truncW(gray(keybar), termW));
     const shownFile = this.detailIdx != null && this.results[this.detailIdx]
       ? scoreFileOf(this.saveDir, this.results[this.detailIdx].taskId)
