@@ -117,17 +117,14 @@ function fmtCost(cost: number): string {
 
 
 /** 双色条：分数色填充 + 品红余量（宽 width 格）*/
-/** 分段竖棒条（仪表盘样式）：▎ 细棒填充 / ┊ 虚线余量，段间留隙——细长不粘连 */
+/** 分段竖棒条（密集排栏）：▎ 细棒自带右侧留白，相邻不粘连——每格一段，分辨率翻倍 */
 function barSegments(segs: number, isFilled: (i: number) => boolean, fillColor: (s: string) => string): string {
-  const parts: string[] = [];
-  for (let i = 0; i < segs; i++) {
-    parts.push(isFilled(i) ? fillColor('▎') : magenta('┊'));
-    if (i < segs - 1) parts.push(' ');
-  }
-  return parts.join('');
+  let out = '';
+  for (let i = 0; i < segs; i++) out += isFilled(i) ? fillColor('▎') : magenta('┊');
+  return out;
 }
 function bar(score: number, width: number): string {
-  const segs = Math.max(3, Math.floor((width + 1) / 2)); // 段+空隙 ≤ width 格
+  const segs = Math.max(3, width);
   return barSegments(segs, i => i < Math.round(score * segs), scoreColor(score));
 }
 
@@ -963,12 +960,13 @@ export class ScoreApp implements Component {
       if (this.phase === 'mate' && this.progress) {
         qRows.push(`[${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, Math.max(6, w - 18))} · ${elapsed}s`);
         const fill = this.progress.total > 0 ? Math.min(barW, Math.round((this.progress.done / this.progress.total) * barW)) : 0;
-        qRows.push(barSegments(Math.max(6, Math.floor((barW + 1) / 2)), i => i < Math.round((this.progress!.done / Math.max(1, this.progress!.total)) * Math.max(6, Math.floor((barW + 1) / 2))), green));
+        const isegs = Math.max(8, barW);
+        qRows.push(barSegments(isegs, i => i < Math.round((this.progress!.done / Math.max(1, this.progress!.total)) * isegs), green));
       } else {
         qRows.push(gray(`规则层计算中… ${elapsed}s`));
         // 不确定进度活动条：规则层无里程碑事件，滑段随每秒走钟移动（活度反馈）
-        const segs = Math.max(6, Math.floor((barW + 1) / 2));
-        const run = Math.max(2, Math.floor(segs / 6));
+        const segs = Math.max(8, barW);
+        const run = Math.max(3, Math.floor(segs / 6));
         const pos = elapsed % Math.max(1, segs - run);
         qRows.push(barSegments(segs, i => i >= pos && i < pos + run, green));
       }
@@ -977,7 +975,7 @@ export class ScoreApp implements Component {
         const innerFrac = this.phase === 'mate' && this.progress && this.progress.total > 0 ? this.progress.done / this.progress.total : 0;
         const overall = Math.min(1, (this.batchIndex + innerFrac) / this.queue.length);
         const fill = Math.round(overall * barW);
-        const qsegs = Math.max(6, Math.floor((barW + 1) / 2));
+        const qsegs = Math.max(8, barW);
         qRows.push(gray(`队列 ${Math.min(this.batchIndex + 1, this.queue.length)}/${this.queue.length} `)
           + barSegments(qsegs, i => i < Math.round(overall * qsegs), green));
       }
