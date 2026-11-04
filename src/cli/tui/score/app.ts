@@ -596,6 +596,14 @@ export class ScoreApp implements Component {
     if (matchesKey(data, 'up')) { this.cursor = Math.max(0, this.cursor - 1); this.rq(); return; }
     if (matchesKey(data, 'down')) { this.cursor = Math.min(this.flatRows.length - 1, this.cursor + 1); this.rq(); return; }
     if (data === '/') { this.filterText = ''; this.filterFocus = true; this.rq(); return; }
+    if (k === 'x' && this.runPhase === 'running' && row?.k === 'session') {
+      // 取消排队：仅未开始的会话（评分中的无法安全中止）
+      const sid = this.activeSessions[row.idx];
+      const id = sid ? ('taskId' in sid ? sid.taskId : sid.id) : null;
+      const qi = id != null ? this.queue.findIndex((q, idx) => idx > this.batchIndex && q.id === id) : -1;
+      if (qi > this.batchIndex) this.queue.splice(qi, 1);
+      this.rq(); return;
+    }
     if (k === 't') {
       const sel = this.activeSelected;
       const keys = this.activeSessions.map(s => this.sessionKey(s));
@@ -818,6 +826,11 @@ export class ScoreApp implements Component {
   } else {
     rows.push(kv('轮次', `${sess.turnCount} 轮`));
   }
+  if (this.runPhase === 'running') {
+    const elapsed = this.sessionT0 ? Math.floor((Date.now() - this.sessionT0) / 1000) : 0;
+    if (this.queue[this.batchIndex]?.id === id) rows.push(kv('状态', yellow(`评分中… ${elapsed}s`)));
+    else if (this.queue.some((q, idx) => idx > this.batchIndex && q.id === id)) rows.push(kv('状态', `排队中 · ${gray('[X] 取消')}`));
+  }
   const scored = this.results.find(r => r.taskId === id);
   if (scored?.card) {
     const sc = scored.card.framework.totalScore;
@@ -894,16 +907,27 @@ export class ScoreApp implements Component {
     if (this.runPhase === 'running') {
       const curId = this.queue[this.batchIndex]?.id ?? this.currentId ?? '';
       const elapsed = this.sessionT0 ? Math.floor((Date.now() - this.sessionT0) / 1000) : 0;
+      const barW = Math.max(12, w - 4);
       qRows.push(yellow(`⏳ ${truncV(curId, Math.max(10, w - 6))}`));
       if (this.phase === 'mate' && this.progress) {
-        qRows.push(`[${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, Math.max(6, w - 12))}`);
-        const barW = Math.max(12, w - 4);
+        qRows.push(`[${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, Math.max(6, w - 18))} · ${elapsed}s`);
         const fill = this.progress.total > 0 ? Math.min(barW, Math.round((this.progress.done / this.progress.total) * barW)) : 0;
         qRows.push(green('█'.repeat(fill)) + magenta('░'.repeat(barW - fill)));
       } else {
-        qRows.push(gray(`规则层计算中… ${elapsed}s`)); // 长会话规则层耗时段的活度反馈
+        qRows.push(gray(`规则层计算中… ${elapsed}s`));
+        // 不确定进度活动条：规则层无里程碑事件，滑段随每秒走钟移动（活度反馈）
+        const seg = Math.max(4, Math.floor(barW / 6));
+        const pos = elapsed % Math.max(1, barW - seg);
+        qRows.push(' '.repeat(pos) + green('█'.repeat(seg)) + magenta('░'.repeat(barW - seg - pos)));
       }
-      const pendSlots = Math.max(0, qBoxH - 2 - 4); // 预留 id/状态/条/计数
+      if (this.queue.length > 1) {
+        // 队列总进度：已完成会话数 + 当前会话内进度 折算
+        const innerFrac = this.phase === 'mate' && this.progress && this.progress.total > 0 ? this.progress.done / this.progress.total : 0;
+        const overall = Math.min(1, (this.batchIndex + innerFrac) / this.queue.length);
+        const fill = Math.round(overall * barW);
+        qRows.push(gray(`队列 ${Math.min(this.batchIndex + 1, this.queue.length)}/${this.queue.length} `) + green('█'.repeat(fill)) + magenta('░'.repeat(barW - fill)));
+      }
+      const pendSlots = Math.max(0, qBoxH - 2 - 4 - (this.queue.length > 1 ? 1 : 0)); // 预留 id/状态/条/队列条/计数
       this.queue.slice(this.batchIndex + 1, this.batchIndex + 1 + pendSlots).forEach(item => {
         qRows.push(`- ${truncV(item.id, w - 6)}`);
       });
@@ -975,7 +999,14 @@ export class ScoreApp implements Component {
       cardLines.slice(vis, vis + cRows).forEach(l => cRowsArr.push(l));
     } else {
       this.cardMax = 0;
-      cRowsArr.push('在已完成列表中 ↑↓ 选择  [Enter] 载入评分卡');
+      const curSess = this.cursorSession();
+      if (curSess && this.focus === 'left') {
+        cRowsArr.push(...this.buildOverviewRows(curSess, w)); // 运行中浏览：③让位概览
+      } else if (this.runPhase !== 'running') {
+        cRowsArr.push('在已完成列表中 ↑↓ 选择  [Enter] 载入评分卡');
+      } else {
+        cRowsArr.push(gray('评分完成后在已完成列表 Enter 载入'));
+      }
     }
 
     const lines = [
@@ -986,7 +1017,9 @@ export class ScoreApp implements Component {
       ...frame(this.results.length > 0
         ? `已完成（${this.results.filter(r => r.card).length}/${this.results.length}）` : '已完成',
         this.focus === 'right' && this.rightSub === 'list', dRowsArr, dBoxH),
-      ...frame('评分卡', this.focus === 'right' && this.rightSub === 'card', cRowsArr, cBoxH),
+      ...frame(this.detailIdx == null && this.cursorSession() && this.focus === 'left' && this.runPhase === 'running'
+        ? '概览（光标会话）' : '评分卡',
+        this.focus === 'right' && this.rightSub === 'card', cRowsArr, cBoxH),
     ];
     return lines;
   }

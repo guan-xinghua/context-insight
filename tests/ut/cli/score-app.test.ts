@@ -80,7 +80,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  await prisma.session.deleteMany({ where: { taskId: { in: [SID, `${SID}-a`, `${SID}-b`, `${SID}-p`] } } }).catch(() => {});
+  await prisma.session.deleteMany({ where: { taskId: { in: [SID, `${SID}-a`, `${SID}-b`, `${SID}-p`, `${SID}-x1`, `${SID}-x2`] } } }).catch(() => {});
   await prisma.$disconnect();
   for (const [k, v] of Object.entries(OLD_ENV)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
@@ -108,12 +108,16 @@ const down = (app: ScoreApp) => app.handleInput('\x1b[B');
 /** 光标移到左栏某行（按 ❯ 落位；会话行的 id 在其下挂详情行，一并匹配。
  * 详情行规则仅对会话行生效（含 [ ]/[x]），避免工具区相邻行误匹配）*/
 async function moveCursorTo(app: ScoreApp, rowText: string, maxSteps = 30): Promise<boolean> {
+  // 只匹配左栏片段（测试渲染 160 列，左栏 ≤56 + 间隔 = 前 57 列）：整行是左右拼栏，
+  // 光标行的右半边可能恰好出现目标文本（①待办列表/概览 id），整行匹配会假命中
+  const LEFT = 57;
   for (let i = 0; i < maxSteps; i++) {
     const lines = plainOf(app).split('\n');
     for (let j = 0; j < lines.length; j++) {
-      if (!lines[j].includes('❯')) continue;
-      if (lines[j].includes(rowText)) return true;
-      if (/\[[ x]\]/.test(lines[j]) && lines[j + 1]?.includes(rowText)) return true;
+      const cur = lines[j]?.slice(0, LEFT) ?? '';
+      if (!cur.includes('❯')) continue;
+      if (cur.includes(rowText)) return true;
+      if (/\[[ x]\]/.test(cur) && (lines[j + 1] ?? '').slice(0, LEFT).includes(rowText)) return true;
     }
     down(app);
     await new Promise(r => setTimeout(r, 20));
@@ -309,6 +313,48 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
         .filter(l => /(总分|D\d)/.test(strip(l)) && strip(l).includes('█'))
         .map(cellCol));
       expect(cols.size).toBe(1);
+    }
+  });
+
+  it('运行中：③概览可查（排队中标记）+ [X] 取消排队', { timeout: 240_000 }, async () => {
+    // 慢速假 claude：拉出可操作窗口
+    const fakeBin = path.join(TMP, 'bin');
+    fs.writeFileSync(path.join(fakeBin, 'claude'), `#!/bin/sh\nsleep 1.5\ncat <<'EOF'\n${JSON.stringify(FAKE_REVIEW)}\nEOF\n`, 'utf-8');
+    try {
+      for (const sid of [`${SID}-x1`, `${SID}-x2`]) {
+        const fx = path.join(TMP, `${sid}.jsonl`);
+        fs.writeFileSync(fx, LINES.map(l => JSON.stringify(l)).join('\n') + '\n');
+        await importSession(fx, sid, prisma, fx, 'claude-jsonl');
+      }
+      const app = mkApp(path.join(TMP, 'save-x'), path.join(TMP, 'workx'));
+      await vi.waitFor(() => expect(plainOf(app)).toContain('本机库已导入会话'), { timeout: 20_000 });
+      await vi.waitFor(() => expect(plainOf(app)).not.toContain('加载中'), { timeout: 20_000 }); // 会话装载完成（标签是静态的，不能只等它）
+      // 过滤到两个夹具 → 全选 → 清过滤 → 运行
+      app.handleInput('/');
+      for (const ch of 'sid-x') app.handleInput(ch);
+      app.handleInput('\r'); // Enter 退出过滤模式（保留文本；Esc 会清空）
+      app.handleInput('t');
+      await vi.waitFor(() => expect(plainOf(app)).toContain('已选 2'), { timeout: 5_000 });
+      expect(await moveCursorTo(app, '开始评分')).toBe(true);
+      app.handleInput('\r');
+      await vi.waitFor(() => expect(plainOf(app)).toContain('⏳'), { timeout: 20_000 });
+      // 回左栏浏览第二个排队会话 → ③概览 + 排队中标记（W×2 跳回会话区——启动后光标在运行行）
+      app.handleInput('a');
+      app.handleInput('w'); app.handleInput('w');
+      expect(await moveCursorTo(app, 'sid-x2')).toBe(true);
+      await vi.waitFor(() => expect(plainOf(app)).toContain('概览（光标会话）'), { timeout: 5_000 });
+      expect(plainOf(app)).toContain('排队中');
+      expect(plainOf(app)).toContain('[X] 取消');
+      // 取消 x2 → 只评 x1
+      app.handleInput('x');
+      await vi.waitFor(() => expect(plainOf(app)).toContain('队列已完成'), { timeout: 60_000 });
+      await vi.waitFor(() => expect(plainOf(app)).toContain('已完成（1/1）'), { timeout: 10_000 });
+      expect(fs.existsSync(path.join(TMP, 'save-x', `${SID}-x1.score.jsonl`))).toBe(true);
+      await vi.waitFor(() => expect(fs.existsSync(path.join(TMP, 'save-x', `${SID}-x2.score.jsonl`))).toBe(false), { timeout: 3_000 });
+      await prisma.session.deleteMany({ where: { taskId: { in: [`${SID}-x1`, `${SID}-x2`] } } });
+    } finally {
+      // 恢复快速假 claude
+      fs.writeFileSync(path.join(fakeBin, 'claude'), `#!/bin/sh\ncat <<'EOF'\n${JSON.stringify(FAKE_REVIEW)}\nEOF\n`, 'utf-8');
     }
   });
 });
