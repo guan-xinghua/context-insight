@@ -253,7 +253,6 @@ export class ScoreApp implements Component {
   private batchIndex = 0;
   private currentId: string | null = null;
   private queue: QueueItem[] = [];
-  private events: ScoreEvent[] = [];
   private results: BatchResult[];
   private savedTo: string | null = null;
   private jumpUrl: string | null = null;
@@ -399,7 +398,6 @@ export class ScoreApp implements Component {
     // 历史保留：只摘除本轮重评的会话（完成后新结果补位），其余 ↺ 历史行不动
     const chosenIds = new Set(chosen.map(c => c.id));
     this.results = this.results.filter(r => !chosenIds.has(r.taskId));
-    this.events = [];
     this.savedTo = null;
     this.detailIdx = null;
     this.cardScroll = 0;
@@ -435,7 +433,6 @@ export class ScoreApp implements Component {
           { session: item.id, framework: fw, tool, concurrency: this.props.concurrency, timeoutMs: this.props.timeoutMs, workdir: this.props.workdir, store: true },
           e => {
             collected.push(e);
-            this.events = [...collected];
             if (e.type === 'progress') {
               this.phase = 'mate';
               this.progress = { done: e.done as number, total: e.total as number, current: e.current as string };
@@ -456,7 +453,9 @@ export class ScoreApp implements Component {
         if (outcome.card) {
           try {
             mkdirSync(this.saveDir, { recursive: true });
-            writeFileSync(scoreFileOf(this.saveDir, item.id), collected.slice(sessionStart).map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+            const file = scoreFileOf(this.saveDir, item.id);
+            writeFileSync(file, collected.slice(sessionStart).map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+            this.savedTo = file;
           } catch { /* 落盘失败不影响评分流程 */ }
         }
       } catch (err) {
@@ -467,18 +466,6 @@ export class ScoreApp implements Component {
     }
     this.runPhase = 'done';
     this.rq();
-  }
-
-  private saveJsonl(): void {
-    if (!this.events.length) return;
-    const file = this.events.filter(e => e.type === 'meta').length > 1
-      ? path.join(this.saveDir, 'score-batch.jsonl')
-      : scoreFileOf(this.saveDir, String((this.events[0] as { taskId?: string })?.taskId ?? 'score'));
-    try {
-      mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, this.events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
-      this.savedTo = file;
-    } catch { /* 只读目录等场景：状态行不更新 */ }
   }
 
   private jump(): void {
@@ -525,7 +512,6 @@ export class ScoreApp implements Component {
     const k = data.length === 1 ? data.toLowerCase() : '';
     if (k === 'q') { this.quit(); return; }
     if (k === 'o') { this.jump(); this.rq(); return; }
-    if (k === 'b' && this.events.length) { this.saveJsonl(); this.rq(); return; }
 
     // WASD = 块级（W/S 分区或右栏子块、A/D 左右栏）；↑↓ = 行级
     if (k === 'a' && this.focus === 'right') { this.focus = 'left'; this.rq(); return; }
@@ -608,7 +594,7 @@ export class ScoreApp implements Component {
 
     const out: string[] = [];
     const title = bold(cyan('Insight Score')) + bold(' · 会话独立评分');
-    const action = cyan('[o] 评分页面 ↗');
+    const action = cyan('[O] 评分页面 ↗');
     const topPad = Math.max(2, termW - visibleWidth(title) - visibleWidth(action));
     out.push(truncW(title + ' '.repeat(topPad) + action, termW));
 
@@ -621,10 +607,13 @@ export class ScoreApp implements Component {
     }
 
     const keybar = this.focus === 'right'
-      ? '[W/S] 切换列表/评分卡 · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [b] 保存 · [o] 页面 · [q] 退出'
-      : '[W/S] 切分区 · [A/D] 左右栏 · [↑↓] 行移动 · [Space] 勾选 · [t] 全选 · [/] 过滤 · [Enter] 激活 · [b] 保存 · [o] 页面 · [q] 退出';
+      ? '[W/S] 切换列表/评分卡 · [↑↓] 选行/滚动 · [A] 回配置 · [Enter] 载入/返回 · [O] 页面 · [Q] 退出'
+      : '[W/S] 切分区 · [A/D] 左右栏 · [↑↓] 行移动 · [Space] 勾选 · [T] 全选 · [/] 过滤 · [Enter] 激活 · [O] 页面 · [Q] 退出';
     out.push(truncW(gray(keybar), termW));
-    out.push(truncW(gray([this.savedTo ? `jsonl：${this.savedTo}` : null, this.jumpUrl ? `↗ ${this.jumpUrl}` : null]
+    const shownFile = this.detailIdx != null && this.results[this.detailIdx]
+      ? scoreFileOf(this.saveDir, this.results[this.detailIdx].taskId)
+      : this.savedTo;
+    out.push(truncW(gray([shownFile ? `jsonl：${shownFile}` : null, this.jumpUrl ? `↗ ${this.jumpUrl}` : null]
       .filter(Boolean).join(' · ') || ' '), termW));
     return out;
   }
@@ -700,7 +689,7 @@ export class ScoreApp implements Component {
     } else if (active.length === 0 && (this.sourceMode === 'db' ? !this.loadingSessions : true)) {
       sessRows.push(this.filterText ? ' 无匹配（Esc 清除过滤）' : this.sourceMode === 'db' ? ' 本机库暂无会话' : ' 目录内未发现会话');
     }
-    sessRows.push(' [Space] 勾选  [t] 全选  [/] 过滤');
+    sessRows.push(' [Space] 勾选  [T] 全选  [/] 过滤');
     mkBox(2, sessLabel, sessRows);
 
     // Agent 工具（Enter/Space 可选）

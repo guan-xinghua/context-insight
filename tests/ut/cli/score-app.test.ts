@@ -116,7 +116,7 @@ async function moveCursorTo(app: ScoreApp, rowText: string, maxSteps = 30): Prom
 }
 
 describe('Insight Score TUI（pi-tui 契约）', () => {
-  it('双栏结构 + 全流程：勾选 → 运行 → 评分卡 → [b]/[o]，Agent 工具可选', { timeout: 180_000 }, async () => {
+  it('双栏结构 + 全流程：勾选 → 运行 → 评分卡 → 自动落盘/[o]，Agent 工具可选', { timeout: 180_000 }, async () => {
     fs.rmSync(path.join(TMP, 'save'), { recursive: true, force: true });
     const app = mkApp(path.join(TMP, 'save'), path.join(TMP, 'work'));
     await vi.waitFor(() => expect(plainOf(app)).toContain('本机库已导入会话'), { timeout: 20_000 });
@@ -155,10 +155,10 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     app.handleInput('o');
     await vi.waitFor(() => expect(plainOf(app)).toContain('127.0.0.1'), { timeout: 5_000 });
 
-    // [b] 保存事件流 → 文件断言评分卡内容（mate 子项、维度）
-    app.handleInput('b');
+    // 自动落盘文件即事件流（mate 子项、维度）；状态行回显路径
     const savedFile = path.join(TMP, 'save', `${SID}.score.jsonl`);
     await vi.waitFor(() => expect(fs.existsSync(savedFile)).toBe(true), { timeout: 10_000 });
+    await vi.waitFor(() => expect(plainOf(app)).toContain('jsonl：'), { timeout: 5_000 });
     const evLines = fs.readFileSync(savedFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l));
     expect(evLines[0].type).toBe('meta');
     expect(evLines.some(e => e.type === 'progress')).toBe(true);
@@ -213,14 +213,13 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     await vi.waitFor(() => expect(fs.existsSync(path.join(TMP, 'save', `${SID}-a.score.jsonl`))).toBe(true), { timeout: 10_000 });
     expect(fs.existsSync(path.join(TMP, 'save', `${SID}-b.score.jsonl`))).toBe(true);
 
-    // [b] 批量事件流
-    app.handleInput('b');
-    const batchFile = path.join(TMP, 'save', 'score-batch.jsonl');
-    await vi.waitFor(() => expect(fs.existsSync(batchFile)).toBe(true), { timeout: 10_000 });
-    const evs = fs.readFileSync(batchFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l));
-    expect(evs.filter(e => e.type === 'meta').length).toBe(2);
-    expect(evs.filter(e => e.type === 'done').length).toBe(2);
-    expect(evs.filter(e => e.type === 'done' && e.card).length).toBe(2);
+    // 每会话独立事件流（meta+done+card 各就位；无批量聚合文件——自动落盘即唯一出口）
+    expect(fs.existsSync(path.join(TMP, 'save', 'score-batch.jsonl'))).toBe(false);
+    for (const sid of [`${SID}-a`, `${SID}-b`]) {
+      const evs = fs.readFileSync(path.join(TMP, 'save', `${sid}.score.jsonl`), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+      expect(evs.filter(e => e.type === 'meta').length).toBe(1);
+      expect(evs.filter(e => e.type === 'done' && e.card).length).toBe(1);
+    }
   });
 
   it('结果持久化：重开回载（↺ 行 → Enter 评分卡 → [o] 带 framework）', { timeout: 240_000 }, async () => {
