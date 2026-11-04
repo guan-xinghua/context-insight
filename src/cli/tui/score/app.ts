@@ -118,7 +118,7 @@ function fmtCost(cost: number): string {
 /** 双色条：分数色填充 + 品红余量（宽 width 格）*/
 function bar(score: number, width: number): string {
   const filled = Math.max(0, Math.min(width, Math.round(score * width)));
-  return scoreColor(score)('█'.repeat(filled)) + magenta('░'.repeat(width - filled));
+  return scoreColor(score)('▌'.repeat(filled)) + magenta('▏'.repeat(width - filled));
 }
 
 // ── 结果持久化：默认落盘 + 重开回载 ──────────────────────────────────────────
@@ -174,8 +174,21 @@ function insightPort(): string {
 function openInBrowser(url: string): void {
   if (process.env.SCORE_TUI_NO_OPEN) return;
   const wsl = process.env.WSL_DISTRO_NAME || existsSync('/mnt/c');
-  const cmd = process.platform === 'darwin' ? 'open' : wsl ? 'wslview' : 'xdg-open';
-  try { spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref(); } catch { /* URL 仍回显 */ }
+  const candidates = process.env.SCORE_TUI_BROWSER
+    ? [process.env.SCORE_TUI_BROWSER]
+    : process.platform === 'darwin' ? ['open']
+    : wsl ? ['wslview', 'explorer.exe'] // WSL 未装 wslu（wslview）时回退 explorer.exe
+    : ['xdg-open'];
+  // ENOENT 是 spawn 的异步 error 事件（同步 try/catch 接不住，未挂 handler 会炸进程）
+  const tryAt = (i: number): void => {
+    if (i >= candidates.length) return; // 全部落空：URL 仍回显状态行
+    try {
+      const child = spawn(candidates[i], [url], { detached: true, stdio: 'ignore' });
+      child.on('error', () => tryAt(i + 1));
+      child.unref();
+    } catch { tryAt(i + 1); }
+  };
+  tryAt(0);
 }
 
 // ── 手绘定高框：每帧行数逐框同构（差分渲染零重排机会）────────────────────────
@@ -716,7 +729,11 @@ export class ScoreApp implements Component {
     const sessRows: string[] = [];
     if (this.filterFocus) sessRows.push(`过滤: ${this.filterText}█（Esc 清除）`);
     const curIdx = cur?.k === 'session' ? cur.idx : 0;
-    const winSize = this.sourceMode === 'dir' ? 5 : 7;
+    // 会话窗口吃满剩余空间：其余区（来源/目录/工具/运行 + 会话框自身开销）高度先估算
+    const dirBoxH = this.sourceMode === 'dir' ? this.quicks.length + (this.dirFocus ? 1 : 0) + (this.scanning ? 1 : 0) + 2 : 0;
+    const toolBoxH = Math.max(1, this.tools.length) + 2;
+    const sessOverhead = 2 + 1 + 1 + (this.filterFocus ? 1 : 0); // 边框 + 提示行 + 光标详情行 + 过滤行
+    const winSize = Math.max(7, budget - (4 + dirBoxH + toolBoxH + 3 + sessOverhead));
     const active = this.activeSessions;
     const winStart = Math.max(0, Math.min(curIdx - 3, Math.max(0, active.length - winSize)));
     active.slice(winStart, winStart + winSize).forEach((s, i) => {
@@ -912,20 +929,20 @@ export class ScoreApp implements Component {
       if (this.phase === 'mate' && this.progress) {
         qRows.push(`[${this.progress.done}/${this.progress.total}] ${truncV(this.progress.current, Math.max(6, w - 18))} · ${elapsed}s`);
         const fill = this.progress.total > 0 ? Math.min(barW, Math.round((this.progress.done / this.progress.total) * barW)) : 0;
-        qRows.push(green('█'.repeat(fill)) + magenta('░'.repeat(barW - fill)));
+        qRows.push(green('▌'.repeat(fill)) + magenta('▏'.repeat(barW - fill)));
       } else {
         qRows.push(gray(`规则层计算中… ${elapsed}s`));
         // 不确定进度活动条：规则层无里程碑事件，滑段随每秒走钟移动（活度反馈）
         const seg = Math.max(4, Math.floor(barW / 6));
         const pos = elapsed % Math.max(1, barW - seg);
-        qRows.push(' '.repeat(pos) + green('█'.repeat(seg)) + magenta('░'.repeat(barW - seg - pos)));
+        qRows.push(' '.repeat(pos) + green('▌'.repeat(seg)) + magenta('▏'.repeat(barW - seg - pos)));
       }
       if (this.queue.length > 1) {
         // 队列总进度：已完成会话数 + 当前会话内进度 折算
         const innerFrac = this.phase === 'mate' && this.progress && this.progress.total > 0 ? this.progress.done / this.progress.total : 0;
         const overall = Math.min(1, (this.batchIndex + innerFrac) / this.queue.length);
         const fill = Math.round(overall * barW);
-        qRows.push(gray(`队列 ${Math.min(this.batchIndex + 1, this.queue.length)}/${this.queue.length} `) + green('█'.repeat(fill)) + magenta('░'.repeat(barW - fill)));
+        qRows.push(gray(`队列 ${Math.min(this.batchIndex + 1, this.queue.length)}/${this.queue.length} `) + green('▌'.repeat(fill)) + magenta('▏'.repeat(barW - fill)));
       }
       const pendSlots = Math.max(0, qBoxH - 2 - 4 - (this.queue.length > 1 ? 1 : 0)); // 预留 id/状态/条/队列条/计数
       this.queue.slice(this.batchIndex + 1, this.batchIndex + 1 + pendSlots).forEach(item => {

@@ -273,19 +273,39 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     await vi.waitFor(() => expect(plainOf(app)).toContain('总分'), { timeout: 5_000 });
     const lines = plainOf(app).split('\n');
     // 评分卡行（总分 + 维度 D*）：分数区右锚定 → 最后一个 ░ 后同列
-    const cardLines = lines.filter(l => /│\s*(总分|D\d)/.test(l) && l.includes('█'));
+    const cardLines = lines.filter(l => /│\s*(总分|D\d)/.test(l) && l.includes('▌'));
     expect(cardLines.length).toBeGreaterThanOrEqual(2);
     // 单元格列（终端真实列）：CJK 头宽度不同时字符列会差 1，单元格列才是对齐口径
     const barEndCell = (l: string): number => {
       let col = 0, last = -1;
-      for (const ch of l) { if (ch === '█' || ch === '░') last = col; col += visibleWidth(ch); }
+      for (const ch of l) { if (ch === '▌' || ch === '▏') last = col; col += visibleWidth(ch); }
       return last;
     };
     const cols = cardLines.map(barEndCell);
     expect(new Set(cols).size).toBe(1);
     // ②已完成行：分数紧跟 10 格条 → 同口径存在
-    const listLines = lines.filter(l => /[✓↺▤]/.test(l) && l.includes('░'));
+    const listLines = lines.filter(l => /[✓↺▤]/.test(l) && l.includes('▏'));
     expect(listLines.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('[O] 浏览器命令缺失不崩（wslview ENOENT 等）：异步 error 被吞、URL 仍回显', { timeout: 60_000 }, async () => {
+    const saveP = path.join(TMP, 'save-p');
+    const oldBrowser = process.env.SCORE_TUI_BROWSER;
+    const oldNoOpen = process.env.SCORE_TUI_NO_OPEN;
+    process.env.SCORE_TUI_BROWSER = '/nonexistent-browser-cmd'; // 强制全候选落空
+    delete process.env.SCORE_TUI_NO_OPEN;
+    try {
+      const app = mkApp(saveP, path.join(TMP, 'work-o'));
+      await vi.waitFor(() => expect(plainOf(app).split('\n').some(l => l.includes('↺'))), { timeout: 10_000 });
+      app.handleInput('o');
+      await new Promise(r => setTimeout(r, 400)); // 异步 ENOENT 事件窗口——此前未挂 handler 直接炸进程
+      expect(plainOf(app)).toContain('127.0.0.1');
+      expect(plainOf(app)).toContain('framework='); // 回载行的 framework 进 URL
+      app.handleInput('q'); // 组件仍存活
+    } finally {
+      if (oldBrowser === undefined) delete process.env.SCORE_TUI_BROWSER; else process.env.SCORE_TUI_BROWSER = oldBrowser;
+      if (oldNoOpen !== undefined) process.env.SCORE_TUI_NO_OPEN = oldNoOpen;
+    }
   });
 
   it('窄终端不越框：任意宽度零超宽、零断裂 SGR（截断不落在色码内部）', { timeout: 60_000 }, async () => {
@@ -305,12 +325,12 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     // 窄宽下分数列仍对齐（条宽自适应收缩，分数列固定）
     const cellCol = (l: string): number => {
       let col = 0, last = -1;
-      for (const ch of strip(l)) { if (ch === '█' || ch === '░') last = col; col += visibleWidth(ch); }
+      for (const ch of strip(l)) { if (ch === '▌' || ch === '▏') last = col; col += visibleWidth(ch); }
       return last;
     };
     for (const w of [90, 120]) {
       const cols = new Set(app.render(w)
-        .filter(l => /(总分|D\d)/.test(strip(l)) && strip(l).includes('█'))
+        .filter(l => /(总分|D\d)/.test(strip(l)) && strip(l).includes('▌'))
         .map(cellCol));
       expect(cols.size).toBe(1);
     }
