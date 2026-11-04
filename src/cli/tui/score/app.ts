@@ -100,6 +100,21 @@ function shortSource(source: string): string {
   return source.replace(/-(jsonl|db|native)$/, '').replace('context-insight', 'insight');
 }
 
+function fmtDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m${String(sec % 60).padStart(2, '0')}s`;
+  const h = Math.floor(min / 60);
+  return `${h}h${String(min % 60).padStart(2, '0')}m`;
+}
+function fmtCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) return '—';
+  return cost >= 1 ? `$${cost.toFixed(2)}` : `$${cost.toFixed(3)}`;
+}
+
+
 /** 双色条：分数色填充 + 品红余量（宽 width 格）*/
 function bar(score: number, width: number): string {
   const filled = Math.max(0, Math.min(width, Math.round(score * width)));
@@ -185,11 +200,15 @@ function drawFrame(title: string, color: (s: string) => string, rows: string[], 
 
 // ── 数据形状 ─────────────────────────────────────────────────────────────────
 interface SessionRow {
-  taskId: string; framework: string; startTime: Date; totalTokens: number; totalSubagentCount: number; query: string | null;
+  taskId: string; framework: string; startTime: Date; endTime: Date | null; totalTokens: number;
+  totalSubagentCount: number; query: string | null; label?: string | null; model?: string | null; version?: string | null;
+  totalInputTokens?: number; totalOutputTokens?: number; totalCacheReadTokens?: number;
+  totalCost?: number; totalLatencyMs?: number; totalToolCallCount?: number; totalLlmCallCount?: number; totalSkillLoadCount?: number;
 }
 interface DirSessionRow {
   id: string; source: string; filePath: string; framework: string | null;
-  createdAt: string; turnCount: number; modelName: string | null; firstQuery: string | null;
+  createdAt: string; endedAt?: string | null; turnCount: number; modelName: string | null;
+  firstQuery: string | null; totalTokens?: number | null; version?: string | null;
 }
 interface BatchResult {
   taskId: string; framework: string | null; card: Scorecard | null; error: string | null;
@@ -286,7 +305,7 @@ export class ScoreApp implements Component {
     prisma.session.findMany({
       orderBy: { startTime: 'desc' },
       take: 200,
-      select: { taskId: true, framework: true, startTime: true, totalTokens: true, totalSubagentCount: true, query: true },
+      select: { taskId: true, framework: true, startTime: true, endTime: true, totalTokens: true, totalSubagentCount: true, query: true, label: true, model: true, version: true, totalInputTokens: true, totalOutputTokens: true, totalCacheReadTokens: true, totalCost: true, totalLatencyMs: true, totalToolCallCount: true, totalLlmCallCount: true, totalSkillLoadCount: true },
     }).then(rows => {
       this.sessions = rows as SessionRow[];
       this.loadingSessions = false;
@@ -362,7 +381,8 @@ export class ScoreApp implements Component {
               if (!s.filePath) continue;
               found.push({
                 id: s.id, source: t, filePath: s.filePath, framework: s.framework ?? null,
-                createdAt: s.createdAt, turnCount: s.turnCount, modelName: s.modelName, firstQuery: s.firstQuery,
+                createdAt: s.createdAt, endedAt: s.endedAt ?? null, turnCount: s.turnCount,
+                modelName: s.modelName, firstQuery: s.firstQuery, totalTokens: s.totalTokens ?? null, version: s.version ?? null,
               });
             }
           } catch { /* 单源失败不炸整个扫描 */ }
@@ -742,21 +762,112 @@ export class ScoreApp implements Component {
     return lines.slice(0, budget);
   }
 
+/** 会话概览行（右栏 master-detail：信息集对齐观察台 Overview 页）*/
+  private buildOverviewRows(sess: SessionRow | DirSessionRow, w: number): string[] {
+  const rows: string[] = [];
+  const kv = (k: string, v: string) => `${gray(padEndV(k, 7))} ${v}`;
+  // 首问折行（最多 3 行）
+  const q = (('taskId' in sess ? sess.query : sess.firstQuery) ?? '').trim();
+  if (q) {
+    let rest = q;
+    for (let i = 0; i < 3 && rest; i++) {
+      let line = '';
+      let width = 0;
+      let cut = 0;
+      for (const ch of rest) {
+        const cw = visibleWidth(ch);
+        if (width + cw > w - 8) break;
+        line += ch;
+        width += cw;
+        cut += ch.length;
+      }
+      rows.push(truncV(line, Math.max(8, w - 8)));
+      rest = rest.slice(cut);
+      if (i === 2 && rest) rows[rows.length - 1] = truncV(line + '…', Math.max(8, w - 8));
+    }
+    rows.push(gray('─'.repeat(Math.max(8, w - 8))));
+  }
+  const id = 'taskId' in sess ? sess.taskId : sess.id;
+  rows.push(kv('id', truncV(id, Math.max(10, w - 12))));
+  const src = 'taskId' in sess
+    ? `${sess.framework}${sess.version ? ` · ${truncV(sess.version, 14)}` : ''}`
+    : `${shortSource(sess.source)}${sess.version ? ` · ${truncV(sess.version, 14)}` : ''}${sess.filePath ? gray(` · ${truncV(sess.filePath, Math.max(10, w - 34))}`) : ''}`;
+  rows.push(kv('来源', src));
+  const start = fmtTime('taskId' in sess ? sess.startTime : sess.createdAt);
+  const end = ('taskId' in sess ? sess.endTime : sess.endedAt) ?? null;
+  const dur = start.includes('—') || !end ? null : new Date(end).getTime() - new Date('taskId' in sess ? sess.startTime : sess.createdAt).getTime();
+  rows.push(kv('时间', `${start} → ${end ? fmtTime(end) : '…'}${dur != null && dur > 0 ? gray(` · ${fmtDuration(dur)}`) : ''}`));
+  const model = 'taskId' in sess ? sess.model : sess.modelName;
+  if (model) rows.push(kv('模型', truncV(model, Math.max(10, w - 12))));
+  const tok = sess.totalTokens ?? 0;
+  if (tok > 0) {
+    const inT = 'totalInputTokens' in sess ? sess.totalInputTokens : undefined;
+    const outT = 'totalOutputTokens' in sess ? sess.totalOutputTokens : undefined;
+    const cacheT = 'totalCacheReadTokens' in sess ? sess.totalCacheReadTokens : undefined;
+    rows.push(kv('Tokens', `${fmtTokens(tok)}${inT || outT || cacheT ? gray(`（in ${fmtTokens(inT ?? 0)} · out ${fmtTokens(outT ?? 0)} · 命中 ${fmtTokens(cacheT ?? 0)}）`) : ''}`));
+  } else if (!('taskId' in sess)) {
+    rows.push(kv('规模', `${sess.turnCount}轮`));
+  }
+  if ('taskId' in sess) {
+    const cost = sess.totalCost ?? 0;
+    const latency = sess.totalLatencyMs ?? 0;
+    const llm = sess.totalLlmCallCount ?? 0;
+    rows.push(kv('耗时', `${fmtDuration(latency)} 累计时延 · LLM ${llm} 次${cost > 0 ? ` · ${fmtCost(cost)}` : ''}`));
+    const tools = sess.totalToolCallCount ?? 0;
+    rows.push(kv('活动', `工具 ${tools} 次 · 子代理 ${sess.totalSubagentCount} · skill ${sess.totalSkillLoadCount ?? 0}`));
+  } else {
+    rows.push(kv('轮次', `${sess.turnCount} 轮`));
+  }
+  const scored = this.results.find(r => r.taskId === id);
+  if (scored?.card) {
+    const sc = scored.card.framework.totalScore;
+    rows.push(kv('已评分', sc != null ? `${scoreColor(sc)((sc * 10).toFixed(1))} / 10（↺ 历史可回看）` : '已评（无总分）'));
+  }
+  return rows;
+}
+
+  /** 光标所在会话（左栏浏览态的 master 端）*/
+  private cursorSession(): SessionRow | DirSessionRow | null {
+    const cur = this.flatRows[this.cursor];
+    return cur?.k === 'session' ? (this.activeSessions[cur.idx] ?? null) : null;
+  }
+
   /** 右栏：idle 预览 / 定高三段（待评分 7 行 · 已完成 8 行 · 评分卡余量）*/
   private renderRight(w: number, contentH: number): string[] {
     const frame = (t: string, active: boolean, rows: string[], h: number) =>
       drawFrame(t, active ? cyan : gray, rows, w, h);
     if (this.runPhase === 'idle' && this.results.length === 0) {
-      const pv: string[] = [];
-      const preview = this.sourceMode === 'db'
+      // master-detail：光标会话概览（信息集对齐观察台 Overview 页）+ 已选清单
+      const curSess = this.cursorSession();
+      const sel = this.sourceMode === 'db'
         ? this.sessions.filter(s => this.dbSelected.has(this.sessionKey(s)))
         : (this.dirSessions ?? []).filter(s => this.dirSelected.has(this.sessionKey(s)));
-      if (preview.length === 0) {
+      if (curSess) {
+        const ovH = Math.min(contentH - 5, this.buildOverviewRows(curSess, w).length + 2);
+        const selH = contentH - ovH;
+        const pv: string[] = [];
+        if (sel.length === 0) {
+          pv.push(`已选 0 个 · [Space] 勾选光标会话`);
+        } else {
+          pv.push(`已选 ${sel.length} 个：`);
+          sel.slice(0, Math.max(1, selH - 3)).forEach(s => {
+            const id = 'taskId' in s ? s.taskId : s.id;
+            const q = 'taskId' in s ? s.query : s.firstQuery;
+            pv.push(`• ${truncV(id, 24)} ${truncV(q ?? '', Math.max(8, w - 32))}`);
+          });
+        }
+        return [
+          ...frame('概览', this.focus === 'left', this.buildOverviewRows(curSess, w), ovH),
+          ...frame('已选', false, pv, selH),
+        ];
+      }
+      const pv: string[] = [];
+      if (sel.length === 0) {
         pv.push('左栏 [Space] 勾选会话；本机库模式未勾选时评光标行。');
         pv.push('目录模式先选目录扫描 → 勾选 → 未导入的自动导入再评分。');
       } else {
-        pv.push(`已选 ${preview.length} 个：`);
-        preview.slice(0, Math.max(2, contentH - 4)).forEach(s => {
+        pv.push(`已选 ${sel.length} 个：`);
+        sel.slice(0, Math.max(2, contentH - 4)).forEach(s => {
           const id = 'taskId' in s ? s.taskId : s.id;
           const q = 'taskId' in s ? s.query : s.firstQuery;
           pv.push(`• ${truncV(id, 30)} ${truncV(q ?? '', Math.max(8, w - 36))}`);
@@ -772,6 +883,10 @@ export class ScoreApp implements Component {
       const rest = contentH - cBoxH;
       dBoxH = Math.max(4, Math.floor(rest * 0.5));
       qBoxH = Math.max(3, rest - dBoxH);
+    }
+    // idle 概览态：①框加高装下整份概览（③保底 6 行）
+    if (this.runPhase === 'idle' && this.focus === 'left' && this.cursorSession()) {
+      qBoxH = Math.min(Math.max(qBoxH, 14), contentH - dBoxH - 6);
     }
 
     // ① 待评分：当前会话 id 独占一行（完整显示），状态/进度独立成行不被挤掉
@@ -796,7 +911,13 @@ export class ScoreApp implements Component {
         qRows.push(`- ..共剩 ${this.queue.length - this.batchIndex - 1} 个`);
       }
     } else if (this.runPhase === 'idle') {
-      qRows.push('待评分 · 左栏勾选/选会话后 [Enter] 开始');
+      // idle 有历史时 ①框让位给光标会话概览（浏览挑选的主场景）
+      const curSess = this.cursorSession();
+      if (curSess && this.focus === 'left') {
+        qRows.push(...this.buildOverviewRows(curSess, w));
+      } else {
+        qRows.push('待评分 · 左栏勾选/选会话后 [Enter] 开始');
+      }
     } else {
       qRows.push('— 队列已完成 —');
     }
@@ -859,7 +980,8 @@ export class ScoreApp implements Component {
 
     const lines = [
       ...frame(this.runPhase === 'running'
-        ? `待评分（${this.batchIndex + 1}/${this.queue.length}）` : this.runPhase === 'idle' ? '待评分' : '待评分（完成）',
+        ? `待评分（${this.batchIndex + 1}/${this.queue.length}）`
+        : this.runPhase === 'idle' && this.cursorSession() && this.focus === 'left' ? '概览（光标会话）' : '待评分',
         this.runPhase === 'running', qRows, qBoxH),
       ...frame(this.results.length > 0
         ? `已完成（${this.results.filter(r => r.card).length}/${this.results.length}）` : '已完成',
