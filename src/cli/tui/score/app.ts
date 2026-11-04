@@ -51,17 +51,34 @@ function truncV(str: string, maxWidth: number): string {
   return out + '..';
 }
 function truncW(line: string, maxWidth: number): string {
-  // 整行截断（保留行内 ANSI 着色）：逐字符累计可见宽
+  // 整行截断（ANSI 感知）：SGR 序列整段保留（宽 0），切口绝不落在序列内部，
+  // 有未闭合样式时补 reset——断裂的 \x1b[ 会被终端当 CSI 参数吞掉后续字符，
+  // 造成整行排版崩坏（内容越过边框）
   if (visibleWidth(line) <= maxWidth) return line;
+  const tokens: Array<{ s: string; w: number; sgr: boolean }> = [];
+  const re = /\x1b\[[0-9;]*m/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    if (m.index > last) {
+      for (const c of line.slice(last, m.index)) tokens.push({ s: c, w: visibleWidth(c), sgr: false });
+    }
+    tokens.push({ s: m[0], w: 0, sgr: true });
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) {
+    for (const c of line.slice(last)) tokens.push({ s: c, w: visibleWidth(c), sgr: false });
+  }
   let out = '';
   let w = 0;
-  for (const ch of line) {
-    const cw = visibleWidth(ch);
-    if (w + cw > maxWidth - 2) break;
-    out += ch;
-    w += cw;
+  let styled = false;
+  for (const t of tokens) {
+    if (t.sgr) { out += t.s; styled = t.s !== '\x1b[0m'; continue; }
+    if (w + t.w > maxWidth - 2) break;
+    out += t.s;
+    w += t.w;
   }
-  return out + '..';
+  return out + '..' + (styled ? '\x1b[0m' : '');
 }
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -835,14 +852,23 @@ export class ScoreApp implements Component {
     return lines;
   }
 
-  /** 分数区右锚定：条(16) + 空格 + 分数(4) 固定收在框内同一列——前缀宽度不
-   * 参差（用户对齐诉求）；verdict 排分数后不影响列位；窄框前缀放不下时退化为紧跟 */
+  /** 分数区右锚定：分数(4 列) 固定收在 [inner-16, inner-13]，条形图右对齐到
+   * inner-17——前缀宽度不参差、verdict 宽度不影响列位。窄框时条宽自适应收缩
+   * （保分数列不变），极窄弃条保分数——任何宽度不出框 */
   private scoreRow(prefix: string, score: number, inner: number, tail = ''): string {
-    const b = bar(score, 16);
     const s = scoreColor(score)((score * 10).toFixed(1).padStart(4));
-    const barStart = inner - 33; // 右侧预留：条16 + 空格1 + 分数4 + verdict 余量12
-    if (visibleWidth(prefix) + 1 > barStart) return `${prefix} ${b} ${s}${tail}`;
-    return `${prefix}${' '.repeat(barStart - visibleWidth(prefix))}${b} ${s}${tail}`;
+    const headW = visibleWidth(prefix);
+    const scoreStart = inner - 16;
+    const barSpace = scoreStart - 1 - headW; // 头之后到条区的可用宽（条 + 间隔）
+    if (barSpace - 1 >= 4) {
+      const barW = Math.min(16, barSpace - 1);
+      const barStart = scoreStart - 1 - barW;
+      return `${prefix}${' '.repeat(Math.max(0, barStart - headW))}${bar(score, barW)} ${s}${tail}`;
+    }
+    if (headW + 1 <= scoreStart - 1) {
+      return `${prefix}${' '.repeat(scoreStart - 1 - headW)}${s}${tail}`;
+    }
+    return truncW(`${prefix} ${s}${tail}`, inner);
   }
 
   /** 维度块 → 行 */

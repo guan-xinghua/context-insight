@@ -277,4 +277,32 @@ describe('Insight Score TUI（pi-tui 契约）', () => {
     const listLines = lines.filter(l => /[✓↺▤]/.test(l) && l.includes('░'));
     expect(listLines.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('窄终端不越框：任意宽度零超宽、零断裂 SGR（截断不落在色码内部）', { timeout: 60_000 }, async () => {
+    const saveP = path.join(TMP, 'save-p');
+    const app = mkApp(saveP, path.join(TMP, 'work6'));
+    await vi.waitFor(() => expect(plainOf(app).split('\n').some(l => l.includes('↺'))), { timeout: 10_000 });
+    app.handleInput('d');
+    app.handleInput('\r');
+    await vi.waitFor(() => expect(plainOf(app)).toContain('总分'), { timeout: 5_000 });
+    // 断裂 SGR：截断切进 \x1b[..m 序列 → 终端把后续字符当 CSI 参数吞掉 → 排版崩
+    for (const w of [60, 70, 80, 90, 100, 120, 160]) {
+      for (const l of app.render(w)) {
+        expect(visibleWidth(l)).toBeLessThanOrEqual(w);
+        expect(l).not.toMatch(/\x1b\[[0-9;]*$/);
+      }
+    }
+    // 窄宽下分数列仍对齐（条宽自适应收缩，分数列固定）
+    const cellCol = (l: string): number => {
+      let col = 0, last = -1;
+      for (const ch of strip(l)) { if (ch === '█' || ch === '░') last = col; col += visibleWidth(ch); }
+      return last;
+    };
+    for (const w of [90, 120]) {
+      const cols = new Set(app.render(w)
+        .filter(l => /(总分|D\d)/.test(strip(l)) && strip(l).includes('█'))
+        .map(cellCol));
+      expect(cols.size).toBe(1);
+    }
+  });
 });
