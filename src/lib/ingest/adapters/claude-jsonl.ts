@@ -477,6 +477,7 @@ export function listSessions(dirPath: string): SessionListItem[] {
       turnCount: lines.length,
       modelName,
       totalTokens,
+      filePath: file,
     });
   }
 

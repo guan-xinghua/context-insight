@@ -38,6 +38,8 @@ const eslintConfig = defineConfig([
     "dist/**",
     // cannbot 品牌变体打包工作区（scripts/pack-cannbot.mjs 的 staging 复制树）
     ".cannbot-pack/**",
+    // pi-tui 框架试验目录（自带 tsconfig/依赖，不参与主仓 lint/类型检查）
+    "tui-poc/**",
   ]),
 ]);
 

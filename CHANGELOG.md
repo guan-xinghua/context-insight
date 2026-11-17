@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+- 【独立 mate 评分 CLI】`ctxi score --session <taskId> --tool claude|opencode` 完全脱离服务进程独立执行评分：规则层直算 + 本地 agent CLI 判 LLM 子项（不依赖 LLM API），NDJSON 事件流（meta/progress/done/error）写 `--out` 文件或 stdout，默认与网页评审落同一张评分卡（`--no-store` 跳过）；支持 `--framework` 同 sid 消歧、`--concurrency` 并行维度、`--timeout` 单维超时、`--workdir` 物料切片根目录；终端同时输出友好评分展示（总分色条 + 逐维分数 + 逐子项明细与备注，走 stderr 不污染 jsonl 管道）；不带 `--session` 直接进交互 TUI（`--tui` 可与 `--session` 同用预选会话；`npm run score` 一键进入）——**左配置 / 右输出统一双栏**：左栏拍平为跨分区连续光标（↑↓ 穿过来历/目录/会话/工具/运行），右栏预览/进度/结果三态常驻；目录来源提供常用 agent 默认目录快捷项与手动路径，扫描后全部/单选/多选批量「自动导入 + 评分」，批量汇总逐会话进详情；会话清单 `/` 跨列过滤（id/框架/首问/模型），会话行以**首问为主标签**；id/来源/规模/模型等详情收拢到**右栏光标会话概览**单处呈现（不在会话行下重复挂详情行）（信息集对齐观察台 Overview：首问全文折行、id/来源·版本/起止时间·时长/模型/Tokens 三分/累计时延·LLM 次数/工具·子代理·skill/已评分分数↺，目录模式另含文件路径）——浏览即所见的 master-detail；运行中同样可浏览（③评分卡让位概览，含「评分中… Ns / 排队中 · [X] 取消」状态），左栏 [X] 可取消未开始的排队会话；①待评分运行态补进度反馈（规则层滑动活动条 + mate 逐项进度带已用秒数 + 多会话队列总进度条）；左栏会话窗口吃满剩余空间（此前固定 7 行、下方留白）；分数条/进度条改**密集分段细竖棒**（▎ 填充 + ┊ 余量，每格一段无显式间隔——▎ 自带留白相邻成排栏不粘连；③卡 25 段 / ②列表 15 段）；修复 [O] 在未装 wslview 的 WSL 上崩溃（spawn 异步 ENOENT 未挂 handler 炸进程——现挂 error 事件回退 explorer.exe，支持 SCORE_TUI_BROWSER 覆盖）；[O] 跳转前探测 insight 服务端口——未启动不开浏览器（回显 URL + 提示），TUI 本身不启服务（独立执行定位不变）；`[O]` 一键打开 insight 评分页（端口读登记 → env → 21025，WSL 用 wslview）；TUI 评完的会话**结果默认即时落盘**（`~/.context-insight/score-results/<原会话名>.score.jsonl`），重开 TUI「已完成」区自动回载历史（↺ 行，Enter 直接看评分卡，重评即覆盖）
+- 【评分 TUI 重写（pi-tui 渲染）】Score TUI 从 Ink 迁到 `@earendil-works/pi-tui`（`render(width)→string[]` 行契约 + 差分渲染，全屏备用屏、退出恢复主屏并回显最终画面）：Agent 工具区 **Enter/Space 可选**（claude/opencode 切换）；评分卡分数列**右锚定对齐**（总分行与各维度行的条形图与分数固定同列，不再随前缀宽度参差）；交互与布局不变
+
 ### Changed
 - 【Audit 面板移除 Run 域】引擎型工作流的编排规程在数据里没有全局共享版本——各成员的「编排声明」实为各自的任务技能或派工单，Run 域拿排头成员的任务技能冒充 run 级声明对全 run 审计，名不副实。现 Audit 收敛为 Skill / Agent / Workflow 三域
 
@@ -20,7 +24,7 @@
 - 【构建重写产物下的运行实例新旧代码混跑】运行中的服务器对 `.next` 被构建重写无感知，此后一直执行启动那一刻的旧代码（数据错乱、零报错、重启即愈——E2E 门禁与手跑 `npm run build` 都会触发）。现 E2E 构建改走独立产物目录 `.next-e2e`；`npm run build` 前自动停掉本仓运行中的实例（构建失效的实例继续跑就是事故源）；服务端启动日志自报版本与构建号——进程跑的是哪个构建，从此可直接对账
 - 【上传弹窗未配置数据仓成死表单】数据仓地址 / 令牌未配置时打开「上传到 contextBay」（主页行内 / run 页头两入口同病）：范式目录列表因无远端拉取失败、上传按钮被门禁锁死，弹窗内又无处配置——只能关掉绕道设置页。现配置先行：未配置时打开上传弹窗即弹「连接数据仓」引导（远端地址 + 推送凭据，一次保存全机生效），保存后范式目录自动加载、原地继续上传；引导取消后范式列表旁给「重试」入口（重跑预检 + 重载列表）
 - 【Audit 对账恢复不到 B 形技能正文（codex）】Audit 的 skill 对账此前自带一套与摄取/展示侧平行的恢复词表（只认 invoke 事件 + skill 工具族 `<skill_content>`），codex 等 B 形会话（无 read/skill 工具，模型用 exec_command cat 读 SKILL.md → turn-split 合成 use 事件）全链 404（客户现场：`所选成员均恢复不到 skill "cannbay-report" 的正文（无 invoke 事件 / resultJson）`）。根治：所有 SKILL.md 正文恢复统一收口 skill-content 单点（三通道分类器 `skillMdReadsOfToolCall`）——Audit 对账（`recoverSkillBody`）、Skills 面板、LLM 声明提取（规程候选）共用同一词表，通道扩展不再双头漂移；shell 通道补剥模型自印的 `====…SKILL.md====` 回显横幅。配套：`resolveWorkflowSkillName` 接受 use 事件（B 形 root 声明定位）；`--transcript` 序列化为 B 形加载在源工具调用前合成 Skill 锚点（sift `--kind skill` 切段前提，合成只发生在审计视图序列化出口、不进 DB）；落盘 SKILL.md 的 frontmatter 由 `ensureSkillFrontmatter` 单点保证（read/shell 通道原文自带则对齐名字、缺则注入合成头，不再双头）
-- 【Windows 导入浏览出不了 C 盘】导入向导的目录浏览导航模型此前假设文件系统是单一根的树，而 Windows 多盘符、无公共根——`path.dirname('C:\\') === 'C:\\'`，向上导航到盘根即死锁，其他盘结构性不可达（客户实测「只能浏览 C 盘的东西」）。现引入「文件系统根层级」（新模块 `ingest/browse-roots`，平台差异单点）：win32 盘根之上是虚拟盘符列表层级（空串标识，A–Z 探测列出真实存在的盘），POSIX 根层级即 `/`（到顶 parentPath 为 null，向上按钮不再自指）；前端以 `!== null` 判父级（空串是合法层级标识），根层级头部显示「此电脑（所有盘符）」，手动输入留空 = 从根层级浏览（平台中立）
+- 【opencode 目录扫描空结果】opencode 快捷目录误指配置目录（`~/.config/opencode`，只有配置文件），改为数据根 `~/.local/share/opencode`；`opencode-db` 适配器 `listSessions` 增加目录容错（传目录自动定位库文件 `opencode.db`）——此前任何调用方传目录必然 0 会话（TUI 目录扫描 / API 伞形 sqlite 族目录扫描）
 
 ## [1.0.4] - 2026-11-11
 

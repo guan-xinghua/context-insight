@@ -15,7 +15,7 @@ import { formatHeader, theme } from '../utils/colors';
 import type { ApiSessionListItem } from '../types';
 
 const SESSION_COLUMNS: TableColumn[] = [
-  { key: 'taskId', label: 'Task ID', width: 20 },
+  { key: 'taskId', label: 'Task ID', width: 38 },
   { key: 'model', label: 'Model', width: 18 },
   { key: 'user', label: 'User', width: 12 },
   { key: 'query', label: 'Query', width: 30 },

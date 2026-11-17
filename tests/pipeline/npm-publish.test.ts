@@ -116,7 +116,7 @@ describe("npm publish readiness (npm pack --dry-run)", () => {
     })
     expect(pkgJson.scripts?.postinstall).toBe("node scripts/postinstall.mjs")
     expect(pkgJson.license).toBeTruthy()
-    expect(pkgJson.engines?.node).toMatch(/>=22\.14/)
+    expect(pkgJson.engines?.node).toMatch(/>=22\.19/)
     expect(pkgJson.repository).toMatchObject({
       type: "git",
       url: "git+https://github.com/guixu-labs/context-insight.git",

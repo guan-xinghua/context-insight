@@ -7,6 +7,8 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 
 import Database from 'better-sqlite3';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { peekSqliteTables } from '../sqlite-detect';
 import type { SessionListItem, RawInteraction, ToolCallInfo, TokenUsage } from '../../shared/types';
 import { normalizeToolResultPayload } from '../../tool-conventions';
@@ -101,22 +103,30 @@ export function opencodeReaderGeneration(db: Database.Database, sessionId: strin
 }
 
 export function listSessions(dbPath: string): SessionListItem[] {
+  // 目录容错：opencode 数据根目录（~/.local/share/opencode）直接可扫——库文件
+  // 固定名 opencode.db；此前传目录必然空结果（TUI 快捷目录/伞形目录扫描踩坑）
+  let target = dbPath;
+  try {
+    if (statSync(dbPath).isDirectory()) target = path.join(dbPath, 'opencode.db');
+  } catch {
+    return [];
+  }
   let db: Database.Database | null = null;
   try {
-    db = new Database(dbPath, { readonly: true });
+    db = new Database(target, { readonly: true });
   } catch {
     return [];
   }
 
   try {
     const schema = opencodeSchemaOf(db);
-    if (schema === 2) {
+    const items = schema === 2
       // 两代表共存 → 按会话粒度合并（回填停更副本不能代表全库）
-      if (listTables(db).includes('session')) return listSessionsMixed(db);
-      return listSessionsV2(db);
-    }
-    if (schema === 1) return listSessionsV1(db);
-    throw new NotOpencodeDbError(listTables(db));
+      ? (listTables(db).includes('session') ? listSessionsMixed(db) : listSessionsV2(db))
+      : schema === 1 ? listSessionsV1(db) : null;
+    if (!items) throw new NotOpencodeDbError(listTables(db));
+    // 源文件路径回填在出口统一做：v1/v2/Mixed 都是单库扫描，条目同源同路径
+    return items.map(it => ({ ...it, filePath: dbPath }));
   } finally {
     db.close();
   }

@@ -155,7 +155,10 @@ describe('DSH 原生：发现 / 列举 / 子代理建链', () => {
   it('两种磁盘布局（原生 <cwd>/<sid>/ 与导出 <sid>/subagents/）结果同构', () => {
     expect(readSession(EXPORT_ROOT, SID)).toEqual(readSession(SESSIONS_ROOT, SID));
     expect(readSubagentInteractions(EXPORT_ROOT, SID)).toEqual(readSubagentInteractions(SESSIONS_ROOT, SID));
-    expect(listSessions(EXPORT_ROOT)).toEqual(listSessions(SESSIONS_ROOT));
+    // filePath 除外：两种布局的源文件路径天然不同（原生 <cwd>/<sid>/ 与导出
+    // <sid>/subagents/），会话数据本身同构才是断言目标
+    const stripFilePath = (rows: ReturnType<typeof listSessions>) => rows.map(({ filePath, ...rest }) => rest);
+    expect(stripFilePath(listSessions(EXPORT_ROOT))).toEqual(stripFilePath(listSessions(SESSIONS_ROOT)));
   });
 
   it('真实多帧 zstd 件可读；同目录两种形态并存时列表按会话去重', () => {

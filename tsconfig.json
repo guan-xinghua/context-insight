@@ -42,6 +42,7 @@
   "exclude": [
     "node_modules",
     "scripts",
-    "proxy"
+    "proxy",
+    "tui-poc"
   ]
 }

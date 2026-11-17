@@ -196,6 +196,7 @@ function buildListItem(decoded: DecodedSession): SessionListItem {
     modelName,
     totalTokens,
     version,
+    filePath: ref.filePath,
   };
 }
 

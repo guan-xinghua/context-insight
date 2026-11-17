@@ -15,6 +15,10 @@ export interface SessionListItem {
   modelName: string | null;
   totalTokens?: number | null;
   version?: string | null;
+  /** 会话所在的源文件/目录（可选）：批量消费方（score TUI 的目录扫描→导入）
+   *  需要它把列表条目落回文件执行 importSession；单文件源 = 文件路径，
+   *  目录型源（DSH）= 会话目录，容器源 = 容器文件路径 */
+  filePath?: string | null;
   /** 会话级身份声明（身份归会话、格式归文件）：容器型源（insight 导出件）
    *  必填——件内每个会话的 agent 框架可以互不相同；单框架源可缺省
    *  （文件本身就是该框架的存储，身份由源级声明兜底） */
