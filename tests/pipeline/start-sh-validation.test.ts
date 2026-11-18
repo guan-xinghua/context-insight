@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -171,6 +172,59 @@ describe('start.sh -c parameter validation', () => {
       });
       expect(out).toContain('too many arguments');
     });
+  });
+
+  // 白名单是安全过滤（CWE-78 精确匹配）不是精选清单：ctxi 加了根命令而
+  // start.sh 没跟上，该命令就进不了 -c 模式（score 曾这样漂移过一次）。
+  // 用 ctxi --help 的真实输出锁两侧集合相等——以后单侧增删命令，另一侧必红
+  describe('integration: -c 白名单与 ctxi 根命令同源（集合相等，漂移即红）', () => {
+    it('ctxi --help 根命令集合 === start.sh 白名单集合', async () => {
+      const out = await new Promise<string>(resolve => {
+        const p = spawn('npx', ['tsx', 'src/cli/index.ts', '--help'], { cwd: PROJECT_ROOT });
+        let buf = '';
+        p.stdout.on('data', d => { buf += d; });
+        p.stderr.on('data', d => { buf += d; });
+        p.on('error', e => resolve(String(e)));
+        p.on('close', () => resolve(buf));
+      });
+      const lines = out.split('\n');
+      const cmdIdx = lines.findIndex(l => l.trim() === 'Commands:');
+      expect(cmdIdx).toBeGreaterThan(-1);
+      const ctxiCommands = lines.slice(cmdIdx + 1)
+        .map(l => l.match(/^  ([a-z][a-z0-9-]*)/))
+        .filter(m => m !== null)
+        .map(m => m![1]!)
+        .filter(c => c !== 'help');
+      expect([...new Set(ctxiCommands)].sort())
+        .toEqual([...new Set(ALLOWED_COMMANDS)].sort());
+    }, 30000);
+
+    it('行为级：曾漏掉的 upload 在 -c 调用形态下可跑（服务可达 → 不自动拉起后端）', async () => {
+      // -c 模式下后端已由脚本拉起、--server 指向它——upload 的 auto-start
+      // 分支不应触发。用一次性假后端复现该形态：全局选项可解析、直达业务
+      // 参数校验（无参 → Specify --session 报错退出）
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ sessions: [], total: 0 }));
+      });
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
+      const addr = server.address() as import('node:net').AddressInfo;
+      const { out, code } = await new Promise<{ out: string; code: number | null }>(resolve => {
+        const p = spawn('npx', ['tsx', 'src/cli/index.ts', 'upload', '--server', `http://127.0.0.1:${addr.port}`],
+          { cwd: PROJECT_ROOT });
+        let buf = '';
+        p.stdout.on('data', d => { buf += d; });
+        p.stderr.on('data', d => { buf += d; });
+        p.on('error', e => resolve({ out: String(e), code: null }));
+        p.on('close', c => resolve({ out: buf, code: c }));
+      });
+      server.close();
+      expect(out).toContain('Specify --session');
+      expect(out).not.toContain('too many arguments');
+      expect(out).not.toContain('unknown option');
+      expect(out).not.toContain('Backend not running, starting');
+      expect(code).toBe(1);
+    }, 30000);
   });
 });
 

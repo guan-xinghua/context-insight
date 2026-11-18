@@ -12,6 +12,7 @@
 - 【Audit 面板移除 Run 域】引擎型工作流的编排规程在数据里没有全局共享版本——各成员的「编排声明」实为各自的任务技能或派工单，Run 域拿排头成员的任务技能冒充 run 级声明对全 run 审计，名不副实。现 Audit 收敛为 Skill / Agent / Workflow 三域
 
 ### Fixed
+- 【start.sh -c 白名单落后于 ctxi 命令集】白名单此前只放行 11 个子命令，`analyze` / `auth` / `export` / `export-md` / `import-bundle` / `runs` / `upload` 会被误拒「Invalid CLI command」；现补齐到与 `ctxi --help` 根命令完全一致（18 个，顺序同 help 输出），并加同源 IT 锁集合相等，单侧增删命令另一侧必红
 - 【start.sh -c 模式启动即报参数错】`-c <命令>`（tui / sessions / score 等全部子命令）自合入起启动即报 too many arguments：启动行在脚本名与子命令之间多写了 "--"，Commander 把其后的选项全按位置参数处理。已去掉该分隔符并加 IT 锁住启动行形态；CLI 白名单用例同步改为从 start.sh 动态提取（此前脚本加了 score、测试没跟上）
 - 【泳道 subagent 结束交接】执行时间线的主泳道此前只有整段双击跳主 Agent 首轮；现按 subagent 生命周期切分活跃段，subagent 结束后接续的主 Agent 活跃段归属刚结束的 subagent，双击优先跳到父 Agent 通过 `wait_agent` 收到该 subagent 回复的 turn；日志没有接收轮时回退到该 subagent 最后一轮
 - 【技能时间线单点出现三枚同文刻度】Skills 时间线的横轴刻度恒定起/中/末三枚，单技能单调用（或同秒内多次调用）时轴跨度为零，三枚刻度格式化后渲染成三个相同的「15:56:08」，且单点被钉在轴最左端。现将轴模型重构为「显示粒度上的跨度」三态：全部事件落在同一秒内时刻度收拢为一枚居中时刻、点居中/按序铺开（毫秒差不夸大成全程宽度）；可分辨跨度保持真实时刻比例，起中末刻度按标签去重（中点与端点同文即丢弃）——刻度不再出现同文重复

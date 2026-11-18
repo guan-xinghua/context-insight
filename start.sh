@@ -79,7 +79,10 @@ ADVANCED=false
 # 默认生产模式（next build 缓存复用 + 请求零编译——dev 按需编译是 Turns tab
 # 首击秒级卡顿的主因）；开发改代码要热重载时用 -d
 PROD=true
-ALLOWED_CLI_COMMANDS="tui sessions session turn search compare stats import delete config score"
+# 与 ctxi（src/cli/index.ts）根命令集合同源：顺序照 ctxi --help 输出排，
+# 增删命令两侧同步（tests/pipeline/start-sh-validation.test.ts 有集合相等
+# 断言锁漂移——白名单是安全过滤不是精选清单，漏一个 = 该命令进不了 -c 模式）
+ALLOWED_CLI_COMMANDS="tui sessions session stats compare search turn import delete config analyze export export-md upload auth import-bundle runs score"
 # --stop：长参 getopts 不识别（会落进 *) 分支报 usage），先扫描剥离再走正常解析
 STOP_REQUESTED=false
 ARGS=()
@@ -101,7 +104,7 @@ while getopts "uc:kfadp" opt; do
     a) ADVANCED=true ;;
     d) PROD=false ;;
     p) PROD=true ;;
-    *) echo "Usage: $0 [-u] [-f] [-a] [-d] [-c <command|tui>] [--stop]  (-u: update; -f: force rebuild; -a: show advanced tabs; -d: dev mode — default is production; -c: CLI mode)" >&2
+    *) echo "Usage: $0 [-u] [-f] [-a] [-d] [-p] [-c <command|tui>] [--stop]  (-u: update; -f: force rebuild; -a: show advanced tabs; -d: dev mode; -p: prod mode — default; -c: CLI mode)" >&2
        echo "       -k 仍被接受（历史别名，语义=默认：杀已有自家实例后从 BASE_PORT 单实例重启）" >&2
        echo "       --stop 显式停止自家实例（击杀 next + smart-agent 并确认端口释放后退出；不启动新实例）" >&2; exit 1 ;;
   esac
