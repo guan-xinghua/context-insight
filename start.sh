@@ -485,7 +485,10 @@ if [ "$CLI" = true ]; then
   done
 
   slog INFO start "Launching CLI: $CLI_CMD"
-  npx tsx src/cli/index.ts -- "$CLI_CMD" --server "$SERVER_URL"
+  # 不能在脚本名与子命令之间加 "--"：Commander 把 "--" 之后的 token 全部按
+  # 位置参数处理，"--server <url>" 会被判成多余参数（-c 全部子命令启动即
+  # 报 too many arguments 的根因）；全局选项跟在子命令后可正常解析
+  npx tsx src/cli/index.ts "$CLI_CMD" --server "$SERVER_URL"
   kill $BACKEND_PID 2>/dev/null || true
   slog INFO start "CLI exited, backend stopped"
 else

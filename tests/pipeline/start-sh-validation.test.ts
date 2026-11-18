@@ -16,7 +16,11 @@ import path from 'node:path';
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const START_SH = path.join(PROJECT_ROOT, 'start.sh');
 
-const ALLOWED_COMMANDS = ['tui', 'sessions', 'session', 'turn', 'search', 'compare', 'stats', 'import', 'delete', 'config'];
+// 白名单从 start.sh 单点提取（曾漂移：脚本加了 score、这里没跟上，
+// 「accepts: <cmd>」用例静默少跑一个命令）
+const ALLOWED_COMMANDS = fs.readFileSync(START_SH, 'utf-8')
+  .match(/ALLOWED_CLI_COMMANDS="([^"]+)"/)![1]!
+  .split(/\s+/);
 
 // 单函数提取执行的沙箱依赖：install_deps_if_needed / ensure_base_port_free
 // 内部用 slog 输出诊断，提取时必须一并带上（提取纪律：helper 同步提取）
@@ -128,6 +132,45 @@ describe('start.sh -c parameter validation', () => {
         expect(result.stderr).toContain('Invalid CLI command');
       });
     }
+  });
+
+  // -c 启动形态回归锁：脚本名与子命令之间不能有 "--"（Commander 把其后
+  // token 全按位置参数处理，"--server <url>" 被判 too many arguments，
+  // -c 全部子命令启动即红，score 也因此进不了 -c 模式）
+  describe('integration: start.sh -c 子命令调用形态（无 -- 分隔）', () => {
+    it('源码级：启动行 index.ts 与 $CLI_CMD 之间无 "--"（回退即红）', () => {
+      const src = fs.readFileSync(START_SH, 'utf-8');
+      const m = src.match(/npx tsx src\/cli\/index\.ts ([^\n]*)"\$CLI_CMD"/);
+      expect(m).not.toBeNull();
+      expect(m![1]!.trim()).toBe('');
+    });
+
+    it('行为级：全局选项跟在子命令后可解析（不再 too many arguments）', async () => {
+      const out = await new Promise<string>(resolve => {
+        const p = spawn('npx', ['tsx', 'src/cli/index.ts', 'sessions', '--server', 'http://127.0.0.1:1', '--timeout', '300'],
+          { cwd: PROJECT_ROOT });
+        let buf = '';
+        p.stdout.on('data', d => { buf += d; });
+        p.stderr.on('data', d => { buf += d; });
+        p.on('error', e => resolve(String(e)));
+        p.on('close', () => resolve(buf));
+      });
+      expect(out).not.toContain('too many arguments');
+      expect(out).not.toContain('unknown option');
+    });
+
+    it('反向锁：旧形态（-- 分隔）确实报参数错误，证明修复方向', async () => {
+      const out = await new Promise<string>(resolve => {
+        const p = spawn('npx', ['tsx', 'src/cli/index.ts', '--', 'sessions', '--server', 'http://127.0.0.1:1'],
+          { cwd: PROJECT_ROOT });
+        let buf = '';
+        p.stdout.on('data', d => { buf += d; });
+        p.stderr.on('data', d => { buf += d; });
+        p.on('error', e => resolve(String(e)));
+        p.on('close', () => resolve(buf));
+      });
+      expect(out).toContain('too many arguments');
+    });
   });
 });
 
